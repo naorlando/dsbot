@@ -206,19 +206,86 @@ async def set_channel(ctx, channel: discord.TextChannel = None):
     
     await ctx.send(f'✅ Canal de notificaciones configurado: {channel.mention}')
 
+# Clase para los botones de toggle
+class ToggleView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=300)
+    
+    def create_toggle_button(self, label, key, emoji):
+        button = ToggleButton(label, key, emoji)
+        self.add_item(button)
+        return button
+
+class ToggleButton(discord.ui.Button):
+    def __init__(self, label, key, emoji):
+        current_value = config.get(key, False)
+        style = discord.ButtonStyle.success if current_value else discord.ButtonStyle.secondary
+        super().__init__(label=label, emoji=emoji, style=style)
+        self.key = key
+        self.label_text = label
+        self.emoji_text = emoji
+    
+    async def callback(self, interaction):
+        current_value = config.get(self.key, False)
+        config[self.key] = not current_value
+        new_status = 'activado' if config[self.key] else 'desactivado'
+        
+        # Guardar configuración
+        with open('config.json', 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=4, ensure_ascii=False)
+        
+        # Actualizar el botón
+        self.style = discord.ButtonStyle.success if config[self.key] else discord.ButtonStyle.secondary
+        
+        await interaction.response.send_message(
+            f'{self.emoji_text} **{self.label_text}** {new_status.capitalize()}',
+            ephemeral=True
+        )
+
 @bot.command(name='toggle')
 @commands.has_permissions(administrator=True)
-async def toggle_notification(ctx, notification_type: str):
-    """Activa o desactiva tipos de notificaciones
+async def toggle_notification(ctx, notification_type: str = None):
+    """Activa o desactiva tipos de notificaciones usando botones interactivos
     
-    Tipos disponibles:
-    - games: Notificaciones de juegos
-    - voice: Notificaciones de entrada a voz
-    - voiceleave: Notificaciones de salida de voz
-    - voicemove: Notificaciones de cambio de canal de voz
-    - memberjoin: Notificaciones de miembros que se unen
-    - memberleave: Notificaciones de miembros que se van
+    Ejemplos:
+    - !toggle - Abre el menú interactivo con botones
+    - !toggle games - Activa/desactiva notificaciones de juegos directamente
     """
+    if notification_type is None:
+        # Crear embed con botones interactivos
+        embed = discord.Embed(
+            title='⚙️ Configurar Notificaciones',
+            description='Haz clic en los botones para activar/desactivar notificaciones:',
+            color=discord.Color.blue()
+        )
+        
+        # Mostrar estado actual
+        status_text = (
+            f'🎮 Juegos: {"✅ Activado" if config.get("notify_games") else "❌ Desactivado"}\n'
+            f'🔊 Entrada a Voz: {"✅ Activado" if config.get("notify_voice") else "❌ Desactivado"}\n'
+            f'🔇 Salida de Voz: {"✅ Activado" if config.get("notify_voice_leave") else "❌ Desactivado"}\n'
+            f'🔄 Cambio de Canal: {"✅ Activado" if config.get("notify_voice_move", True) else "❌ Desactivado"}\n'
+            f'👋 Miembro se Une: {"✅ Activado" if config.get("notify_member_join") else "❌ Desactivado"}\n'
+            f'👋 Miembro se Va: {"✅ Activado" if config.get("notify_member_leave") else "❌ Desactivado"}\n'
+            f'🤖 Ignorar Bots: {"✅ Activado" if config.get("ignore_bots") else "❌ Desactivado"}'
+        )
+        
+        embed.add_field(name='Estado Actual', value=status_text, inline=False)
+        
+        # Crear vista con botones
+        view = ToggleView()
+        view.create_toggle_button('Juegos', 'notify_games', '🎮')
+        view.create_toggle_button('Entrada Voz', 'notify_voice', '🔊')
+        view.create_toggle_button('Salida Voz', 'notify_voice_leave', '🔇')
+        view.create_toggle_button('Cambio Canal', 'notify_voice_move', '🔄')
+        view.create_toggle_button('Miembro Une', 'notify_member_join', '👋')
+        view.create_toggle_button('Miembro Va', 'notify_member_leave', '👋')
+        view.create_toggle_button('Ignorar Bots', 'ignore_bots', '🤖')
+        
+        await ctx.send(embed=embed, view=view)
+        return
+    
+    # Método tradicional si se proporciona el tipo
     notification_type = notification_type.lower()
     
     toggle_map = {
@@ -268,27 +335,129 @@ async def show_config(ctx):
     
     await ctx.send(embed=embed)
 
+# Clase para el modal de configuración de mensajes
+class MessageModal(discord.ui.Modal):
+    def __init__(self, message_type):
+        super().__init__(title=f'Configurar: {message_type}')
+        self.message_type = message_type
+        
+        # Obtener mensaje actual si existe
+        current_message = config.get('messages', {}).get(message_type, '')
+        
+        # Crear campo de texto
+        self.message_input = discord.ui.TextInput(
+            label='Mensaje',
+            placeholder=f'Ejemplo: 🎮 **{{user}}** está {{verb}} **{{activity}}**',
+            default=current_message,
+            style=discord.TextStyle.paragraph,
+            required=True,
+            max_length=500
+        )
+        
+        self.add_item(self.message_input)
+    
+    async def on_submit(self, interaction):
+        message_template = self.message_input.value
+        
+        if 'messages' not in config:
+            config['messages'] = {}
+        
+        config['messages'][self.message_type] = message_template
+        
+        # Guardar configuración
+        with open('config.json', 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=4, ensure_ascii=False)
+        
+        await interaction.response.send_message(
+            f'✅ Mensaje para `{self.message_type}` configurado:\n```{message_template}```',
+            ephemeral=True
+        )
+
+# Clase para el select de tipos de mensaje
+class MessageSelectView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=300)
+        
+        options = [
+            discord.SelectOption(label='Inicio de Juego', value='game_start', emoji='🎮', description='Cuando alguien empieza a jugar'),
+            discord.SelectOption(label='Entrada a Voz', value='voice_join', emoji='🔊', description='Cuando alguien entra a voz'),
+            discord.SelectOption(label='Salida de Voz', value='voice_leave', emoji='🔇', description='Cuando alguien sale de voz'),
+            discord.SelectOption(label='Cambio de Canal', value='voice_move', emoji='🔄', description='Cuando alguien cambia de canal'),
+            discord.SelectOption(label='Miembro se Une', value='member_join', emoji='👋', description='Cuando un miembro se une'),
+            discord.SelectOption(label='Miembro se Va', value='member_leave', emoji='👋', description='Cuando un miembro se va'),
+        ]
+        
+        select = discord.ui.Select(
+            placeholder='Selecciona el tipo de mensaje...',
+            options=options
+        )
+        
+        select.callback = self.select_callback
+        self.add_item(select)
+    
+    async def select_callback(self, interaction):
+        message_type = interaction.data['values'][0]
+        modal = MessageModal(message_type)
+        await interaction.response.send_modal(modal)
+
 @bot.command(name='setmessage')
 @commands.has_permissions(administrator=True)
-async def set_message(ctx, message_type: str, *, message_template: str):
-    """Configura un mensaje personalizado para un tipo de evento
+async def set_message(ctx, message_type: str = None, *, message_template: str = None):
+    """Configura mensajes personalizados usando un formulario interactivo
     
-    Tipos disponibles:
-    - game_start: Cuando alguien empieza a jugar
-    - voice_join: Cuando alguien entra a voz
-    - voice_leave: Cuando alguien sale de voz
-    - voice_move: Cuando alguien cambia de canal
-    - member_join: Cuando un miembro se une
-    - member_leave: Cuando un miembro se va
-    
-    Variables disponibles:
-    - {user}: Nombre del usuario
-    - {activity}: Nombre de la actividad/juego
-    - {verb}: Verbo (jugando, viendo, etc.)
-    - {channel}: Nombre del canal
-    - {old_channel}: Canal anterior (solo voice_move)
-    - {new_channel}: Canal nuevo (solo voice_move)
+    Ejemplos:
+    - !setmessage - Abre el menú interactivo con formulario
+    - !setmessage game_start 🎮 {user} juega {activity} - Configura directamente
     """
+    if message_type is None:
+        # Mostrar menú interactivo con select
+        embed = discord.Embed(
+            title='💬 Configurar Mensajes',
+            description='Selecciona el tipo de mensaje que quieres configurar:',
+            color=discord.Color.blue()
+        )
+        
+        embed.add_field(
+            name='Tipos disponibles',
+            value=(
+                '🎮 `game_start` - Cuando alguien empieza a jugar\n'
+                '🔊 `voice_join` - Cuando alguien entra a voz\n'
+                '🔇 `voice_leave` - Cuando alguien sale de voz\n'
+                '🔄 `voice_move` - Cuando alguien cambia de canal\n'
+                '👋 `member_join` - Cuando un miembro se une\n'
+                '👋 `member_leave` - Cuando un miembro se va'
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name='Variables disponibles',
+            value=(
+                '`{user}` - Nombre del usuario\n'
+                '`{activity}` - Nombre de la actividad/juego\n'
+                '`{verb}` - Verbo (jugando, viendo, etc.)\n'
+                '`{channel}` - Nombre del canal\n'
+                '`{old_channel}` - Canal anterior\n'
+                '`{new_channel}` - Canal nuevo'
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name='Uso rápido',
+            value='`!setmessage game_start 🎮 {user} está {verb} {activity}`',
+            inline=False
+        )
+        
+        view = MessageSelectView()
+        await ctx.send(embed=embed, view=view)
+        return
+    
+    # Método directo si se proporciona el tipo y mensaje
+    if message_template is None:
+        await ctx.send('❌ Debes proporcionar el mensaje. Ejemplo: `!setmessage game_start 🎮 {user} juega {activity}`')
+        return
+    
     message_type = message_type.lower()
     valid_types = ['game_start', 'voice_join', 'voice_leave', 'voice_move', 'member_join', 'member_leave']
     
