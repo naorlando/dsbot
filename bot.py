@@ -127,12 +127,91 @@ def record_game_event(user_id, username, game_name):
             'last_played': None
         }
     
+    # Asegurar que tiene todos los campos nuevos
+    game_data = stats['users'][user_id]['games'][game_name]
+    if 'total_minutes' not in game_data:
+        game_data['total_minutes'] = 0
+    if 'daily_minutes' not in game_data:
+        game_data['daily_minutes'] = {}
+    if 'current_session' not in game_data:
+        game_data['current_session'] = None
+    
     stats['users'][user_id]['games'][game_name]['count'] += 1
     stats['users'][user_id]['games'][game_name]['last_played'] = datetime.now().isoformat()
-    stats['users'][user_id]['username'] = username  # Actualizar username por si cambió
+    stats['users'][user_id]['username'] = username
     save_stats()
     
     logger.info(f'📊 Stats: {username} jugó {game_name} ({stats["users"][user_id]["games"][game_name]["count"]} veces)')
+
+def start_game_session(user_id, username, game_name):
+    """Inicia una sesión de juego para tracking de tiempo"""
+    if user_id not in stats['users']:
+        stats['users'][user_id] = {
+            'username': username,
+            'games': {},
+            'voice': {'count': 0, 'last_join': None}
+        }
+    
+    if game_name not in stats['users'][user_id]['games']:
+        stats['users'][user_id]['games'][game_name] = {
+            'count': 0,
+            'first_played': datetime.now().isoformat(),
+            'last_played': None,
+            'total_minutes': 0,
+            'daily_minutes': {},
+            'current_session': None
+        }
+    
+    # Guardar sesión actual
+    stats['users'][user_id]['games'][game_name]['current_session'] = {
+        'start': datetime.now().isoformat()
+    }
+    stats['users'][user_id]['username'] = username
+    
+    save_stats()
+    logger.debug(f'🕐 Sesión de juego iniciada: {username} - {game_name}')
+
+def end_game_session(user_id, username, game_name):
+    """Finaliza una sesión de juego y calcula el tiempo"""
+    if user_id not in stats['users']:
+        return
+    
+    if game_name not in stats['users'][user_id]['games']:
+        return
+    
+    game_data = stats['users'][user_id]['games'][game_name]
+    current_session = game_data.get('current_session')
+    
+    if not current_session:
+        return
+    
+    try:
+        start_time = datetime.fromisoformat(current_session['start'])
+        end_time = datetime.now()
+        duration = end_time - start_time
+        minutes = int(duration.total_seconds() / 60)
+        
+        # Solo contar si jugó más de 1 minuto
+        if minutes >= 1:
+            # Actualizar total
+            game_data['total_minutes'] = game_data.get('total_minutes', 0) + minutes
+            
+            # Actualizar daily
+            today = datetime.now().strftime('%Y-%m-%d')
+            if 'daily_minutes' not in game_data:
+                game_data['daily_minutes'] = {}
+            game_data['daily_minutes'][today] = game_data['daily_minutes'].get(today, 0) + minutes
+            
+            logger.info(f'🕐 Sesión finalizada: {username} jugó {game_name} por {minutes} min')
+        
+        # Limpiar sesión actual
+        game_data['current_session'] = None
+        save_stats()
+        
+    except Exception as e:
+        logger.error(f'Error al finalizar sesión de juego: {e}')
+        game_data['current_session'] = None
+        save_stats()
 
 def record_voice_event(user_id, username):
     """Registra un evento de entrada a voz en las estadísticas"""
@@ -266,36 +345,65 @@ async def on_presence_update(before, after):
     if config.get('ignore_bots', True) and after.bot:
         return
     
-    # Obtener actividades anteriores y nuevas
-    before_activity = before.activity
-    after_activity = after.activity
+    # Obtener TODAS las actividades (no solo la primera)
+    # Discord puede tener: Custom Status + Juego + Spotify simultáneamente
+    before_activities = before.activities
+    after_activities = after.activities
     
-    # Verificar si empezó una nueva actividad
-    if after_activity and after_activity.type in [discord.ActivityType.playing, 
-                                                   discord.ActivityType.streaming,
-                                                   discord.ActivityType.watching,
-                                                   discord.ActivityType.listening]:
-        # Verificar si es una actividad nueva o diferente
-        activity_type_name = after_activity.type.name.lower()
+    # Filtrar solo actividades de juegos (ignorar custom status)
+    def get_game_activities(activities):
+        return [
+            act for act in activities 
+            if act.type in [
+                discord.ActivityType.playing, 
+                discord.ActivityType.streaming,
+                discord.ActivityType.watching,
+                discord.ActivityType.listening
+            ] and act.type != discord.ActivityType.custom  # Ignorar estados custom
+        ]
+    
+    before_games = get_game_activities(before_activities)
+    after_games = get_game_activities(after_activities)
+    
+    # Obtener nombres de juegos
+    before_game_names = {act.name for act in before_games}
+    after_game_names = {act.name for act in after_games}
+    
+    # Detectar juegos nuevos (que están en after pero no en before)
+    new_games = after_game_names - before_game_names
+    
+    # Detectar juegos que terminaron
+    ended_games = before_game_names - after_game_names
+    
+    # Procesar juegos nuevos
+    for game_name in new_games:
+        # Encontrar la actividad completa
+        game_activity = next(act for act in after_games if act.name == game_name)
+        activity_type_name = game_activity.type.name.lower()
         
         if activity_type_name in config.get('game_activity_types', ['playing', 'streaming', 'watching', 'listening']):
-            # Si no tenía actividad antes o es diferente
-            if not before_activity or before_activity.name != after_activity.name:
-                # Verificar cooldown
-                if check_cooldown(str(after.id), f'game:{after_activity.name}'):
-                    logger.info(f'🎮 Detectado: {after.display_name} está {get_activity_verb(activity_type_name)} {after_activity.name}')
-                    
-                    # Registrar en estadísticas
-                    record_game_event(str(after.id), after.display_name, after_activity.name)
-                    
-                    # Enviar notificación
-                    message_template = config.get('messages', {}).get('game_start', "🎮 **{user}** está {verb} **{activity}**")
-                    message = message_template.format(
-                        user=after.display_name,
-                        verb=get_activity_verb(activity_type_name),
-                        activity=after_activity.name
-                    )
-                    await send_notification(message)
+            # Verificar cooldown
+            if check_cooldown(str(after.id), f'game:{game_name}'):
+                logger.info(f'🎮 Detectado: {after.display_name} está {get_activity_verb(activity_type_name)} {game_name}')
+                
+                # Iniciar sesión de juego para tracking de tiempo
+                start_game_session(str(after.id), after.display_name, game_name)
+                
+                # Registrar en estadísticas
+                record_game_event(str(after.id), after.display_name, game_name)
+                
+                # Enviar notificación
+                message_template = config.get('messages', {}).get('game_start', "🎮 **{user}** está {verb} **{activity}**")
+                message = message_template.format(
+                    user=after.display_name,
+                    verb=get_activity_verb(activity_type_name),
+                    activity=game_name
+                )
+                await send_notification(message)
+    
+    # Procesar juegos que terminaron (para finalizar sesiones)
+    for game_name in ended_games:
+        end_game_session(str(after.id), after.display_name, game_name)
 
 @bot.event
 async def on_voice_state_update(member, before, after):
