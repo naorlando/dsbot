@@ -11,6 +11,7 @@ Bot de Discord que notifica actividad en tiempo real con estadísticas avanzadas
 - 🛡️ **Anti-spam** - Cooldown de 10 min para evitar notificaciones duplicadas
 - 💾 **Datos persistentes** - Stats nunca se pierden (Railway Volume)
 - 🎨 **Menú interactivo** - Visualizaciones con select menus y botones
+- 📺 **Sistema dual de canales** - Separa notificaciones de comandos de stats
 
 ## 🚀 Quick Start
 
@@ -33,7 +34,8 @@ pip install -r requirements.txt
 Crea `.env`:
 ```env
 DISCORD_BOT_TOKEN=tu_token_aqui
-DISCORD_CHANNEL_ID=id_del_canal  # Opcional
+DISCORD_CHANNEL_ID=id_del_canal        # Opcional (notificaciones)
+DISCORD_STATS_CHANNEL_ID=id_del_canal  # Opcional (comandos stats)
 ```
 
 ### 4. Ejecutar
@@ -45,15 +47,31 @@ python bot.py
 ### 5. Configurar en Discord
 
 ```
-!setchannel         # Configura el canal de notificaciones
+!setchannel         # Configura el canal de notificaciones (avisos)
+!setstatschannel    # (Opcional) Canal exclusivo para comandos de stats
 !bothelp            # Ver todos los comandos
+```
+
+### 📺 Sistema Dual de Canales
+
+**Modo recomendado:** Separar notificaciones de comandos
+- **Canal de notificaciones** (`!setchannel #general`) - Para avisos de juegos/voz
+- **Canal de estadísticas** (`!setstatschannel #stats`) - Solo comandos de stats
+
+Si configuras un canal de stats, los comandos (`!stats`, `!topgames`, etc.) **solo funcionarán ahí**.  
+Esto mantiene tu canal general limpio y organizado. 🎯
+
+```
+!channels  # Ver configuración actual de ambos canales
 ```
 
 ## 📋 Comandos
 
 ### 🔧 Configuración
 ```
-!setchannel         - Configurar canal de notificaciones
+!setchannel         - Configurar canal de notificaciones (avisos)
+!setstatschannel    - Configurar canal de estadísticas (comandos)
+!channels           - Ver configuración de canales
 !toggle             - Activar/desactivar notificaciones (menú)
 !config             - Ver configuración actual
 !test               - Mensaje de prueba
@@ -99,7 +117,8 @@ python bot.py
 4. Configura variables:
    ```
    DISCORD_BOT_TOKEN=tu_token
-   DISCORD_CHANNEL_ID=id_canal  # Opcional
+   DISCORD_CHANNEL_ID=id_canal        # Opcional (notificaciones)
+   DISCORD_STATS_CHANNEL_ID=id_canal  # Opcional (comandos stats)
    ```
 5. Deploy automático ✅
 
@@ -132,11 +151,14 @@ Minecraft         ████████ 21
 python test_bot.py
 ```
 
-**Cobertura:** 39/39 tests ✅
+**Cobertura:** 54/54 tests ✅
 - Gráficos ASCII
 - Tracking de tiempo
 - Filtros por período
 - Comandos y estructura
+- Message tracking
+- Link filtering
+- Reactions y stickers
 
 ## 🛡️ Seguridad
 
@@ -148,7 +170,7 @@ python test_bot.py
 
 ```
 dsbot/
-├── bot.py           # Bot principal (18 comandos)
+├── bot.py           # Bot principal (27 comandos)
 ├── stats_viz.py     # Visualizaciones y gráficos
 ├── test_bot.py      # Suite de tests
 ├── config.json      # Configuración del bot

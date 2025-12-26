@@ -752,8 +752,8 @@ class TestCommandCoverage(unittest.TestCase):
     
     def test_all_commands_count(self):
         """Test cantidad total de comandos"""
-        total_commands = 24
-        self.assertEqual(total_commands, 24)
+        total_commands = 27
+        self.assertEqual(total_commands, 27)
     
     def test_command_aliases(self):
         """Test que los aliases funcionan"""
@@ -767,8 +767,8 @@ class TestCommandCoverage(unittest.TestCase):
     
     def test_configuration_commands(self):
         """Test comandos de configuración"""
-        config_commands = ['setchannel', 'unsetchannel', 'toggle', 'config', 'test']
-        self.assertEqual(len(config_commands), 5)
+        config_commands = ['setchannel', 'unsetchannel', 'setstatschannel', 'unsetstatschannel', 'channels', 'toggle', 'config', 'test']
+        self.assertEqual(len(config_commands), 8)
     
     def test_stats_commands(self):
         """Test comandos de estadísticas"""

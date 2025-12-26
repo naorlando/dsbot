@@ -33,6 +33,7 @@ def load_config():
         # Configuración por defecto
         default_config = {
             "channel_id": None,
+            "stats_channel_id": None,
             "notify_games": True,
             "notify_voice": True,
             "notify_voice_leave": False,
@@ -88,6 +89,40 @@ def get_channel_id():
     
     # Prioridad 2: config.json persistente
     return config.get('channel_id')
+
+def get_stats_channel_id():
+    """Obtiene el stats_channel_id con prioridad: ENV > config.json"""
+    # Prioridad 1: Variable de entorno
+    env_channel = os.getenv('DISCORD_STATS_CHANNEL_ID')
+    if env_channel:
+        return int(env_channel)
+    
+    # Prioridad 2: config.json persistente
+    return config.get('stats_channel_id')
+
+async def check_stats_channel(ctx):
+    """
+    Verifica si el comando de stats se ejecuta en el canal correcto.
+    Retorna True si puede continuar, False si debe abortar.
+    """
+    stats_channel_id = get_stats_channel_id()
+    
+    # Si no hay canal de stats configurado, permitir en cualquier canal
+    if not stats_channel_id:
+        return True
+    
+    # Si estamos en el canal correcto, continuar
+    if ctx.channel.id == stats_channel_id:
+        return True
+    
+    # Si no estamos en el canal correcto, redirigir
+    stats_channel = bot.get_channel(stats_channel_id)
+    if stats_channel:
+        await ctx.send(f'📊 Los comandos de estadísticas solo funcionan en {stats_channel.mention}\n💡 Usa `!channels` para ver la configuración actual.')
+    else:
+        await ctx.send(f'⚠️ El canal de estadísticas configurado no existe (ID: {stats_channel_id})\n💡 Usa `!unsetstatschannel` para desconfigurar o `!setstatschannel` para cambiar.')
+    
+    return False
 
 def check_cooldown(user_id, event_key):
     """
@@ -775,6 +810,113 @@ async def unset_channel(ctx):
     await ctx.send(f'✅ Canal desconfigurado: `#{channel_name}`')
     logger.info(f'Canal desconfigurado: {channel_name}')
 
+@bot.command(name='setstatschannel', aliases=['statscanal'])
+async def set_stats_channel(ctx, channel: discord.TextChannel = None):
+    """Configura el canal donde se enviarán las respuestas de comandos de estadísticas
+    
+    Ejemplo: !setstatschannel o !setstatschannel #stats
+    """
+    if channel is None:
+        channel = ctx.channel
+    
+    # Verificar que el bot tenga permisos
+    bot_member = channel.guild.get_member(bot.user.id)
+    if bot_member:
+        permissions = channel.permissions_for(bot_member)
+        if not permissions.send_messages:
+            try:
+                await ctx.send(f'❌ El bot no tiene permisos para enviar mensajes en {channel.mention}.')
+            except:
+                logger.error(f'⚠️  Bot sin permisos en canal de stats {channel.name} (ID: {channel.id})')
+            return
+    
+    config['stats_channel_id'] = channel.id
+    save_config()
+    
+    await ctx.send(f'📊 Canal de estadísticas configurado: {channel.mention}\n💡 Los comandos de stats (`!stats`, `!topgames`, etc.) solo responderán en este canal.\n💡 **Recomendación:** Configura `DISCORD_STATS_CHANNEL_ID={channel.id}` en Railway para que nunca se pierda.')
+    logger.info(f'Canal de stats configurado: {channel.name} (ID: {channel.id})')
+
+@bot.command(name='unsetstatschannel', aliases=['removestatschannel', 'clearstatschannel'])
+async def unset_stats_channel(ctx):
+    """Desconfigura el canal de estadísticas
+    
+    Ejemplo: !unsetstatschannel
+    """
+    stats_channel_id = get_stats_channel_id()
+    if not stats_channel_id:
+        await ctx.send('ℹ️ No hay canal de estadísticas configurado.')
+        return
+    
+    old_channel = bot.get_channel(stats_channel_id)
+    channel_name = old_channel.name if old_channel else f'ID: {stats_channel_id}'
+    
+    config['stats_channel_id'] = None
+    save_config()
+    
+    await ctx.send(f'✅ Canal de estadísticas desconfigurado: `#{channel_name}`\nAhora los comandos de stats funcionarán en cualquier canal.')
+    logger.info(f'Canal de stats desconfigurado: {channel_name}')
+
+@bot.command(name='channels', aliases=['canales', 'showchannels'])
+async def show_channels(ctx):
+    """Muestra la configuración actual de canales
+    
+    Ejemplo: !channels
+    """
+    embed = discord.Embed(
+        title='📺 Configuración de Canales',
+        color=discord.Color.blue()
+    )
+    
+    # Canal de notificaciones
+    channel_id = get_channel_id()
+    if channel_id:
+        channel = bot.get_channel(channel_id)
+        if channel:
+            embed.add_field(
+                name='🔔 Notificaciones',
+                value=f'{channel.mention}\n`ID: {channel_id}`',
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name='🔔 Notificaciones',
+                value=f'❌ Canal no encontrado\n`ID: {channel_id}`',
+                inline=False
+            )
+    else:
+        embed.add_field(
+            name='🔔 Notificaciones',
+            value='❌ No configurado\nUsa `!setchannel`',
+            inline=False
+        )
+    
+    # Canal de estadísticas
+    stats_channel_id = get_stats_channel_id()
+    if stats_channel_id:
+        stats_channel = bot.get_channel(stats_channel_id)
+        if stats_channel:
+            embed.add_field(
+                name='📊 Estadísticas',
+                value=f'{stats_channel.mention}\n`ID: {stats_channel_id}`',
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name='📊 Estadísticas',
+                value=f'❌ Canal no encontrado\n`ID: {stats_channel_id}`',
+                inline=False
+            )
+    else:
+        embed.add_field(
+            name='📊 Estadísticas',
+            value='ℹ️ No configurado (funcionan en cualquier canal)\nUsa `!setstatschannel` para restringir',
+            inline=False
+        )
+    
+    embed.set_footer(text='💡 Tip: Usa !setchannel y !setstatschannel para configurar')
+    
+    await ctx.send(embed=embed)
+
 @bot.command(name='stats', aliases=['mystats'])
 async def show_stats(ctx, member: discord.Member = None):
     """Muestra estadísticas de un usuario
@@ -783,6 +925,10 @@ async def show_stats(ctx, member: discord.Member = None):
     - !stats - Tus estadísticas
     - !stats @usuario - Estadísticas de otro usuario
     """
+    # Verificar canal de stats
+    if not await check_stats_channel(ctx):
+        return
+    
     if member is None:
         member = ctx.author
     
@@ -960,6 +1106,10 @@ async def top_games(ctx, limit: int = 5):
     
     Ejemplo: !topgames o !topgames 10
     """
+    # Verificar canal de stats
+    if not await check_stats_channel(ctx):
+        return
+    
     # Recopilar todos los juegos CON TIEMPO
     game_stats = {}
     for user_data in stats['users'].values():
@@ -995,6 +1145,10 @@ async def top_messages(ctx, limit: int = 5):
     
     Ejemplo: !topmessages o !topmessages 10
     """
+    # Verificar canal de stats
+    if not await check_stats_channel(ctx):
+        return
+    
     # Recopilar mensajes por usuario
     message_activity = []
     for user_id, user_data in stats['users'].items():
@@ -1040,6 +1194,10 @@ async def top_reactions(ctx, limit: int = 5):
     
     Ejemplo: !topreactions o !topreactions 10
     """
+    # Verificar canal de stats
+    if not await check_stats_channel(ctx):
+        return
+    
     # Recopilar reacciones por usuario
     reaction_activity = []
     for user_id, user_data in stats['users'].items():
@@ -1088,6 +1246,10 @@ async def top_emojis(ctx, limit: int = 10):
     
     Ejemplo: !topemojis o !topemojis 15
     """
+    # Verificar canal de stats
+    if not await check_stats_channel(ctx):
+        return
+    
     # Recopilar todos los emojis de todos los usuarios
     emoji_counts = {}
     for user_data in stats['users'].values():
@@ -1134,6 +1296,10 @@ async def top_stickers(ctx, limit: int = 10):
     
     Ejemplo: !topstickers o !topstickers 15
     """
+    # Verificar canal de stats
+    if not await check_stats_channel(ctx):
+        return
+    
     # Recopilar todos los stickers de todos los usuarios
     sticker_counts = {}
     for user_data in stats['users'].values():
@@ -1896,6 +2062,10 @@ async def stats_menu(ctx):
     
     Ejemplo: !statsmenu
     """
+    # Verificar canal de stats
+    if not await check_stats_channel(ctx):
+        return
+    
     view = StatsView(period='all')
     filtered_stats = filter_by_period(stats, 'all')
     embed = await create_overview_embed(filtered_stats, 'Histórico')
@@ -1953,6 +2123,10 @@ async def timeline_cmd(ctx, days: int = 7):
     - !timeline
     - !timeline 14
     """
+    # Verificar canal de stats
+    if not await check_stats_channel(ctx):
+        return
+    
     if days < 1 or days > 30:
         await ctx.send('❌ Días debe estar entre 1 y 30')
         return
@@ -1967,6 +2141,10 @@ async def compare_users_cmd(ctx, user1: discord.Member, user2: discord.Member):
     
     Ejemplo: !compare @usuario1 @usuario2
     """
+    # Verificar canal de stats
+    if not await check_stats_channel(ctx):
+        return
+    
     user1_id = str(user1.id)
     user2_id = str(user2.id)
     
@@ -2020,6 +2198,10 @@ async def export_stats(ctx, format: str = 'json'):
     - !export json
     - !export csv
     """
+    # Verificar canal de stats
+    if not await check_stats_channel(ctx):
+        return
+    
     if format not in ['json', 'csv']:
         await ctx.send('❌ Formato inválido. Usa: `json` o `csv`')
         return
@@ -2102,6 +2284,10 @@ async def voice_time_cmd(ctx, member: discord.Member = None, period: str = 'all'
     - !voicetime @usuario
     - !voicetime @usuario week
     """
+    # Verificar canal de stats
+    if not await check_stats_channel(ctx):
+        return
+    
     if member is None:
         member = ctx.author
     
@@ -2194,6 +2380,10 @@ async def voice_top_time_cmd(ctx, period: str = 'all'):
     - !voicetop week
     - !voicetop month
     """
+    # Verificar canal de stats
+    if not await check_stats_channel(ctx):
+        return
+    
     # Calcular tiempo por usuario según período
     user_times = []
     
@@ -2283,6 +2473,9 @@ async def show_help(ctx, comando: str = None):
         help_texts = {
             'setchannel': '**!setchannel [#canal]**\nConfigura el canal donde se enviarán las notificaciones.\nSi no especificas canal, usa el canal actual.\n\nEjemplo: `!setchannel #general`',
             'unsetchannel': '**!unsetchannel**\nDesconfigura el canal de notificaciones.\nEl bot dejará de enviar mensajes.',
+            'setstatschannel': '**!setstatschannel [#canal]**\nConfigura el canal donde se enviarán las respuestas de comandos de estadísticas.\nLos comandos solo funcionarán en este canal.\n\nEjemplo: `!setstatschannel #stats`',
+            'unsetstatschannel': '**!unsetstatschannel**\nDesconfigura el canal de estadísticas.\nLos comandos de stats funcionarán en cualquier canal.',
+            'channels': '**!channels**\nMuestra la configuración actual de ambos canales:\n- Canal de notificaciones (avisos)\n- Canal de estadísticas (comandos)',
             'toggle': '**!toggle [tipo]**\nActiva/desactiva tipos de notificaciones.\nSin argumentos abre menú interactivo.\n\nTipos: `games`, `voice`, `voiceleave`, `voicemove`\nEjemplo: `!toggle games`',
             'config': '**!config**\nMuestra la configuración actual del bot.',
             'test': '**!test**\nEnvía un mensaje de prueba al canal configurado.',
@@ -2323,6 +2516,9 @@ async def show_help(ctx, comando: str = None):
         value=(
             '`!setchannel [#canal]` - Configurar canal de notificaciones\n'
             '`!unsetchannel` - Desconfigurar canal\n'
+            '`!setstatschannel [#canal]` - Canal para comandos de stats\n'
+            '`!unsetstatschannel` - Desconfigurar canal de stats\n'
+            '`!channels` - Ver configuración de canales\n'
             '`!toggle [tipo]` - Activar/desactivar notificaciones\n'
             '`!config` - Ver configuración actual\n'
             '`!test` - Enviar mensaje de prueba'
