@@ -393,6 +393,7 @@ def run_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestVoiceTimeTracking))
     suite.addTests(loader.loadTestsFromTestCase(TestVoiceTimeFiltering))
     suite.addTests(loader.loadTestsFromTestCase(TestVoiceRanking))
+    suite.addTests(loader.loadTestsFromTestCase(TestLinkFiltering))
     suite.addTests(loader.loadTestsFromTestCase(TestMessageTracking))
     suite.addTests(loader.loadTestsFromTestCase(TestCommandCoverage))
     
@@ -557,6 +558,68 @@ class TestVoiceRanking(unittest.TestCase):
         """Test ranking vacío"""
         user_times = []
         self.assertEqual(len(user_times), 0)
+
+class TestLinkFiltering(unittest.TestCase):
+    """Tests para filtrado de links/spam"""
+    
+    @staticmethod
+    def is_link_spam(message_content):
+        """Copia de la función is_link_spam para testing"""
+        import re
+        
+        if not message_content or len(message_content) == 0:
+            return True
+        
+        url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+        urls = re.findall(url_pattern, message_content, re.IGNORECASE)
+        
+        if not urls:
+            return False
+        
+        url_length = sum(len(url) for url in urls)
+        
+        if url_length / len(message_content) > 0.7:
+            return True
+        
+        content_without_urls = message_content
+        for url in urls:
+            content_without_urls = content_without_urls.replace(url, '')
+        
+        words = [w for w in content_without_urls.split() if len(w) > 0]
+        if len(words) <= 2:
+            return True
+        
+        return False
+    
+    def test_is_link_spam_basic_url(self):
+        """Test detección de URL simple"""
+        # Solo un link, debería ser spam
+        self.assertTrue(self.is_link_spam('https://example.com'))
+        self.assertTrue(self.is_link_spam('http://test.com'))
+        
+        # Link con 1-2 palabras, spam
+        self.assertTrue(self.is_link_spam('mira https://example.com'))
+        self.assertTrue(self.is_link_spam('https://example.com esto'))
+    
+    def test_is_link_spam_with_context(self):
+        """Test mensaje con link pero con contexto"""
+        # Link con contexto válido, NO spam
+        self.assertFalse(self.is_link_spam('Encontré este artículo interesante sobre Python: https://example.com/python'))
+        self.assertFalse(self.is_link_spam('Les comparto el tutorial que estuve viendo https://youtube.com/watch'))
+    
+    def test_is_link_spam_no_links(self):
+        """Test mensaje sin links"""
+        # Mensajes normales sin links, NO spam
+        self.assertFalse(self.is_link_spam('Hola, cómo están todos?'))
+        self.assertFalse(self.is_link_spam('Este es un mensaje normal con varias palabras'))
+        self.assertFalse(self.is_link_spam('www.google.com'))  # Sin protocolo, no se detecta como URL completa
+    
+    def test_is_link_spam_empty(self):
+        """Test mensaje vacío"""
+        # Vacío es spam
+        self.assertTrue(self.is_link_spam(''))
+        self.assertTrue(self.is_link_spam(None))
+
 
 class TestMessageTracking(unittest.TestCase):
     """Tests para tracking de mensajes"""

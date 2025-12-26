@@ -143,6 +143,47 @@ def record_game_event(user_id, username, game_name):
     
     logger.info(f'📊 Stats: {username} jugó {game_name} ({stats["users"][user_id]["games"][game_name]["count"]} veces)')
 
+def is_link_spam(message_content):
+    """Detecta si un mensaje es principalmente links/URLs
+    
+    Args:
+        message_content: Contenido del mensaje
+        
+    Returns:
+        True si el mensaje es spam de links, False si es contenido válido
+    """
+    import re
+    
+    if not message_content or len(message_content) == 0:
+        return True
+    
+    # Regex para detectar URLs
+    url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+    urls = re.findall(url_pattern, message_content, re.IGNORECASE)
+    
+    # Si no hay URLs, no es spam
+    if not urls:
+        return False
+    
+    # Calcular longitud total de URLs
+    url_length = sum(len(url) for url in urls)
+    
+    # Si las URLs ocupan más del 70% del mensaje, considerarlo spam
+    if url_length / len(message_content) > 0.7:
+        return True
+    
+    # Si el mensaje tiene solo 1-2 palabras además del link, considerarlo spam
+    content_without_urls = message_content
+    for url in urls:
+        content_without_urls = content_without_urls.replace(url, '')
+    
+    # Contar palabras reales (sin URLs)
+    words = [w for w in content_without_urls.split() if len(w) > 0]
+    if len(words) <= 2:
+        return True
+    
+    return False
+
 def record_message_event(user_id, username, message_length):
     """Registra un mensaje en las estadísticas"""
     if user_id not in stats['users']:
@@ -501,10 +542,11 @@ async def on_message(message):
     # Trackear mensaje (sin notificar, solo stats)
     user_id = str(message.author.id)
     username = message.author.display_name
-    message_length = len(message.content)
+    message_content = message.content
+    message_length = len(message_content)
     
-    # Solo trackear si el mensaje tiene contenido
-    if message_length > 0:
+    # Solo trackear si el mensaje tiene contenido Y no es spam de links
+    if message_length > 0 and not is_link_spam(message_content):
         record_message_event(user_id, username, message_length)
     
     # Procesar comandos
