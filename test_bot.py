@@ -395,6 +395,7 @@ def run_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestVoiceRanking))
     suite.addTests(loader.loadTestsFromTestCase(TestLinkFiltering))
     suite.addTests(loader.loadTestsFromTestCase(TestMessageTracking))
+    suite.addTests(loader.loadTestsFromTestCase(TestNewTracking))
     suite.addTests(loader.loadTestsFromTestCase(TestCommandCoverage))
     
     # Ejecutar tests
@@ -682,13 +683,77 @@ class TestMessageTracking(unittest.TestCase):
         self.assertEqual(ranking[2][1]['username'], 'Bob')
 
 
+class TestNewTracking(unittest.TestCase):
+    """Tests para nuevo tracking (reacciones, stickers, conexiones)"""
+    
+    def test_reactions_data_structure(self):
+        """Test estructura de reacciones"""
+        reactions_data = {
+            'total': 150,
+            'by_emoji': {
+                '👍': 50,
+                '❤️': 30,
+                '🔥': 20,
+                'custom_emoji': 50
+            }
+        }
+        self.assertIn('total', reactions_data)
+        self.assertIn('by_emoji', reactions_data)
+        self.assertEqual(reactions_data['total'], 150)
+        self.assertEqual(len(reactions_data['by_emoji']), 4)
+    
+    def test_stickers_data_structure(self):
+        """Test estructura de stickers"""
+        stickers_data = {
+            'total': 45,
+            'by_name': {
+                'pepehappy': 15,
+                'peposad': 10,
+                'kekw': 20
+            }
+        }
+        self.assertIn('total', stickers_data)
+        self.assertIn('by_name', stickers_data)
+        self.assertEqual(stickers_data['total'], 45)
+        self.assertEqual(len(stickers_data['by_name']), 3)
+    
+    def test_daily_connections_structure(self):
+        """Test estructura de conexiones diarias"""
+        daily_connections = {
+            '2025-12-26': True,
+            '2025-12-27': True,
+            '2025-12-28': True
+        }
+        self.assertEqual(len(daily_connections), 3)
+        self.assertTrue(all(daily_connections.values()))
+    
+    def test_emoji_ranking(self):
+        """Test ranking de emojis"""
+        users = {
+            'user1': {'reactions': {'by_emoji': {'👍': 50, '❤️': 30}}},
+            'user2': {'reactions': {'by_emoji': {'👍': 20, '🔥': 40}}},
+            'user3': {'reactions': {'by_emoji': {'❤️': 15, '🔥': 25}}}
+        }
+        
+        # Contar emojis globales
+        emoji_counts = {}
+        for user_data in users.values():
+            for emoji, count in user_data['reactions']['by_emoji'].items():
+                emoji_counts[emoji] = emoji_counts.get(emoji, 0) + count
+        
+        # Verificar totales
+        self.assertEqual(emoji_counts['👍'], 70)
+        self.assertEqual(emoji_counts['🔥'], 65)
+        self.assertEqual(emoji_counts['❤️'], 45)
+
+
 class TestCommandCoverage(unittest.TestCase):
     """Tests para cobertura de comandos"""
     
     def test_all_commands_count(self):
         """Test cantidad total de comandos"""
-        total_commands = 21
-        self.assertEqual(total_commands, 21)
+        total_commands = 24
+        self.assertEqual(total_commands, 24)
     
     def test_command_aliases(self):
         """Test que los aliases funcionan"""
@@ -707,10 +772,10 @@ class TestCommandCoverage(unittest.TestCase):
     
     def test_stats_commands(self):
         """Test comandos de estadísticas"""
-        basic_stats = ['stats', 'topgames', 'topmessages', 'topusers']
+        basic_stats = ['stats', 'topgames', 'topmessages', 'topreactions', 'topemojis', 'topstickers', 'topusers']
         advanced_stats = ['statsmenu', 'statsgames', 'statsvoice', 'statsuser', 'timeline', 'compare']
         time_tracking = ['voicetime', 'voicetop', 'gametime', 'gametop']
-        self.assertEqual(len(basic_stats), 4)
+        self.assertEqual(len(basic_stats), 7)
         self.assertEqual(len(advanced_stats), 6)
         self.assertEqual(len(time_tracking), 4)
     

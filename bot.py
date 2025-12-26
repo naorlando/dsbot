@@ -404,11 +404,38 @@ async def on_ready():
 @bot.event
 async def on_presence_update(before, after):
     """Detecta cuando alguien cambia su presencia (juegos, streaming, etc.)"""
-    if not config.get('notify_games', True):
-        return
-    
     # Ignorar bots si está configurado
     if config.get('ignore_bots', True) and after.bot:
+        return
+    
+    # TRACK CONEXIONES DIARIAS: Detectar cuando alguien se conecta (offline → online)
+    if before.status == discord.Status.offline and after.status != discord.Status.offline:
+        user_id = str(after.id)
+        username = after.display_name
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        # Inicializar estructura si no existe
+        if user_id not in stats['users']:
+            stats['users'][user_id] = {
+                'username': username,
+                'games': {},
+                'voice': {'count': 0},
+                'messages': {'count': 0, 'characters': 0},
+                'reactions': {'total': 0, 'by_emoji': {}},
+                'stickers': {'total': 0, 'by_name': {}},
+                'daily_connections': {}
+            }
+        
+        # Registrar conexión del día (solo una vez por día)
+        if 'daily_connections' not in stats['users'][user_id]:
+            stats['users'][user_id]['daily_connections'] = {}
+        
+        if today not in stats['users'][user_id]['daily_connections']:
+            stats['users'][user_id]['daily_connections'][today] = True
+            save_stats()
+            logger.debug(f'🌐 Conexión diaria: {username} ({today})')
+    
+    if not config.get('notify_games', True):
         return
     
     # Obtener TODAS las actividades (no solo la primera)
@@ -545,12 +572,98 @@ async def on_message(message):
     message_content = message.content
     message_length = len(message_content)
     
-    # Solo trackear si el mensaje tiene contenido Y no es spam de links
+    # Trackear stickers si el mensaje los tiene
+    if message.stickers:
+        # Inicializar estructura si no existe
+        if user_id not in stats['users']:
+            stats['users'][user_id] = {
+                'username': username,
+                'games': {},
+                'voice': {'count': 0},
+                'messages': {'count': 0, 'characters': 0},
+                'reactions': {'total': 0, 'by_emoji': {}},
+                'stickers': {'total': 0, 'by_name': {}},
+                'daily_connections': {}
+            }
+        
+        # Asegurar que existe la estructura de stickers
+        if 'stickers' not in stats['users'][user_id]:
+            stats['users'][user_id]['stickers'] = {'total': 0, 'by_name': {}}
+        
+        for sticker in message.stickers:
+            sticker_name = sticker.name
+            
+            stats['users'][user_id]['stickers']['total'] += 1
+            
+            if sticker_name not in stats['users'][user_id]['stickers']['by_name']:
+                stats['users'][user_id]['stickers']['by_name'][sticker_name] = 0
+            
+            stats['users'][user_id]['stickers']['by_name'][sticker_name] += 1
+        
+        stats['users'][user_id]['username'] = username
+        save_stats()
+        
+        # Log solo cada 10 stickers
+        if stats['users'][user_id]['stickers']['total'] % 10 == 0:
+            logger.debug(f'🎨 Stats: {username} - {stats["users"][user_id]["stickers"]["total"]} stickers')
+    
+    # Solo trackear mensajes si tiene contenido Y no es spam de links
     if message_length > 0 and not is_link_spam(message_content):
         record_message_event(user_id, username, message_length)
     
     # Procesar comandos
     await bot.process_commands(message)
+
+@bot.event
+async def on_reaction_add(reaction, user):
+    """Detecta cuando alguien agrega una reacción"""
+    # Ignorar reacciones del bot mismo
+    if user == bot.user:
+        return
+    
+    # Ignorar bots si está configurado
+    if config.get('ignore_bots', True) and user.bot:
+        return
+    
+    user_id = str(user.id)
+    username = user.display_name
+    
+    # Obtener el emoji (puede ser unicode o custom)
+    if reaction.is_custom_emoji():
+        emoji_name = reaction.emoji.name  # Custom emoji del servidor
+    else:
+        emoji_name = str(reaction.emoji)  # Unicode emoji (👍, ❤️, etc)
+    
+    # Inicializar estructura si no existe
+    if user_id not in stats['users']:
+        stats['users'][user_id] = {
+            'username': username,
+            'games': {},
+            'voice': {'count': 0},
+            'messages': {'count': 0, 'characters': 0},
+            'reactions': {'total': 0, 'by_emoji': {}},
+            'stickers': {'total': 0, 'by_name': {}},
+            'daily_connections': {}
+        }
+    
+    # Asegurar que existe la estructura de reacciones
+    if 'reactions' not in stats['users'][user_id]:
+        stats['users'][user_id]['reactions'] = {'total': 0, 'by_emoji': {}}
+    
+    # Registrar reacción
+    stats['users'][user_id]['reactions']['total'] += 1
+    
+    if emoji_name not in stats['users'][user_id]['reactions']['by_emoji']:
+        stats['users'][user_id]['reactions']['by_emoji'][emoji_name] = 0
+    
+    stats['users'][user_id]['reactions']['by_emoji'][emoji_name] += 1
+    stats['users'][user_id]['username'] = username
+    
+    save_stats()
+    
+    # Log solo cada 20 reacciones para no spamear
+    if stats['users'][user_id]['reactions']['total'] % 20 == 0:
+        logger.debug(f'👍 Stats: {username} - {stats["users"][user_id]["reactions"]["total"]} reacciones')
 
 @bot.event
 async def on_member_join(member):
@@ -759,6 +872,86 @@ async def show_stats(ctx, member: discord.Member = None):
             inline=False
         )
     
+    # Estadísticas de reacciones
+    reactions = user_stats.get('reactions', {})
+    if reactions.get('total', 0) > 0:
+        total_reactions = reactions['total']
+        by_emoji = reactions.get('by_emoji', {})
+        
+        # Top 3 emojis más usados
+        top_emojis = sorted(by_emoji.items(), key=lambda x: x[1], reverse=True)[:3]
+        emojis_text = ' | '.join([f'{emoji} {count}' for emoji, count in top_emojis])
+        
+        reactions_text = (
+            f'Total: **{total_reactions:,}** reacciones\n'
+            f'Top 3: {emojis_text}'
+        )
+        
+        embed.add_field(
+            name='👍 Reacciones',
+            value=reactions_text,
+            inline=False
+        )
+    
+    # Estadísticas de stickers
+    stickers = user_stats.get('stickers', {})
+    if stickers.get('total', 0) > 0:
+        total_stickers = stickers['total']
+        by_name = stickers.get('by_name', {})
+        
+        # Sticker favorito
+        if by_name:
+            favorite = max(by_name.items(), key=lambda x: x[1])
+            stickers_text = (
+                f'Total: **{total_stickers:,}** stickers\n'
+                f'Favorito: **{favorite[0]}** ({favorite[1]} veces)'
+            )
+        else:
+            stickers_text = f'Total: **{total_stickers:,}** stickers'
+        
+        embed.add_field(
+            name='🎨 Stickers',
+            value=stickers_text,
+            inline=False
+        )
+    
+    # Estadísticas de conexiones diarias
+    daily_connections = user_stats.get('daily_connections', {})
+    if daily_connections:
+        total_days = len(daily_connections)
+        
+        # Contar días este mes
+        current_month = datetime.now().strftime('%Y-%m')
+        days_this_month = sum(1 for date in daily_connections.keys() if date.startswith(current_month))
+        
+        # Última conexión
+        last_connection = max(daily_connections.keys()) if daily_connections else None
+        if last_connection:
+            try:
+                last_dt = datetime.strptime(last_connection, '%Y-%m-%d')
+                days_ago = (datetime.now() - last_dt).days
+                if days_ago == 0:
+                    time_str = 'hoy'
+                elif days_ago == 1:
+                    time_str = 'ayer'
+                else:
+                    time_str = f'hace {days_ago} días'
+            except:
+                time_str = 'Desconocido'
+        else:
+            time_str = 'Desconocido'
+        
+        connections_text = (
+            f'Días activos: **{total_days}** días ({days_this_month} este mes)\n'
+            f'Última conexión: {time_str}'
+        )
+        
+        embed.add_field(
+            name='🌐 Actividad',
+            value=connections_text,
+            inline=False
+        )
+    
     await ctx.send(embed=embed)
 
 @bot.command(name='topgames')
@@ -839,6 +1032,146 @@ async def top_messages(ctx, limit: int = 5):
         )
     
     embed.description = '\n'.join(lines)
+    await ctx.send(embed=embed)
+
+@bot.command(name='topreactions')
+async def top_reactions(ctx, limit: int = 5):
+    """Muestra los usuarios que más reaccionan
+    
+    Ejemplo: !topreactions o !topreactions 10
+    """
+    # Recopilar reacciones por usuario
+    reaction_activity = []
+    for user_id, user_data in stats['users'].items():
+        reactions_data = user_data.get('reactions', {})
+        total_reactions = reactions_data.get('total', 0)
+        
+        if total_reactions > 0:
+            by_emoji = reactions_data.get('by_emoji', {})
+            # Emoji favorito
+            favorite_emoji = max(by_emoji.items(), key=lambda x: x[1]) if by_emoji else (None, 0)
+            
+            reaction_activity.append({
+                'username': user_data.get('username', 'Usuario Desconocido'),
+                'total': total_reactions,
+                'favorite_emoji': favorite_emoji[0],
+                'favorite_count': favorite_emoji[1]
+            })
+    
+    if not reaction_activity:
+        await ctx.send('📊 No hay reacciones registradas aún.')
+        return
+    
+    # Ordenar por total de reacciones
+    top = sorted(reaction_activity, key=lambda x: x['total'], reverse=True)[:limit]
+    
+    embed = discord.Embed(
+        title=f'🏆 Top {len(top)} Usuarios Más Reactivos',
+        color=discord.Color.purple()
+    )
+    
+    lines = []
+    for i, user in enumerate(top, 1):
+        medal = ['🥇', '🥈', '🥉'][i-1] if i <= 3 else f'{i}.'
+        fav_emoji = user['favorite_emoji'] if user['favorite_emoji'] else '❓'
+        lines.append(
+            f'{medal} **{user["username"]}**: {user["total"]:,} reacciones\n'
+            f'   👍 Favorito: {fav_emoji} ({user["favorite_count"]} veces)'
+        )
+    
+    embed.description = '\n'.join(lines)
+    await ctx.send(embed=embed)
+
+@bot.command(name='topemojis')
+async def top_emojis(ctx, limit: int = 10):
+    """Muestra los emojis más usados globalmente
+    
+    Ejemplo: !topemojis o !topemojis 15
+    """
+    # Recopilar todos los emojis de todos los usuarios
+    emoji_counts = {}
+    for user_data in stats['users'].values():
+        reactions_data = user_data.get('reactions', {})
+        by_emoji = reactions_data.get('by_emoji', {})
+        
+        for emoji, count in by_emoji.items():
+            if emoji not in emoji_counts:
+                emoji_counts[emoji] = 0
+            emoji_counts[emoji] += count
+    
+    if not emoji_counts:
+        await ctx.send('📊 No hay emojis registrados aún.')
+        return
+    
+    # Ordenar y limitar
+    top = sorted(emoji_counts.items(), key=lambda x: x[1], reverse=True)[:limit]
+    
+    embed = discord.Embed(
+        title=f'🏆 Top {len(top)} Emojis Más Usados',
+        color=discord.Color.gold()
+    )
+    
+    lines = []
+    for i, (emoji, count) in enumerate(top, 1):
+        medal = ['🥇', '🥈', '🥉'][i-1] if i <= 3 else f'{i}.'
+        lines.append(f'{medal} {emoji}: **{count:,}** veces')
+    
+    embed.description = '\n'.join(lines)
+    
+    # Total
+    total_reactions = sum(emoji_counts.values())
+    embed.add_field(
+        name='📊 Total',
+        value=f'**{total_reactions:,}** reacciones totales\n**{len(emoji_counts)}** emojis únicos',
+        inline=False
+    )
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name='topstickers')
+async def top_stickers(ctx, limit: int = 10):
+    """Muestra los stickers más usados
+    
+    Ejemplo: !topstickers o !topstickers 15
+    """
+    # Recopilar todos los stickers de todos los usuarios
+    sticker_counts = {}
+    for user_data in stats['users'].values():
+        stickers_data = user_data.get('stickers', {})
+        by_name = stickers_data.get('by_name', {})
+        
+        for sticker, count in by_name.items():
+            if sticker not in sticker_counts:
+                sticker_counts[sticker] = 0
+            sticker_counts[sticker] += count
+    
+    if not sticker_counts:
+        await ctx.send('📊 No hay stickers registrados aún.')
+        return
+    
+    # Ordenar y limitar
+    top = sorted(sticker_counts.items(), key=lambda x: x[1], reverse=True)[:limit]
+    
+    embed = discord.Embed(
+        title=f'🏆 Top {len(top)} Stickers Más Usados',
+        color=discord.Color.magenta()
+    )
+    
+    lines = []
+    for i, (sticker, count) in enumerate(top, 1):
+        medal = ['🥇', '🥈', '🥉'][i-1] if i <= 3 else f'{i}.'
+        lines.append(f'{medal} **{sticker}**: {count:,} veces')
+    
+    embed.description = '\n'.join(lines)
+    
+    # Total
+    total_stickers = sum(sticker_counts.values())
+    embed.add_field(
+        name='📊 Total',
+        value=f'**{total_stickers:,}** stickers enviados\n**{len(sticker_counts)}** stickers únicos',
+        inline=False
+    )
+    
     await ctx.send(embed=embed)
 
 @bot.command(name='topusers')
@@ -1198,20 +1531,26 @@ async def create_overview_embed(filtered_stats: Dict, period_label: str) -> disc
     users = filtered_stats.get('users', {})
     total_users = len(users)
     
-    # Contar totales (con tiempo y mensajes)
+    # Contar totales (con tiempo, mensajes, reacciones, stickers, conexiones)
     total_games = 0
     total_voice = 0
     total_game_minutes = 0
     total_voice_minutes = 0
     total_messages = 0
     total_characters = 0
+    total_reactions = 0
+    total_stickers = 0
+    total_active_days = 0
     unique_games = set()
+    unique_emojis = set()
+    unique_stickers = set()
     
     for user_data in users.values():
         for game_name, game_data in user_data.get('games', {}).items():
             total_games += game_data.get('count', 0)
             total_game_minutes += game_data.get('total_minutes', 0)
             unique_games.add(game_name)
+        
         voice_data = user_data.get('voice', {})
         total_voice += voice_data.get('count', 0)
         total_voice_minutes += voice_data.get('total_minutes', 0)
@@ -1219,8 +1558,21 @@ async def create_overview_embed(filtered_stats: Dict, period_label: str) -> disc
         messages_data = user_data.get('messages', {})
         total_messages += messages_data.get('count', 0)
         total_characters += messages_data.get('characters', 0)
+        
+        reactions_data = user_data.get('reactions', {})
+        total_reactions += reactions_data.get('total', 0)
+        for emoji in reactions_data.get('by_emoji', {}).keys():
+            unique_emojis.add(emoji)
+        
+        stickers_data = user_data.get('stickers', {})
+        total_stickers += stickers_data.get('total', 0)
+        for sticker in stickers_data.get('by_name', {}).keys():
+            unique_stickers.add(sticker)
+        
+        daily_connections = user_data.get('daily_connections', {})
+        total_active_days += len(daily_connections)
     
-    # Resumen con tiempo y mensajes
+    # Resumen con TODAS las stats
     resumen_lines = [
         f'**Usuarios activos:** {total_users}',
         f'**Sesiones de juego:** {total_games} (⏱️ {format_time(total_game_minutes)})',
@@ -1231,6 +1583,15 @@ async def create_overview_embed(filtered_stats: Dict, period_label: str) -> disc
     if total_messages > 0:
         estimated_words = total_characters // 5
         resumen_lines.append(f'**Mensajes:** {total_messages:,} (~{estimated_words:,} palabras)')
+    
+    if total_reactions > 0:
+        resumen_lines.append(f'**Reacciones:** {total_reactions:,} ({len(unique_emojis)} emojis)')
+    
+    if total_stickers > 0:
+        resumen_lines.append(f'**Stickers:** {total_stickers:,} ({len(unique_stickers)} únicos)')
+    
+    if total_active_days > 0:
+        resumen_lines.append(f'**Días activos:** {total_active_days} días totales')
     
     resumen_lines.append(f'**Tiempo total:** ⏱️ {format_time(total_game_minutes + total_voice_minutes)}')
     
