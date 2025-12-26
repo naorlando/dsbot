@@ -140,8 +140,23 @@ def record_voice_event(user_id, username):
         stats['users'][user_id] = {
             'username': username,
             'games': {},
-            'voice': {'count': 0, 'last_join': None}
+            'voice': {
+                'count': 0,
+                'last_join': None,
+                'total_minutes': 0,
+                'daily_minutes': {},
+                'current_session': None
+            }
         }
+    
+    # Asegurar que voice tenga todos los campos
+    voice = stats['users'][user_id].get('voice', {})
+    if 'total_minutes' not in voice:
+        voice['total_minutes'] = 0
+    if 'daily_minutes' not in voice:
+        voice['daily_minutes'] = {}
+    if 'current_session' not in voice:
+        voice['current_session'] = None
     
     stats['users'][user_id]['voice']['count'] += 1
     stats['users'][user_id]['voice']['last_join'] = datetime.now().isoformat()
@@ -149,6 +164,69 @@ def record_voice_event(user_id, username):
     save_stats()
     
     logger.info(f'📊 Stats: {username} entró a voz ({stats["users"][user_id]["voice"]["count"]} veces)')
+
+def start_voice_session(user_id, username, channel_name):
+    """Inicia una sesión de voz para tracking de tiempo"""
+    if user_id not in stats['users']:
+        stats['users'][user_id] = {
+            'username': username,
+            'games': {},
+            'voice': {
+                'count': 0,
+                'total_minutes': 0,
+                'daily_minutes': {},
+                'current_session': None
+            }
+        }
+    
+    # Guardar sesión actual
+    stats['users'][user_id]['voice']['current_session'] = {
+        'channel': channel_name,
+        'start': datetime.now().isoformat()
+    }
+    stats['users'][user_id]['username'] = username
+    
+    save_stats()
+    logger.debug(f'🕐 Sesión de voz iniciada: {username} en {channel_name}')
+
+def end_voice_session(user_id, username):
+    """Finaliza una sesión de voz y calcula el tiempo"""
+    if user_id not in stats['users']:
+        return
+    
+    voice_data = stats['users'][user_id].get('voice', {})
+    current_session = voice_data.get('current_session')
+    
+    if not current_session:
+        return
+    
+    try:
+        start_time = datetime.fromisoformat(current_session['start'])
+        end_time = datetime.now()
+        duration = end_time - start_time
+        minutes = int(duration.total_seconds() / 60)
+        
+        # Solo contar si estuvo más de 1 minuto
+        if minutes >= 1:
+            # Actualizar total
+            voice_data['total_minutes'] = voice_data.get('total_minutes', 0) + minutes
+            
+            # Actualizar daily
+            today = datetime.now().strftime('%Y-%m-%d')
+            if 'daily_minutes' not in voice_data:
+                voice_data['daily_minutes'] = {}
+            voice_data['daily_minutes'][today] = voice_data['daily_minutes'].get(today, 0) + minutes
+            
+            logger.info(f'🕐 Sesión finalizada: {username} estuvo {minutes} min en {current_session["channel"]}')
+        
+        # Limpiar sesión actual
+        voice_data['current_session'] = None
+        save_stats()
+        
+    except Exception as e:
+        logger.error(f'Error al finalizar sesión de voz: {e}')
+        voice_data['current_session'] = None
+        save_stats()
 
 # Configurar intents necesarios
 intents = discord.Intents.default()
@@ -229,6 +307,9 @@ async def on_voice_state_update(member, before, after):
     
     # Entrada a canal de voz
     if not before.channel and after.channel:
+        # Iniciar tracking de tiempo
+        start_voice_session(str(member.id), member.display_name, after.channel.name)
+        
         if config.get('notify_voice', True):
             # Verificar cooldown
             if check_cooldown(str(member.id), 'voice'):
@@ -247,6 +328,9 @@ async def on_voice_state_update(member, before, after):
     
     # Salida de canal de voz
     elif before.channel and not after.channel:
+        # Finalizar tracking de tiempo
+        end_voice_session(str(member.id), member.display_name)
+        
         if config.get('notify_voice_leave', False):
             logger.info(f'🔇 Detectado: {member.display_name} salió del canal de voz {before.channel.name}')
             message_template = messages_config.get('voice_leave', "🔇 **{user}** salió del canal de voz **{channel}**")
@@ -648,18 +732,24 @@ async def show_config(ctx):
 
 @bot.command(name='test')
 async def test_notification(ctx):
-    """Envía un mensaje de prueba"""
-    try:
-        await send_notification('🧪 **Mensaje de prueba** - El bot funciona correctamente!')
+    """Envía un mensaje de prueba al canal configurado
+    
+    Ejemplo: !test
+    """
+    channel_id = get_channel_id()
+    if not channel_id:
+        await ctx.send('⚠️ No hay canal configurado. Usa `!setchannel` primero.')
+        return
+    
+    # Solo enviar al canal configurado
+    await send_notification('🧪 **Mensaje de prueba** - El bot funciona correctamente!')
+    
+    # Si el comando se ejecutó en otro canal, confirmar ahí
+    if ctx.channel.id != channel_id:
         try:
-            await ctx.send('✅ Mensaje de prueba enviado!')
+            await ctx.send(f'✅ Mensaje de prueba enviado a <#{channel_id}>')
         except discord.errors.Forbidden:
-            pass
-    except Exception as e:
-        try:
-            await ctx.send(f'❌ Error: {str(e)}')
-        except discord.errors.Forbidden:
-            logger.error(f'⚠️  Error en !test: {e}')
+            logger.error(f'⚠️ No se pudo enviar confirmación en el canal {ctx.channel.name}')
 
 # Importar funciones de visualización
 from stats_viz import (
@@ -1212,7 +1302,182 @@ async def export_stats(ctx, format: str = 'json'):
         logger.error(f'Error al exportar stats: {e}')
         await ctx.send(f'❌ Error al exportar: {str(e)}')
 
-@bot.command(name='help', aliases=['ayuda', 'comandos'])
+@bot.command(name='voicetime')
+async def voice_time_cmd(ctx, member: discord.Member = None, period: str = 'all'):
+    """
+    Muestra el tiempo total en canales de voz
+    
+    Ejemplos:
+    - !voicetime
+    - !voicetime @usuario
+    - !voicetime @usuario week
+    """
+    if member is None:
+        member = ctx.author
+    
+    user_id = str(member.id)
+    user_data = stats.get('users', {}).get(user_id, {})
+    
+    if not user_data:
+        await ctx.send(f'📊 {member.display_name} no tiene estadísticas registradas.')
+        return
+    
+    voice = user_data.get('voice', {})
+    total_minutes = voice.get('total_minutes', 0)
+    daily_minutes = voice.get('daily_minutes', {})
+    
+    # Filtrar por período
+    if period == 'today':
+        today = datetime.now().strftime('%Y-%m-%d')
+        minutes = daily_minutes.get(today, 0)
+        period_label = 'Hoy'
+    elif period == 'week':
+        week_ago = datetime.now() - timedelta(days=7)
+        minutes = sum(
+            mins for date, mins in daily_minutes.items()
+            if datetime.strptime(date, '%Y-%m-%d') >= week_ago
+        )
+        period_label = 'Esta Semana'
+    elif period == 'month':
+        month_ago = datetime.now() - timedelta(days=30)
+        minutes = sum(
+            mins for date, mins in daily_minutes.items()
+            if datetime.strptime(date, '%Y-%m-%d') >= month_ago
+        )
+        period_label = 'Este Mes'
+    else:
+        minutes = total_minutes
+        period_label = 'Total'
+    
+    # Formatear tiempo
+    if minutes < 60:
+        time_str = f'{minutes} min'
+    elif minutes < 1440:  # < 24 horas
+        hours = minutes // 60
+        mins = minutes % 60
+        time_str = f'{hours}h {mins}m'
+    else:
+        days = minutes // 1440
+        hours = (minutes % 1440) // 60
+        time_str = f'{days}d {hours}h'
+    
+    embed = discord.Embed(
+        title=f'🕐 Tiempo en Voz - {member.display_name}',
+        color=discord.Color.blue()
+    )
+    
+    embed.add_field(
+        name=f'⏱️ {period_label}',
+        value=f'**{time_str}** ({minutes} minutos)',
+        inline=False
+    )
+    
+    if period == 'all' and len(daily_minutes) > 0:
+        # Mostrar últimos 7 días
+        recent_days = sorted(daily_minutes.items(), reverse=True)[:7]
+        days_text = []
+        for date, mins in recent_days:
+            date_obj = datetime.strptime(date, '%Y-%m-%d')
+            day_label = date_obj.strftime('%d/%m')
+            if mins < 60:
+                time_label = f'{mins}m'
+            else:
+                hours = mins // 60
+                time_label = f'{hours}h {mins % 60}m'
+            days_text.append(f'`{day_label}` - {time_label}')
+        
+        embed.add_field(
+            name='📅 Últimos 7 Días',
+            value='\n'.join(days_text) if days_text else 'Sin datos',
+            inline=False
+        )
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name='voicetop')
+async def voice_top_time_cmd(ctx, period: str = 'all'):
+    """
+    Ranking de usuarios por tiempo en voz
+    
+    Ejemplos:
+    - !voicetop
+    - !voicetop week
+    - !voicetop month
+    """
+    # Calcular tiempo por usuario según período
+    user_times = []
+    
+    for user_id, user_data in stats.get('users', {}).items():
+        voice = user_data.get('voice', {})
+        daily_minutes = voice.get('daily_minutes', {})
+        username = user_data.get('username', 'Unknown')
+        
+        if period == 'today':
+            today = datetime.now().strftime('%Y-%m-%d')
+            minutes = daily_minutes.get(today, 0)
+        elif period == 'week':
+            week_ago = datetime.now() - timedelta(days=7)
+            minutes = sum(
+                mins for date, mins in daily_minutes.items()
+                if datetime.strptime(date, '%Y-%m-%d') >= week_ago
+            )
+        elif period == 'month':
+            month_ago = datetime.now() - timedelta(days=30)
+            minutes = sum(
+                mins for date, mins in daily_minutes.items()
+                if datetime.strptime(date, '%Y-%m-%d') >= month_ago
+            )
+        else:
+            minutes = voice.get('total_minutes', 0)
+        
+        if minutes > 0:
+            user_times.append((username, minutes))
+    
+    if not user_times:
+        await ctx.send(f'📊 No hay tiempo registrado en voz para {period}.')
+        return
+    
+    # Ordenar por tiempo
+    top_users = sorted(user_times, key=lambda x: x[1], reverse=True)[:10]
+    
+    # Crear gráfico
+    from stats_viz import create_bar_chart
+    chart = create_bar_chart(top_users, max_width=15, title='')
+    
+    period_labels = {
+        'today': 'Hoy',
+        'week': 'Esta Semana',
+        'month': 'Este Mes',
+        'all': 'Histórico'
+    }
+    
+    embed = discord.Embed(
+        title=f'🏆 Top Tiempo en Voz - {period_labels.get(period, "Histórico")}',
+        description=f'```\n{chart}\n```',
+        color=discord.Color.gold()
+    )
+    
+    # Total
+    total_minutes = sum(m for _, m in top_users)
+    if total_minutes < 60:
+        total_str = f'{total_minutes} min'
+    elif total_minutes < 1440:
+        hours = total_minutes // 60
+        total_str = f'{hours}h {total_minutes % 60}m'
+    else:
+        days = total_minutes // 1440
+        hours = (total_minutes % 1440) // 60
+        total_str = f'{days}d {hours}h'
+    
+    embed.add_field(
+        name='⏱️ Total Combinado',
+        value=total_str,
+        inline=False
+    )
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name='bothelp', aliases=['help', 'ayuda', 'comandos'])
 async def show_help(ctx, comando: str = None):
     """
     Muestra la lista de comandos disponibles
@@ -1305,13 +1570,15 @@ async def show_help(ctx, comando: str = None):
         name='🛠️ Utilidades',
         value=(
             '`!export [formato]` - Exportar stats (json/csv)\n'
-            '`!help [comando]` - Ver ayuda detallada'
+            '`!voicetime [@usuario] [período]` - Tiempo en voz\n'
+            '`!voicetop [período]` - Ranking por tiempo en voz\n'
+            '`!bothelp [comando]` - Ver ayuda detallada'
         ),
         inline=False
     )
     
     # Footer con tips
-    embed.set_footer(text='💡 Tip: Usa !help [comando] para más detalles. Ejemplo: !help stats')
+    embed.set_footer(text='💡 Tip: Usa !bothelp [comando] para más detalles. Ejemplo: !bothelp stats')
     
     await ctx.send(embed=embed)
 
