@@ -166,6 +166,7 @@ async def send_notification(message):
     """Envía un mensaje al canal configurado con manejo de errores robusto"""
     channel_id = config.get('channel_id')
     if not channel_id:
+        print('⚠️  ADVERTENCIA: No hay canal configurado. Usa !setchannel para configurarlo.')
         return
     
     try:
@@ -192,11 +193,22 @@ async def send_notification(message):
         print(f'❌ Error al enviar notificación: {e}')
 
 @bot.command(name='setchannel')
-@commands.has_permissions(administrator=True)
+@commands.has_permissions(send_messages=True)
 async def set_channel(ctx, channel: discord.TextChannel = None):
-    """Configura el canal donde se enviarán las notificaciones"""
+    """Configura el canal donde se enviarán las notificaciones
+    
+    Solo requiere permisos para enviar mensajes. Cualquier usuario puede configurar el canal.
+    """
     if channel is None:
         channel = ctx.channel
+    
+    # Verificar que el bot pueda enviar mensajes en ese canal
+    try:
+        test_msg = await channel.send('✅ Verificando permisos...')
+        await test_msg.delete()
+    except discord.errors.Forbidden:
+        await ctx.send(f'❌ El bot no tiene permisos para enviar mensajes en {channel.mention}. Por favor, verifica los permisos del bot en ese canal.')
+        return
     
     config['channel_id'] = channel.id
     
