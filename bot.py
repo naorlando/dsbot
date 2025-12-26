@@ -520,9 +520,26 @@ async def show_stats(ctx, member: discord.Member = None):
         else:
             time_str = 'Desconocido'
         
+        # Formatear tiempo total
+        total_minutes = voice.get('total_minutes', 0)
+        if total_minutes < 60:
+            time_total = f'{total_minutes} min'
+        elif total_minutes < 1440:
+            hours = total_minutes // 60
+            mins = total_minutes % 60
+            time_total = f'{hours}h {mins}m'
+        else:
+            days = total_minutes // 1440
+            hours = (total_minutes % 1440) // 60
+            time_total = f'{days}d {hours}h'
+        
+        voice_text = f'Entradas: **{voice["count"]}** veces\nÚltima vez: {time_str}'
+        if total_minutes > 0:
+            voice_text += f'\n⏱️ Tiempo total: **{time_total}**'
+        
         embed.add_field(
             name='🔊 Voz',
-            value=f'Entradas a canal: **{voice["count"]}** veces\nÚltima vez: {time_str}',
+            value=voice_text,
             inline=False
         )
     
@@ -939,20 +956,30 @@ async def create_overview_embed(filtered_stats: Dict, period_label: str) -> disc
                                for i, (game, count) in enumerate(top_games)])
         embed.add_field(name='🎮 Top 3 Juegos', value=games_text, inline=True)
     
-    # Top 3 usuarios
+    # Top 3 usuarios (con tiempo en voz)
     user_activity = []
     for user_id, user_data in users.items():
         games_count = sum(g['count'] for g in user_data.get('games', {}).values())
         voice_count = user_data.get('voice', {}).get('count', 0)
+        voice_minutes = user_data.get('voice', {}).get('total_minutes', 0)
         total = games_count + voice_count
         if total > 0:
-            user_activity.append((user_data.get('username', 'Unknown'), total))
+            user_activity.append((user_data.get('username', 'Unknown'), total, voice_minutes))
     
     if user_activity:
         top_users = sorted(user_activity, key=lambda x: x[1], reverse=True)[:3]
-        users_text = '\n'.join([f'{i+1}. **{name}**: {count} eventos' 
-                               for i, (name, count) in enumerate(top_users)])
-        embed.add_field(name='👥 Top 3 Usuarios', value=users_text, inline=True)
+        users_text = []
+        for i, (name, count, minutes) in enumerate(top_users):
+            if minutes > 0:
+                if minutes < 60:
+                    time_str = f'{minutes}m'
+                else:
+                    hours = minutes // 60
+                    time_str = f'{hours}h'
+                users_text.append(f'{i+1}. **{name}**: {count} eventos (⏱️ {time_str})')
+            else:
+                users_text.append(f'{i+1}. **{name}**: {count} eventos')
+        embed.add_field(name='👥 Top 3 Usuarios', value='\n'.join(users_text), inline=True)
     
     return embed
 
@@ -995,13 +1022,16 @@ async def create_voice_ranking_embed(filtered_stats: Dict, period_label: str) ->
         color=discord.Color.purple()
     )
     
-    # Recopilar actividad de voz
+    # Recopilar actividad de voz (con tiempo)
     voice_counts = []
+    total_minutes = 0
     for user_data in filtered_stats.get('users', {}).values():
         username = user_data.get('username', 'Unknown')
         count = user_data.get('voice', {}).get('count', 0)
+        minutes = user_data.get('voice', {}).get('total_minutes', 0)
         if count > 0:
             voice_counts.append((username, count))
+            total_minutes += minutes
     
     if not voice_counts:
         embed.description = 'No hay actividad de voz registrada en este período.'
@@ -1014,9 +1044,21 @@ async def create_voice_ranking_embed(filtered_stats: Dict, period_label: str) ->
     chart = create_bar_chart(top_voice, max_width=15)
     
     embed.description = f'```\n{chart}\n```'
+    
+    # Formatear tiempo total
+    if total_minutes < 60:
+        time_str = f'{total_minutes} min'
+    elif total_minutes < 1440:
+        hours = total_minutes // 60
+        time_str = f'{hours}h {total_minutes % 60}m'
+    else:
+        days = total_minutes // 1440
+        hours = (total_minutes % 1440) // 60
+        time_str = f'{days}d {hours}h'
+    
     embed.add_field(
         name='📊 Total',
-        value=f'**{len(voice_counts)}** usuarios activos\n**{sum(c for _, c in voice_counts)}** entradas totales',
+        value=f'**{len(voice_counts)}** usuarios activos\n**{sum(c for _, c in voice_counts)}** entradas totales\n⏱️ Tiempo combinado: **{time_str}**',
         inline=False
     )
     
