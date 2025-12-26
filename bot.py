@@ -202,13 +202,17 @@ async def set_channel(ctx, channel: discord.TextChannel = None):
     if channel is None:
         channel = ctx.channel
     
-    # Verificar que el bot pueda enviar mensajes en ese canal
-    try:
-        test_msg = await channel.send('✅ Verificando permisos...')
-        await test_msg.delete()
-    except discord.errors.Forbidden:
-        await ctx.send(f'❌ El bot no tiene permisos para enviar mensajes en {channel.mention}. Por favor, verifica los permisos del bot en ese canal.')
-        return
+    # Verificar que el bot tenga permisos para enviar mensajes en ese canal
+    bot_member = channel.guild.get_member(bot.user.id)
+    if bot_member:
+        permissions = channel.permissions_for(bot_member)
+        if not permissions.send_messages:
+            try:
+                await ctx.send(f'❌ El bot no tiene permisos para enviar mensajes en {channel.mention}.\n\n**Solución:** Ve a la configuración del canal y asegúrate de que el bot tenga el permiso "Send Messages" habilitado.')
+            except:
+                # Si tampoco puede enviar en el canal actual, solo loguear
+                print(f'⚠️  Bot sin permisos en canal {channel.name} (ID: {channel.id})')
+            return
     
     config['channel_id'] = channel.id
     
