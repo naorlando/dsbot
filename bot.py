@@ -83,6 +83,7 @@ async def on_presence_update(before, after):
         if activity_type_name in config.get('game_activity_types', ['playing', 'streaming', 'watching', 'listening']):
             # Si no tenía actividad antes o es diferente
             if not before_activity or before_activity.name != after_activity.name:
+                print(f'🎮 Detectado: {after.display_name} está {get_activity_verb(activity_type_name)} {after_activity.name}')
                 message_template = config.get('messages', {}).get('game_start', "🎮 **{user}** está {verb} **{activity}**")
                 message = message_template.format(
                     user=after.display_name,
@@ -102,6 +103,7 @@ async def on_voice_state_update(member, before, after):
     # Entrada a canal de voz
     if not before.channel and after.channel:
         if config.get('notify_voice', True):
+            print(f'🔊 Detectado: {member.display_name} entró al canal de voz {after.channel.name}')
             message_template = messages_config.get('voice_join', "🔊 **{user}** entró al canal de voz **{channel}**")
             message = message_template.format(
                 user=member.display_name,
@@ -112,6 +114,7 @@ async def on_voice_state_update(member, before, after):
     # Salida de canal de voz
     elif before.channel and not after.channel:
         if config.get('notify_voice_leave', False):
+            print(f'🔇 Detectado: {member.display_name} salió del canal de voz {before.channel.name}')
             message_template = messages_config.get('voice_leave', "🔇 **{user}** salió del canal de voz **{channel}**")
             message = message_template.format(
                 user=member.display_name,
@@ -122,6 +125,7 @@ async def on_voice_state_update(member, before, after):
     # Cambio de canal de voz
     elif before.channel and after.channel and before.channel != after.channel:
         if config.get('notify_voice_move', True):
+            print(f'🔄 Detectado: {member.display_name} cambió de {before.channel.name} a {after.channel.name}')
             message_template = messages_config.get('voice_move', "🔄 **{user}** cambió de **{old_channel}** a **{new_channel}**")
             message = message_template.format(
                 user=member.display_name,
@@ -137,6 +141,7 @@ async def on_member_join(member):
         return
     
     if config.get('notify_member_join', False):
+        print(f'👋 Detectado: {member.display_name} se unió al servidor')
         message_template = config.get('messages', {}).get('member_join', "👋 **{user}** se unió al servidor")
         message = message_template.format(user=member.display_name)
         await send_notification(message)
@@ -148,6 +153,7 @@ async def on_member_remove(member):
         return
     
     if config.get('notify_member_leave', False):
+        print(f'👋 Detectado: {member.display_name} dejó el servidor')
         message_template = config.get('messages', {}).get('member_leave', "👋 **{user}** dejó el servidor")
         message = message_template.format(user=member.display_name)
         await send_notification(message)
@@ -173,6 +179,7 @@ async def send_notification(message):
         channel = bot.get_channel(channel_id)
         if channel:
             await channel.send(message)
+            print(f'✅ Notificación enviada: {message[:50]}...')
         else:
             print(f'⚠️  No se encontró el canal con ID {channel_id}')
     except discord.errors.HTTPException as e:
@@ -513,8 +520,21 @@ async def set_message(ctx, message_type: str = None, *, message_template: str = 
 @bot.command(name='test')
 async def test_notification(ctx):
     """Envía un mensaje de prueba al canal configurado"""
-    await send_notification('🧪 **Mensaje de prueba** - El bot está funcionando correctamente!')
-    await ctx.send('✅ Mensaje de prueba enviado!')
+    try:
+        await send_notification('🧪 **Mensaje de prueba** - El bot está funcionando correctamente!')
+        # Intentar enviar confirmación, pero si no hay permisos, no fallar
+        try:
+            await ctx.send('✅ Mensaje de prueba enviado!')
+        except discord.errors.Forbidden:
+            # El bot no tiene permisos para responder en este canal, pero el mensaje de prueba se envió
+            pass
+    except Exception as e:
+        # Si hay error al enviar la notificación, intentar informar al usuario
+        try:
+            await ctx.send(f'❌ Error al enviar mensaje de prueba: {str(e)}')
+        except discord.errors.Forbidden:
+            # Si tampoco puede enviar el error, solo loguear
+            print(f'⚠️  Error en !test: {e} (sin permisos para responder)')
 
 # Ejecutar el bot
 if __name__ == '__main__':
