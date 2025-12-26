@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
+from typing import Dict
 
 # Cargar variables de entorno
 load_dotenv()
