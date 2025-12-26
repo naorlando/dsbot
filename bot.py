@@ -196,7 +196,7 @@ async def send_notification(message):
 async def set_channel(ctx, channel: discord.TextChannel = None):
     """Configura el canal donde se enviarán las notificaciones
     
-    Solo requiere permisos para enviar mensajes. Cualquier usuario puede configurar el canal.
+    Ejemplo: !setchannel o !setchannel #canal
     """
     if channel is None:
         channel = ctx.channel
@@ -220,6 +220,28 @@ async def set_channel(ctx, channel: discord.TextChannel = None):
         json.dump(config, f, indent=4, ensure_ascii=False)
     
     await ctx.send(f'✅ Canal de notificaciones configurado: {channel.mention}')
+
+@bot.command(name='unsetchannel', aliases=['removechannel', 'clearchannel'])
+async def unset_channel(ctx):
+    """Desconfigura el canal de notificaciones (deja de enviar notificaciones)
+    
+    Ejemplo: !unsetchannel
+    """
+    if config.get('channel_id') is None:
+        await ctx.send('ℹ️ No hay canal configurado actualmente.')
+        return
+    
+    old_channel_id = config['channel_id']
+    old_channel = bot.get_channel(old_channel_id)
+    channel_name = old_channel.name if old_channel else f'ID: {old_channel_id}'
+    
+    config['channel_id'] = None
+    
+    # Guardar configuración
+    with open('config.json', 'w', encoding='utf-8') as f:
+        json.dump(config, f, indent=4, ensure_ascii=False)
+    
+    await ctx.send(f'✅ Canal de notificaciones desconfigurado. Ya no se enviarán notificaciones al canal `#{channel_name}`.')
 
 # Clase para los botones de toggle
 class ToggleView(discord.ui.View):
