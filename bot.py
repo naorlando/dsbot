@@ -224,5 +224,37 @@ if __name__ == '__main__':
         print('Por favor, crea un archivo .env con: DISCORD_BOT_TOKEN=tu_token_aqui')
         exit(1)
     
-    bot.run(token)
+    # Configurar reconexión con delays para evitar rate limiting
+    import asyncio
+    
+    async def run_bot():
+        max_retries = 5
+        retry_delay = 30  # segundos
+        
+        for attempt in range(max_retries):
+            try:
+                await bot.start(token)
+            except discord.errors.HTTPException as e:
+                if e.status == 429:  # Rate limited
+                    print(f'⚠️  Rate limited. Esperando {retry_delay} segundos antes de reintentar...')
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    raise
+            except Exception as e:
+                print(f'❌ Error: {e}')
+                if attempt < max_retries - 1:
+                    print(f'Reintentando en {retry_delay} segundos...')
+                    await asyncio.sleep(retry_delay)
+                else:
+                    raise
+    
+    # Usar run con reconexión automática
+    try:
+        bot.run(token, reconnect=True)
+    except KeyboardInterrupt:
+        print('\n🛑 Bot detenido por el usuario')
+    except Exception as e:
+        print(f'❌ Error fatal: {e}')
+        exit(1)
 
