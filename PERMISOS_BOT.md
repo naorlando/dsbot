@@ -21,7 +21,7 @@ Ve a **"OAuth2"** → **"URL Generator"**
 
 #### Scopes (Alcances):
 - ✅ **bot** - Permite que sea un bot
-- ✅ **applications.commands** - Para comandos slash (opcional, pero recomendado)
+- ✅ **applications.commands** - Para comandos slash y componentes interactivos (opcional, pero recomendado)
 
 #### Bot Permissions (Permisos del Bot):
 
@@ -35,9 +35,12 @@ Ve a **"OAuth2"** → **"URL Generator"**
 - ✅ **View Channel** (ya incluido arriba)
 
 **Permisos Opcionales (Recomendados):**
-- ✅ **Embed Links** (`EMBED_LINKS`) - Para mensajes con embeds
+- ✅ **Embed Links** (`EMBED_LINKS`) - Para mensajes con embeds (necesario para los menús interactivos)
 - ✅ **Attach Files** (`ATTACH_FILES`) - Adjuntar archivos (si lo necesitas)
 - ✅ **Use External Emojis** (`USE_EXTERNAL_EMOJIS`) - Usar emojis externos
+
+**Nota sobre Componentes Interactivos:**
+Los botones, select menus y modales funcionan con los permisos básicos. No se necesitan permisos adicionales específicos para estas funcionalidades.
 
 **Permisos de Administración (Solo si necesitas comandos admin):**
 - ⚠️ **Manage Messages** (`MANAGE_MESSAGES`) - Solo si necesitas borrar mensajes

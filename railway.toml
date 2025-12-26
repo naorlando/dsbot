@@ -1,0 +1,11 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "python bot.py"
+
+# Volume persistente para datos
+# 500 MB gratis en Railway
+[[mounts]]
+mount_path = "/data"
+
