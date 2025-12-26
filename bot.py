@@ -143,6 +143,31 @@ def record_game_event(user_id, username, game_name):
     
     logger.info(f'📊 Stats: {username} jugó {game_name} ({stats["users"][user_id]["games"][game_name]["count"]} veces)')
 
+def record_message_event(user_id, username, message_length):
+    """Registra un mensaje en las estadísticas"""
+    if user_id not in stats['users']:
+        stats['users'][user_id] = {
+            'username': username,
+            'games': {},
+            'voice': {'count': 0, 'last_join': None, 'total_minutes': 0, 'daily_minutes': {}},
+            'messages': {'count': 0, 'characters': 0, 'last_message': None}
+        }
+    
+    # Asegurar que existe la estructura de mensajes
+    if 'messages' not in stats['users'][user_id]:
+        stats['users'][user_id]['messages'] = {'count': 0, 'characters': 0, 'last_message': None}
+    
+    stats['users'][user_id]['messages']['count'] += 1
+    stats['users'][user_id]['messages']['characters'] += message_length
+    stats['users'][user_id]['messages']['last_message'] = datetime.now().isoformat()
+    stats['users'][user_id]['username'] = username
+    
+    save_stats()
+    
+    # Log solo cada 10 mensajes para no spamear logs
+    if stats['users'][user_id]['messages']['count'] % 10 == 0:
+        logger.debug(f'📊 Stats: {username} - {stats["users"][user_id]["messages"]["count"]} mensajes, {stats["users"][user_id]["messages"]["characters"]} chars')
+
 def start_game_session(user_id, username, game_name):
     """Inicia una sesión de juego para tracking de tiempo"""
     if user_id not in stats['users']:
@@ -463,6 +488,29 @@ async def on_voice_state_update(member, before, after):
                 await send_notification(message)
 
 @bot.event
+async def on_message(message):
+    """Detecta mensajes para tracking de estadísticas"""
+    # Ignorar mensajes del bot mismo
+    if message.author == bot.user:
+        return
+    
+    # Ignorar bots si está configurado
+    if config.get('ignore_bots', True) and message.author.bot:
+        return
+    
+    # Trackear mensaje (sin notificar, solo stats)
+    user_id = str(message.author.id)
+    username = message.author.display_name
+    message_length = len(message.content)
+    
+    # Solo trackear si el mensaje tiene contenido
+    if message_length > 0:
+        record_message_event(user_id, username, message_length)
+    
+    # Procesar comandos
+    await bot.process_commands(message)
+
+@bot.event
 async def on_member_join(member):
     """Detecta cuando un miembro se une al servidor"""
     if config.get('ignore_bots', True) and member.bot:
@@ -645,6 +693,30 @@ async def show_stats(ctx, member: discord.Member = None):
             inline=False
         )
     
+    # Estadísticas de mensajes
+    messages = user_stats.get('messages', {})
+    if messages.get('count', 0) > 0:
+        msg_count = messages['count']
+        msg_chars = messages.get('characters', 0)
+        
+        # Calcular promedio de caracteres por mensaje
+        avg_chars = msg_chars // msg_count if msg_count > 0 else 0
+        
+        # Estimar palabras (promedio ~5 chars por palabra)
+        estimated_words = msg_chars // 5
+        
+        messages_text = (
+            f'Total: **{msg_count:,}** mensajes\n'
+            f'Caracteres: **{msg_chars:,}** (~{estimated_words:,} palabras)\n'
+            f'Promedio: **{avg_chars}** chars/mensaje'
+        )
+        
+        embed.add_field(
+            name='💬 Mensajes',
+            value=messages_text,
+            inline=False
+        )
+    
     await ctx.send(embed=embed)
 
 @bot.command(name='topgames')
@@ -678,6 +750,51 @@ async def top_games(ctx, limit: int = 5):
     for i, (game, data) in enumerate(top, 1):
         medal = ['🥇', '🥈', '🥉'][i-1] if i <= 3 else f'{i}.'
         lines.append(f'{medal} **{game}**: ⏱️ {format_time(data["minutes"])} ({data["count"]} sesiones)')
+    
+    embed.description = '\n'.join(lines)
+    await ctx.send(embed=embed)
+
+@bot.command(name='topmessages')
+async def top_messages(ctx, limit: int = 5):
+    """Muestra los usuarios más activos en mensajes
+    
+    Ejemplo: !topmessages o !topmessages 10
+    """
+    # Recopilar mensajes por usuario
+    message_activity = []
+    for user_id, user_data in stats['users'].items():
+        messages_data = user_data.get('messages', {})
+        msg_count = messages_data.get('count', 0)
+        msg_chars = messages_data.get('characters', 0)
+        
+        if msg_count > 0:
+            message_activity.append({
+                'username': user_data.get('username', 'Usuario Desconocido'),
+                'count': msg_count,
+                'characters': msg_chars
+            })
+    
+    if not message_activity:
+        await ctx.send('📊 No hay mensajes registrados aún.')
+        return
+    
+    # Ordenar por cantidad de mensajes y limitar
+    top = sorted(message_activity, key=lambda x: x['count'], reverse=True)[:limit]
+    
+    embed = discord.Embed(
+        title=f'🏆 Top {len(top)} Usuarios Más Activos en Chat',
+        color=discord.Color.teal()
+    )
+    
+    lines = []
+    for i, user in enumerate(top, 1):
+        medal = ['🥇', '🥈', '🥉'][i-1] if i <= 3 else f'{i}.'
+        avg_chars = user['characters'] // user['count'] if user['count'] > 0 else 0
+        estimated_words = user['characters'] // 5
+        lines.append(
+            f'{medal} **{user["username"]}**: {user["count"]:,} mensajes\n'
+            f'   💬 ~{estimated_words:,} palabras | {avg_chars} chars/msg promedio'
+        )
     
     embed.description = '\n'.join(lines)
     await ctx.send(embed=embed)
@@ -932,6 +1049,12 @@ class StatsSelect(discord.ui.Select):
                 value='voice'
             ),
             discord.SelectOption(
+                label='Ranking Mensajes',
+                description='Usuarios más activos en chat',
+                emoji='💬',
+                value='messages'
+            ),
+            discord.SelectOption(
                 label='Ranking Usuarios',
                 description='Actividad total por usuario',
                 emoji='👥',
@@ -969,6 +1092,10 @@ class StatsSelect(discord.ui.Select):
         
         elif view_type == 'voice':
             embed = await create_voice_ranking_embed(filtered_stats, period_label)
+            await interaction.response.edit_message(embed=embed, view=self.view)
+        
+        elif view_type == 'messages':
+            embed = await create_messages_ranking_embed(filtered_stats, period_label)
             await interaction.response.edit_message(embed=embed, view=self.view)
         
         elif view_type == 'users':
@@ -1029,11 +1156,13 @@ async def create_overview_embed(filtered_stats: Dict, period_label: str) -> disc
     users = filtered_stats.get('users', {})
     total_users = len(users)
     
-    # Contar totales (con tiempo)
+    # Contar totales (con tiempo y mensajes)
     total_games = 0
     total_voice = 0
     total_game_minutes = 0
     total_voice_minutes = 0
+    total_messages = 0
+    total_characters = 0
     unique_games = set()
     
     for user_data in users.values():
@@ -1044,17 +1173,28 @@ async def create_overview_embed(filtered_stats: Dict, period_label: str) -> disc
         voice_data = user_data.get('voice', {})
         total_voice += voice_data.get('count', 0)
         total_voice_minutes += voice_data.get('total_minutes', 0)
+        
+        messages_data = user_data.get('messages', {})
+        total_messages += messages_data.get('count', 0)
+        total_characters += messages_data.get('characters', 0)
     
-    # Resumen con tiempo
+    # Resumen con tiempo y mensajes
+    resumen_lines = [
+        f'**Usuarios activos:** {total_users}',
+        f'**Sesiones de juego:** {total_games} (⏱️ {format_time(total_game_minutes)})',
+        f'**Juegos únicos:** {len(unique_games)}',
+        f'**Entradas a voz:** {total_voice} (⏱️ {format_time(total_voice_minutes)})',
+    ]
+    
+    if total_messages > 0:
+        estimated_words = total_characters // 5
+        resumen_lines.append(f'**Mensajes:** {total_messages:,} (~{estimated_words:,} palabras)')
+    
+    resumen_lines.append(f'**Tiempo total:** ⏱️ {format_time(total_game_minutes + total_voice_minutes)}')
+    
     embed.add_field(
         name='📈 Resumen',
-        value=(
-            f'**Usuarios activos:** {total_users}\n'
-            f'**Sesiones de juego:** {total_games} (⏱️ {format_time(total_game_minutes)})\n'
-            f'**Juegos únicos:** {len(unique_games)}\n'
-            f'**Entradas a voz:** {total_voice} (⏱️ {format_time(total_voice_minutes)})\n'
-            f'**Tiempo total:** ⏱️ {format_time(total_game_minutes + total_voice_minutes)}'
-        ),
+        value='\n'.join(resumen_lines),
         inline=False
     )
     
@@ -1202,12 +1342,13 @@ async def create_users_ranking_embed(filtered_stats: Dict, period_label: str) ->
         color=discord.Color.green()
     )
     
-    # Calcular actividad total por usuario CON TIEMPO
+    # Calcular actividad total por usuario CON TIEMPO Y MENSAJES
     user_activity = []
     for user_data in filtered_stats.get('users', {}).values():
         username = user_data.get('username', 'Unknown')
         games_count = sum(g['count'] for g in user_data.get('games', {}).values())
         voice_count = user_data.get('voice', {}).get('count', 0)
+        messages_count = user_data.get('messages', {}).get('count', 0)
         
         # Tiempo total = juegos + voz
         game_minutes = sum(g.get('total_minutes', 0) for g in user_data.get('games', {}).values())
@@ -1215,8 +1356,8 @@ async def create_users_ranking_embed(filtered_stats: Dict, period_label: str) ->
         total_minutes = game_minutes + voice_minutes
         total_sessions = games_count + voice_count
         
-        if total_sessions > 0:
-            user_activity.append((username, total_minutes, total_sessions, games_count, voice_count))
+        if total_sessions > 0 or messages_count > 0:
+            user_activity.append((username, total_minutes, total_sessions, games_count, voice_count, messages_count))
     
     if not user_activity:
         embed.description = 'No hay actividad registrada en este período.'
@@ -1226,21 +1367,86 @@ async def create_users_ranking_embed(filtered_stats: Dict, period_label: str) ->
     top_users = sorted(user_activity, key=lambda x: x[1], reverse=True)[:8]
     
     # Crear gráfico ASCII con TIEMPO
-    chart_data = [(name, minutes) for name, minutes, _, _, _ in top_users]
+    chart_data = [(name, minutes) for name, minutes, _, _, _, _ in top_users]
+    chart = create_bar_chart(chart_data, max_width=15)
+    
+    embed.description = f'```\n{chart}\n```'
+    
+    # Detalles (incluir mensajes si hay)
+    details = []
+    for i, (name, minutes, total, games, voice, messages) in enumerate(top_users[:5], 1):
+        medal = ['🥇', '🥈', '🥉'][i-1] if i <= 3 else f'{i}.'
+        detail_line = f'{medal} **{name}**: ⏱️ {format_time(minutes)} '
+        detail_line += f'({total} sesiones: 🎮 {games} | 🔊 {voice}'
+        if messages > 0:
+            detail_line += f' | 💬 {messages:,}'
+        detail_line += ')'
+        details.append(detail_line)
+    
+    embed.add_field(name='📋 Detalle Top 5', value='\n'.join(details), inline=False)
+    
+    return embed
+
+async def create_messages_ranking_embed(filtered_stats: Dict, period_label: str) -> discord.Embed:
+    """Crea embed con ranking de mensajes"""
+    embed = discord.Embed(
+        title=f'💬 Ranking de Mensajes - {period_label}',
+        color=discord.Color.teal()
+    )
+    
+    # Recopilar mensajes por usuario
+    message_stats = []
+    total_messages = 0
+    total_chars = 0
+    
+    for user_data in filtered_stats.get('users', {}).values():
+        username = user_data.get('username', 'Unknown')
+        messages_data = user_data.get('messages', {})
+        msg_count = messages_data.get('count', 0)
+        msg_chars = messages_data.get('characters', 0)
+        
+        if msg_count > 0:
+            message_stats.append((username, msg_count, msg_chars))
+            total_messages += msg_count
+            total_chars += msg_chars
+    
+    if not message_stats:
+        embed.description = 'No hay mensajes registrados en este período.'
+        return embed
+    
+    # Ordenar por cantidad de mensajes
+    top_messages = sorted(message_stats, key=lambda x: x[1], reverse=True)[:8]
+    
+    # Crear gráfico ASCII
+    chart_data = [(name, count) for name, count, _ in top_messages]
     chart = create_bar_chart(chart_data, max_width=15)
     
     embed.description = f'```\n{chart}\n```'
     
     # Detalles
     details = []
-    for i, (name, minutes, total, games, voice) in enumerate(top_users[:5], 1):
+    for i, (name, count, chars) in enumerate(top_messages[:5], 1):
         medal = ['🥇', '🥈', '🥉'][i-1] if i <= 3 else f'{i}.'
+        avg = chars // count if count > 0 else 0
+        estimated_words = chars // 5
         details.append(
-            f'{medal} **{name}**: ⏱️ {format_time(minutes)} '
-            f'({total} sesiones: 🎮 {games} | 🔊 {voice})'
+            f'{medal} **{name}**: {count:,} mensajes '
+            f'({estimated_words:,} palabras, ~{avg} chars/msg)'
         )
     
     embed.add_field(name='📋 Detalle Top 5', value='\n'.join(details), inline=False)
+    
+    # Total
+    estimated_total_words = total_chars // 5
+    embed.add_field(
+        name='📊 Total',
+        value=(
+            f'**{len(message_stats)}** usuarios activos\n'
+            f'**{total_messages:,}** mensajes\n'
+            f'**{estimated_total_words:,}** palabras aprox.'
+        ),
+        inline=False
+    )
     
     return embed
 

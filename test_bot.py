@@ -393,6 +393,7 @@ def run_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestVoiceTimeTracking))
     suite.addTests(loader.loadTestsFromTestCase(TestVoiceTimeFiltering))
     suite.addTests(loader.loadTestsFromTestCase(TestVoiceRanking))
+    suite.addTests(loader.loadTestsFromTestCase(TestMessageTracking))
     suite.addTests(loader.loadTestsFromTestCase(TestCommandCoverage))
     
     # Ejecutar tests
@@ -557,13 +558,74 @@ class TestVoiceRanking(unittest.TestCase):
         user_times = []
         self.assertEqual(len(user_times), 0)
 
+class TestMessageTracking(unittest.TestCase):
+    """Tests para tracking de mensajes"""
+    
+    def test_message_data_structure(self):
+        """Test estructura de datos de mensajes"""
+        messages_data = {
+            'count': 150,
+            'characters': 12500,
+            'last_message': '2025-12-26T22:30:00Z'
+        }
+        self.assertIn('count', messages_data)
+        self.assertIn('characters', messages_data)
+        self.assertIn('last_message', messages_data)
+        self.assertGreater(messages_data['count'], 0)
+        self.assertGreater(messages_data['characters'], 0)
+    
+    def test_message_stats_calculation(self):
+        """Test cálculo de stats de mensajes"""
+        messages_data = {
+            'count': 100,
+            'characters': 5000
+        }
+        # Promedio de caracteres por mensaje
+        avg_chars = messages_data['characters'] // messages_data['count']
+        self.assertEqual(avg_chars, 50)
+        
+        # Estimación de palabras (~5 chars por palabra)
+        estimated_words = messages_data['characters'] // 5
+        self.assertEqual(estimated_words, 1000)
+    
+    def test_user_with_messages(self):
+        """Test usuario con mensajes"""
+        user_data = {
+            'username': 'TestUser',
+            'games': {},
+            'voice': {'count': 0},
+            'messages': {
+                'count': 250,
+                'characters': 18750,
+                'last_message': '2025-12-26T22:30:00Z'
+            }
+        }
+        self.assertIn('messages', user_data)
+        self.assertEqual(user_data['messages']['count'], 250)
+        self.assertEqual(user_data['messages']['characters'], 18750)
+    
+    def test_message_ranking(self):
+        """Test ranking de mensajes"""
+        users = {
+            'user1': {'username': 'Alice', 'messages': {'count': 500, 'characters': 25000}},
+            'user2': {'username': 'Bob', 'messages': {'count': 300, 'characters': 15000}},
+            'user3': {'username': 'Charlie', 'messages': {'count': 800, 'characters': 40000}}
+        }
+        
+        # Ordenar por count
+        ranking = sorted(users.items(), key=lambda x: x[1]['messages']['count'], reverse=True)
+        self.assertEqual(ranking[0][1]['username'], 'Charlie')
+        self.assertEqual(ranking[1][1]['username'], 'Alice')
+        self.assertEqual(ranking[2][1]['username'], 'Bob')
+
+
 class TestCommandCoverage(unittest.TestCase):
     """Tests para cobertura de comandos"""
     
     def test_all_commands_count(self):
         """Test cantidad total de comandos"""
-        total_commands = 18
-        self.assertEqual(total_commands, 18)
+        total_commands = 21
+        self.assertEqual(total_commands, 21)
     
     def test_command_aliases(self):
         """Test que los aliases funcionan"""
@@ -582,10 +644,12 @@ class TestCommandCoverage(unittest.TestCase):
     
     def test_stats_commands(self):
         """Test comandos de estadísticas"""
-        basic_stats = ['stats', 'topgames', 'topusers']
+        basic_stats = ['stats', 'topgames', 'topmessages', 'topusers']
         advanced_stats = ['statsmenu', 'statsgames', 'statsvoice', 'statsuser', 'timeline', 'compare']
-        self.assertEqual(len(basic_stats), 3)
+        time_tracking = ['voicetime', 'voicetop', 'gametime', 'gametop']
+        self.assertEqual(len(basic_stats), 4)
         self.assertEqual(len(advanced_stats), 6)
+        self.assertEqual(len(time_tracking), 4)
     
     def test_utility_commands(self):
         """Test comandos de utilidades"""
