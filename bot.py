@@ -61,11 +61,18 @@ async def on_ready():
 @bot.event
 async def on_presence_update(before, after):
     """Detecta cuando alguien cambia su presencia (juegos, streaming, etc.)"""
+    # Debug: Log todos los cambios de presencia para diagnosticar
+    print(f'🔍 DEBUG: on_presence_update - Usuario: {after.display_name}, Bot: {after.bot}')
+    print(f'   Before activity: {before.activity} (type: {before.activity.type if before.activity else None})')
+    print(f'   After activity: {after.activity} (type: {after.activity.type if after.activity else None})')
+    
     if not config.get('notify_games', True):
+        print(f'   ⚠️  Notificaciones de juegos DESACTIVADAS')
         return
     
     # Ignorar bots si está configurado
     if config.get('ignore_bots', True) and after.bot:
+        print(f'   ⚠️  Ignorando porque es un bot')
         return
     
     # Obtener actividades anteriores y nuevas
@@ -79,8 +86,10 @@ async def on_presence_update(before, after):
                                                    discord.ActivityType.listening]:
         # Verificar si es una actividad nueva o diferente
         activity_type_name = after_activity.type.name.lower()
+        print(f'   ✅ Actividad detectada: {activity_type_name} - {after_activity.name}')
         
         if activity_type_name in config.get('game_activity_types', ['playing', 'streaming', 'watching', 'listening']):
+            print(f'   ✅ Tipo de actividad está en la lista permitida')
             # Si no tenía actividad antes o es diferente
             if not before_activity or before_activity.name != after_activity.name:
                 print(f'🎮 Detectado: {after.display_name} está {get_activity_verb(activity_type_name)} {after_activity.name}')
@@ -91,6 +100,12 @@ async def on_presence_update(before, after):
                     activity=after_activity.name
                 )
                 await send_notification(message)
+            else:
+                print(f'   ⚠️  Actividad no cambió (mismo juego)')
+        else:
+            print(f'   ⚠️  Tipo de actividad NO está en la lista permitida: {activity_type_name}')
+    else:
+        print(f'   ⚠️  No hay actividad o tipo no reconocido')
 
 @bot.event
 async def on_voice_state_update(member, before, after):
