@@ -16,8 +16,36 @@ sys.path.insert(0, str(Path(__file__).parent))
 # Importar módulos a testear
 from stats_viz import (
     create_bar_chart, create_timeline_chart, create_comparison_chart,
-    filter_by_period, get_period_label, calculate_daily_activity
+    filter_by_period, get_period_label, calculate_daily_activity,
+    format_time
 )
+
+
+
+class TestFormatTime(unittest.TestCase):
+    """Tests para la función format_time()"""
+    
+    def test_format_minutes(self):
+        """Test con minutos < 60"""
+        self.assertEqual(format_time(0), '0m')
+        self.assertEqual(format_time(30), '30m')
+        self.assertEqual(format_time(59), '59m')
+    
+    def test_format_hours(self):
+        """Test con horas (60-1439 minutos)"""
+        self.assertEqual(format_time(60), '1h')
+        self.assertEqual(format_time(90), '1h 30m')
+        self.assertEqual(format_time(120), '2h')
+        self.assertEqual(format_time(125), '2h 5m')
+        self.assertEqual(format_time(1439), '23h 59m')
+    
+    def test_format_days(self):
+        """Test con días (>= 1440 minutos)"""
+        self.assertEqual(format_time(1440), '1d')
+        self.assertEqual(format_time(1500), '1d 1h')
+        self.assertEqual(format_time(2880), '2d')
+        self.assertEqual(format_time(2940), '2d 1h')
+        self.assertEqual(format_time(10000), '6d 22h')
 
 
 class TestBarChart(unittest.TestCase):
@@ -353,6 +381,7 @@ def run_tests():
     suite = unittest.TestSuite()
     
     # Agregar todos los tests
+    suite.addTests(loader.loadTestsFromTestCase(TestFormatTime))
     suite.addTests(loader.loadTestsFromTestCase(TestBarChart))
     suite.addTests(loader.loadTestsFromTestCase(TestTimelineChart))
     suite.addTests(loader.loadTestsFromTestCase(TestComparisonChart))

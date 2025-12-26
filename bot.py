@@ -597,15 +597,21 @@ async def show_stats(ctx, member: discord.Member = None):
         color=discord.Color.blue()
     )
     
-    # Estadísticas de juegos
+    # Estadísticas de juegos (ORDENAR POR TIEMPO)
     games = user_stats.get('games', {})
     if games:
         game_lines = []
-        for game, data in sorted(games.items(), key=lambda x: x[1]['count'], reverse=True)[:5]:
-            game_lines.append(f'• {game}: **{data["count"]}** veces')
+        # Ordenar por tiempo de juego
+        for game, data in sorted(games.items(), key=lambda x: x[1].get('total_minutes', 0), reverse=True)[:5]:
+            minutes = data.get('total_minutes', 0)
+            count = data.get('count', 0)
+            game_lines.append(f'• {game}: ⏱️ **{format_time(minutes)}** ({count} sesiones)')
+        
+        # Total de tiempo de juegos
+        total_game_minutes = sum(g.get('total_minutes', 0) for g in games.values())
         embed.add_field(
             name='🎮 Juegos',
-            value='\n'.join(game_lines) + f'\n\n**Total juegos:** {len(games)}',
+            value='\n'.join(game_lines) + f'\n\n**Total:** {len(games)} juegos (⏱️ {format_time(total_game_minutes)})',
             inline=False
         )
     
@@ -628,22 +634,10 @@ async def show_stats(ctx, member: discord.Member = None):
         else:
             time_str = 'Desconocido'
         
-        # Formatear tiempo total
+        # Formatear tiempo total (usar helper)
         total_minutes = voice.get('total_minutes', 0)
-        if total_minutes < 60:
-            time_total = f'{total_minutes} min'
-        elif total_minutes < 1440:
-            hours = total_minutes // 60
-            mins = total_minutes % 60
-            time_total = f'{hours}h {mins}m'
-        else:
-            days = total_minutes // 1440
-            hours = (total_minutes % 1440) // 60
-            time_total = f'{days}d {hours}h'
         
-        voice_text = f'Entradas: **{voice["count"]}** veces\nÚltima vez: {time_str}'
-        if total_minutes > 0:
-            voice_text += f'\n⏱️ Tiempo total: **{time_total}**'
+        voice_text = f'⏱️ Tiempo total: **{format_time(total_minutes)}**\nEntradas: **{voice["count"]}** sesiones\nÚltima vez: {time_str}'
         
         embed.add_field(
             name='🔊 Voz',
@@ -655,24 +649,25 @@ async def show_stats(ctx, member: discord.Member = None):
 
 @bot.command(name='topgames')
 async def top_games(ctx, limit: int = 5):
-    """Muestra los juegos más jugados
+    """Muestra los juegos más jugados (ordenado por TIEMPO)
     
     Ejemplo: !topgames o !topgames 10
     """
-    # Recopilar todos los juegos
-    game_counts = {}
+    # Recopilar todos los juegos CON TIEMPO
+    game_stats = {}
     for user_data in stats['users'].values():
         for game, data in user_data.get('games', {}).items():
-            if game not in game_counts:
-                game_counts[game] = 0
-            game_counts[game] += data['count']
+            if game not in game_stats:
+                game_stats[game] = {'minutes': 0, 'count': 0}
+            game_stats[game]['minutes'] += data.get('total_minutes', 0)
+            game_stats[game]['count'] += data.get('count', 0)
     
-    if not game_counts:
+    if not game_stats:
         await ctx.send('📊 No hay juegos registrados aún.')
         return
     
-    # Ordenar y limitar
-    top = sorted(game_counts.items(), key=lambda x: x[1], reverse=True)[:limit]
+    # Ordenar por TIEMPO y limitar
+    top = sorted(game_stats.items(), key=lambda x: x[1]['minutes'], reverse=True)[:limit]
     
     embed = discord.Embed(
         title=f'🏆 Top {len(top)} Juegos Más Jugados',
@@ -680,40 +675,46 @@ async def top_games(ctx, limit: int = 5):
     )
     
     lines = []
-    for i, (game, count) in enumerate(top, 1):
+    for i, (game, data) in enumerate(top, 1):
         medal = ['🥇', '🥈', '🥉'][i-1] if i <= 3 else f'{i}.'
-        lines.append(f'{medal} **{game}**: {count} veces')
+        lines.append(f'{medal} **{game}**: ⏱️ {format_time(data["minutes"])} ({data["count"]} sesiones)')
     
     embed.description = '\n'.join(lines)
     await ctx.send(embed=embed)
 
 @bot.command(name='topusers')
 async def top_users(ctx, limit: int = 5):
-    """Muestra los usuarios más activos
+    """Muestra los usuarios más activos (ordenado por TIEMPO TOTAL)
     
     Ejemplo: !topusers o !topusers 10
     """
-    # Calcular actividad total por usuario
+    # Calcular actividad total por usuario CON TIEMPO
     user_activity = []
     for user_id, user_data in stats['users'].items():
         games_count = sum(game['count'] for game in user_data.get('games', {}).values())
         voice_count = user_data.get('voice', {}).get('count', 0)
-        total = games_count + voice_count
         
-        if total > 0:
+        # Tiempo total = juegos + voz
+        game_minutes = sum(g.get('total_minutes', 0) for g in user_data.get('games', {}).values())
+        voice_minutes = user_data.get('voice', {}).get('total_minutes', 0)
+        total_minutes = game_minutes + voice_minutes
+        total_sessions = games_count + voice_count
+        
+        if total_sessions > 0:
             user_activity.append({
                 'username': user_data.get('username', 'Usuario Desconocido'),
                 'games': games_count,
                 'voice': voice_count,
-                'total': total
+                'minutes': total_minutes,
+                'total': total_sessions
             })
     
     if not user_activity:
         await ctx.send('📊 No hay actividad registrada aún.')
         return
     
-    # Ordenar y limitar
-    top = sorted(user_activity, key=lambda x: x['total'], reverse=True)[:limit]
+    # Ordenar por TIEMPO TOTAL y limitar
+    top = sorted(user_activity, key=lambda x: x['minutes'], reverse=True)[:limit]
     
     embed = discord.Embed(
         title=f'🏆 Top {len(top)} Usuarios Más Activos',
@@ -724,8 +725,8 @@ async def top_users(ctx, limit: int = 5):
     for i, user in enumerate(top, 1):
         medal = ['🥇', '🥈', '🥉'][i-1] if i <= 3 else f'{i}.'
         lines.append(
-            f'{medal} **{user["username"]}**: {user["total"]} eventos\n'
-            f'   🎮 {user["games"]} juegos | 🔊 {user["voice"]} voz'
+            f'{medal} **{user["username"]}**: ⏱️ {format_time(user["minutes"])}\n'
+            f'   🎮 {user["games"]} juegos | 🔊 {user["voice"]} voz | {user["total"]} sesiones totales'
         )
     
     embed.description = '\n'.join(lines)
@@ -880,7 +881,7 @@ async def test_notification(ctx):
 from stats_viz import (
     create_bar_chart, create_timeline_chart, create_comparison_chart,
     create_user_detail_view, filter_by_period, get_period_label,
-    calculate_daily_activity
+    calculate_daily_activity, format_time
 )
 
 # ============================================================================
@@ -1028,186 +1029,216 @@ async def create_overview_embed(filtered_stats: Dict, period_label: str) -> disc
     users = filtered_stats.get('users', {})
     total_users = len(users)
     
-    # Contar totales
+    # Contar totales (con tiempo)
     total_games = 0
     total_voice = 0
+    total_game_minutes = 0
+    total_voice_minutes = 0
     unique_games = set()
     
     for user_data in users.values():
         for game_name, game_data in user_data.get('games', {}).items():
             total_games += game_data.get('count', 0)
+            total_game_minutes += game_data.get('total_minutes', 0)
             unique_games.add(game_name)
-        total_voice += user_data.get('voice', {}).get('count', 0)
+        voice_data = user_data.get('voice', {})
+        total_voice += voice_data.get('count', 0)
+        total_voice_minutes += voice_data.get('total_minutes', 0)
     
-    # Resumen
+    # Resumen con tiempo
     embed.add_field(
         name='📈 Resumen',
         value=(
             f'**Usuarios activos:** {total_users}\n'
-            f'**Sesiones de juego:** {total_games}\n'
+            f'**Sesiones de juego:** {total_games} (⏱️ {format_time(total_game_minutes)})\n'
             f'**Juegos únicos:** {len(unique_games)}\n'
-            f'**Entradas a voz:** {total_voice}\n'
-            f'**Actividad total:** {total_games + total_voice}'
+            f'**Entradas a voz:** {total_voice} (⏱️ {format_time(total_voice_minutes)})\n'
+            f'**Tiempo total:** ⏱️ {format_time(total_game_minutes + total_voice_minutes)}'
         ),
         inline=False
     )
     
-    # Top 3 juegos
-    game_counts = {}
+    # Top 3 juegos POR TIEMPO
+    game_stats = {}
     for user_data in users.values():
         for game, data in user_data.get('games', {}).items():
-            game_counts[game] = game_counts.get(game, 0) + data['count']
+            if game not in game_stats:
+                game_stats[game] = {'count': 0, 'minutes': 0}
+            game_stats[game]['count'] += data.get('count', 0)
+            game_stats[game]['minutes'] += data.get('total_minutes', 0)
     
-    if game_counts:
-        top_games = sorted(game_counts.items(), key=lambda x: x[1], reverse=True)[:3]
-        games_text = '\n'.join([f'{i+1}. **{game}**: {count} veces' 
-                               for i, (game, count) in enumerate(top_games)])
+    if game_stats:
+        # Ordenar por TIEMPO primero
+        top_games = sorted(game_stats.items(), key=lambda x: x[1]['minutes'], reverse=True)[:3]
+        games_text = '\n'.join([
+            f'{i+1}. **{game}**: ⏱️ {format_time(data["minutes"])} ({data["count"]} sesiones)' 
+            for i, (game, data) in enumerate(top_games)
+        ])
         embed.add_field(name='🎮 Top 3 Juegos', value=games_text, inline=True)
     
-    # Top 3 usuarios (con tiempo en voz)
+    # Top 3 usuarios POR TIEMPO TOTAL (voz + juegos)
     user_activity = []
     for user_id, user_data in users.items():
         games_count = sum(g['count'] for g in user_data.get('games', {}).values())
         voice_count = user_data.get('voice', {}).get('count', 0)
+        
+        # Tiempo total = juegos + voz
+        game_minutes = sum(g.get('total_minutes', 0) for g in user_data.get('games', {}).values())
         voice_minutes = user_data.get('voice', {}).get('total_minutes', 0)
-        total = games_count + voice_count
-        if total > 0:
-            user_activity.append((user_data.get('username', 'Unknown'), total, voice_minutes))
+        total_minutes = game_minutes + voice_minutes
+        
+        total_count = games_count + voice_count
+        if total_count > 0:
+            user_activity.append((
+                user_data.get('username', 'Unknown'), 
+                total_minutes,  # Ordenar por tiempo
+                total_count
+            ))
     
     if user_activity:
+        # Ordenar por TIEMPO TOTAL
         top_users = sorted(user_activity, key=lambda x: x[1], reverse=True)[:3]
         users_text = []
-        for i, (name, count, minutes) in enumerate(top_users):
-            if minutes > 0:
-                if minutes < 60:
-                    time_str = f'{minutes}m'
-                else:
-                    hours = minutes // 60
-                    time_str = f'{hours}h'
-                users_text.append(f'{i+1}. **{name}**: {count} eventos (⏱️ {time_str})')
-            else:
-                users_text.append(f'{i+1}. **{name}**: {count} eventos')
+        for i, (name, minutes, count) in enumerate(top_users):
+            users_text.append(f'{i+1}. **{name}**: ⏱️ {format_time(minutes)} ({count} sesiones)')
         embed.add_field(name='👥 Top 3 Usuarios', value='\n'.join(users_text), inline=True)
     
     return embed
 
 async def create_games_ranking_embed(filtered_stats: Dict, period_label: str) -> discord.Embed:
-    """Crea embed con ranking de juegos y gráfico"""
+    """Crea embed con ranking de juegos y gráfico (ordenado por TIEMPO)"""
     embed = discord.Embed(
         title=f'🎮 Ranking de Juegos - {period_label}',
         color=discord.Color.gold()
     )
     
-    # Recopilar juegos
-    game_counts = {}
+    # Recopilar juegos con tiempo y sesiones
+    game_stats = {}
     for user_data in filtered_stats.get('users', {}).values():
         for game, data in user_data.get('games', {}).items():
-            game_counts[game] = game_counts.get(game, 0) + data['count']
+            if game not in game_stats:
+                game_stats[game] = {'minutes': 0, 'count': 0}
+            game_stats[game]['minutes'] += data.get('total_minutes', 0)
+            game_stats[game]['count'] += data.get('count', 0)
     
-    if not game_counts:
+    if not game_stats:
         embed.description = 'No hay juegos registrados en este período.'
         return embed
     
-    # Ordenar y tomar top 10
-    top_games = sorted(game_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+    # Ordenar por TIEMPO y tomar top 10
+    top_games = sorted(game_stats.items(), key=lambda x: x[1]['minutes'], reverse=True)[:10]
     
-    # Crear gráfico ASCII
-    chart = create_bar_chart(top_games, max_width=15)
+    # Crear gráfico ASCII con TIEMPO (convertir a tuplas para el chart)
+    chart_data = [(game, data['minutes']) for game, data in top_games]
+    chart = create_bar_chart(chart_data, max_width=15)
     
     embed.description = f'```\n{chart}\n```'
+    
+    # Total con tiempo
+    total_minutes = sum(data['minutes'] for data in game_stats.values())
+    total_sessions = sum(data['count'] for data in game_stats.values())
+    
     embed.add_field(
         name='📊 Total',
-        value=f'**{len(game_counts)}** juegos únicos\n**{sum(game_counts.values())}** sesiones totales',
+        value=(
+            f'**{len(game_stats)}** juegos únicos\n'
+            f'**{total_sessions}** sesiones\n'
+            f'⏱️ **{format_time(total_minutes)}** jugados'
+        ),
         inline=False
     )
     
     return embed
 
 async def create_voice_ranking_embed(filtered_stats: Dict, period_label: str) -> discord.Embed:
-    """Crea embed con ranking de actividad de voz"""
+    """Crea embed con ranking de actividad de voz (ordenado por TIEMPO)"""
     embed = discord.Embed(
         title=f'🔊 Ranking de Actividad de Voz - {period_label}',
         color=discord.Color.purple()
     )
     
-    # Recopilar actividad de voz (con tiempo)
-    voice_counts = []
+    # Recopilar actividad de voz CON TIEMPO
+    voice_stats = []
     total_minutes = 0
+    total_sessions = 0
     for user_data in filtered_stats.get('users', {}).values():
         username = user_data.get('username', 'Unknown')
         count = user_data.get('voice', {}).get('count', 0)
         minutes = user_data.get('voice', {}).get('total_minutes', 0)
         if count > 0:
-            voice_counts.append((username, count))
+            voice_stats.append((username, minutes, count))  # Ordenar por minutos
             total_minutes += minutes
+            total_sessions += count
     
-    if not voice_counts:
+    if not voice_stats:
         embed.description = 'No hay actividad de voz registrada en este período.'
         return embed
     
-    # Ordenar y tomar top 8
-    top_voice = sorted(voice_counts, key=lambda x: x[1], reverse=True)[:8]
+    # Ordenar por TIEMPO y tomar top 8
+    top_voice = sorted(voice_stats, key=lambda x: x[1], reverse=True)[:8]
     
-    # Crear gráfico ASCII
-    chart = create_bar_chart(top_voice, max_width=15)
+    # Crear gráfico ASCII con TIEMPO
+    chart_data = [(name, minutes) for name, minutes, _ in top_voice]
+    chart = create_bar_chart(chart_data, max_width=15)
     
     embed.description = f'```\n{chart}\n```'
     
-    # Formatear tiempo total
-    if total_minutes < 60:
-        time_str = f'{total_minutes} min'
-    elif total_minutes < 1440:
-        hours = total_minutes // 60
-        time_str = f'{hours}h {total_minutes % 60}m'
-    else:
-        days = total_minutes // 1440
-        hours = (total_minutes % 1440) // 60
-        time_str = f'{days}d {hours}h'
-    
     embed.add_field(
         name='📊 Total',
-        value=f'**{len(voice_counts)}** usuarios activos\n**{sum(c for _, c in voice_counts)}** entradas totales\n⏱️ Tiempo combinado: **{time_str}**',
+        value=(
+            f'**{len(voice_stats)}** usuarios activos\n'
+            f'**{total_sessions}** sesiones\n'
+            f'⏱️ **{format_time(total_minutes)}** en voz'
+        ),
         inline=False
     )
     
     return embed
 
 async def create_users_ranking_embed(filtered_stats: Dict, period_label: str) -> discord.Embed:
-    """Crea embed con ranking de usuarios más activos"""
+    """Crea embed con ranking de usuarios (ordenado por TIEMPO TOTAL)"""
     embed = discord.Embed(
         title=f'👥 Ranking de Usuarios - {period_label}',
         color=discord.Color.green()
     )
     
-    # Calcular actividad total por usuario
+    # Calcular actividad total por usuario CON TIEMPO
     user_activity = []
     for user_data in filtered_stats.get('users', {}).values():
         username = user_data.get('username', 'Unknown')
         games_count = sum(g['count'] for g in user_data.get('games', {}).values())
         voice_count = user_data.get('voice', {}).get('count', 0)
-        total = games_count + voice_count
         
-        if total > 0:
-            user_activity.append((username, total, games_count, voice_count))
+        # Tiempo total = juegos + voz
+        game_minutes = sum(g.get('total_minutes', 0) for g in user_data.get('games', {}).values())
+        voice_minutes = user_data.get('voice', {}).get('total_minutes', 0)
+        total_minutes = game_minutes + voice_minutes
+        total_sessions = games_count + voice_count
+        
+        if total_sessions > 0:
+            user_activity.append((username, total_minutes, total_sessions, games_count, voice_count))
     
     if not user_activity:
         embed.description = 'No hay actividad registrada en este período.'
         return embed
     
-    # Ordenar por total
+    # Ordenar por TIEMPO TOTAL
     top_users = sorted(user_activity, key=lambda x: x[1], reverse=True)[:8]
     
-    # Crear gráfico ASCII
-    chart_data = [(name, total) for name, total, _, _ in top_users]
+    # Crear gráfico ASCII con TIEMPO
+    chart_data = [(name, minutes) for name, minutes, _, _, _ in top_users]
     chart = create_bar_chart(chart_data, max_width=15)
     
     embed.description = f'```\n{chart}\n```'
     
     # Detalles
     details = []
-    for i, (name, total, games, voice) in enumerate(top_users[:5], 1):
+    for i, (name, minutes, total, games, voice) in enumerate(top_users[:5], 1):
         medal = ['🥇', '🥈', '🥉'][i-1] if i <= 3 else f'{i}.'
-        details.append(f'{medal} **{name}**: {total} total (🎮 {games} | 🔊 {voice})')
+        details.append(
+            f'{medal} **{name}**: ⏱️ {format_time(minutes)} '
+            f'({total} sesiones: 🎮 {games} | 🔊 {voice})'
+        )
     
     embed.add_field(name='📋 Detalle Top 5', value='\n'.join(details), inline=False)
     

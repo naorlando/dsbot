@@ -13,6 +13,31 @@ except ImportError:
     discord = None
 
 
+def format_time(minutes: int) -> str:
+    """Formatea minutos a formato legible (horas/días)
+    
+    Args:
+        minutes: Tiempo en minutos
+        
+    Returns:
+        String formateado (ej: '2h 30m', '1d 3h', '45m')
+    """
+    if minutes < 60:
+        return f'{minutes}m'
+    elif minutes < 1440:  # Menos de 24 horas
+        hours = minutes // 60
+        mins = minutes % 60
+        if mins > 0:
+            return f'{hours}h {mins}m'
+        return f'{hours}h'
+    else:  # Días
+        days = minutes // 1440
+        hours = (minutes % 1440) // 60
+        if hours > 0:
+            return f'{days}d {hours}h'
+        return f'{days}d'
+
+
 def create_bar_chart(data: List[Tuple[str, int]], max_width: int = 20, title: str = "") -> str:
     """
     Crea un gráfico de barras ASCII
