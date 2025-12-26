@@ -193,7 +193,6 @@ async def send_notification(message):
         print(f'❌ Error al enviar notificación: {e}')
 
 @bot.command(name='setchannel')
-@commands.has_permissions(send_messages=True)
 async def set_channel(ctx, channel: discord.TextChannel = None):
     """Configura el canal donde se enviarán las notificaciones
     
@@ -259,7 +258,6 @@ class ToggleButton(discord.ui.Button):
         )
 
 @bot.command(name='toggle')
-@commands.has_permissions(send_messages=True)
 async def toggle_notification(ctx, notification_type: str = None):
     """Activa o desactiva tipos de notificaciones usando botones interactivos
     
@@ -328,7 +326,6 @@ async def toggle_notification(ctx, notification_type: str = None):
     await ctx.send(f'✅ Notificaciones de {notification_type} {status}')
 
 @bot.command(name='config')
-@commands.has_permissions(send_messages=True)
 async def show_config(ctx):
     """Muestra la configuración actual del bot"""
     channel_id = config.get('channel_id')
@@ -417,7 +414,6 @@ class MessageSelectView(discord.ui.View):
         await interaction.response.send_modal(modal)
 
 @bot.command(name='setmessage')
-@commands.has_permissions(send_messages=True)
 async def set_message(ctx, message_type: str = None, *, message_template: str = None):
     """Configura mensajes personalizados usando un formulario interactivo
     
@@ -493,7 +489,6 @@ async def set_message(ctx, message_type: str = None, *, message_template: str = 
     await ctx.send(f'✅ Mensaje para `{message_type}` configurado:\n```{message_template}```')
 
 @bot.command(name='test')
-@commands.has_permissions(send_messages=True)
 async def test_notification(ctx):
     """Envía un mensaje de prueba al canal configurado"""
     await send_notification('🧪 **Mensaje de prueba** - El bot está funcionando correctamente!')
