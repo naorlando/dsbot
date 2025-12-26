@@ -82,9 +82,13 @@ async def on_presence_update(before, after):
         if activity_type_name in config.get('game_activity_types', ['playing', 'streaming', 'watching', 'listening']):
             # Si no tenía actividad antes o es diferente
             if not before_activity or before_activity.name != after_activity.name:
-                await send_notification(
-                    f"🎮 **{after.display_name}** está {get_activity_verb(activity_type_name)} **{after_activity.name}**"
+                message_template = config.get('messages', {}).get('game_start', "🎮 **{user}** está {verb} **{activity}**")
+                message = message_template.format(
+                    user=after.display_name,
+                    verb=get_activity_verb(activity_type_name),
+                    activity=after_activity.name
                 )
+                await send_notification(message)
 
 @bot.event
 async def on_voice_state_update(member, before, after):
@@ -92,26 +96,60 @@ async def on_voice_state_update(member, before, after):
     if config.get('ignore_bots', True) and member.bot:
         return
     
+    messages_config = config.get('messages', {})
+    
     # Entrada a canal de voz
     if not before.channel and after.channel:
         if config.get('notify_voice', True):
-            await send_notification(
-                f"🔊 **{member.display_name}** entró al canal de voz **{after.channel.name}**"
+            message_template = messages_config.get('voice_join', "🔊 **{user}** entró al canal de voz **{channel}**")
+            message = message_template.format(
+                user=member.display_name,
+                channel=after.channel.name
             )
+            await send_notification(message)
     
     # Salida de canal de voz
     elif before.channel and not after.channel:
         if config.get('notify_voice_leave', False):
-            await send_notification(
-                f"🔇 **{member.display_name}** salió del canal de voz **{before.channel.name}**"
+            message_template = messages_config.get('voice_leave', "🔇 **{user}** salió del canal de voz **{channel}**")
+            message = message_template.format(
+                user=member.display_name,
+                channel=before.channel.name
             )
+            await send_notification(message)
     
     # Cambio de canal de voz
     elif before.channel and after.channel and before.channel != after.channel:
-        if config.get('notify_voice', True):
-            await send_notification(
-                f"🔄 **{member.display_name}** cambió de **{before.channel.name}** a **{after.channel.name}**"
+        if config.get('notify_voice_move', True):
+            message_template = messages_config.get('voice_move', "🔄 **{user}** cambió de **{old_channel}** a **{new_channel}**")
+            message = message_template.format(
+                user=member.display_name,
+                old_channel=before.channel.name,
+                new_channel=after.channel.name
             )
+            await send_notification(message)
+
+@bot.event
+async def on_member_join(member):
+    """Detecta cuando un miembro se une al servidor"""
+    if config.get('ignore_bots', True) and member.bot:
+        return
+    
+    if config.get('notify_member_join', False):
+        message_template = config.get('messages', {}).get('member_join', "👋 **{user}** se unió al servidor")
+        message = message_template.format(user=member.display_name)
+        await send_notification(message)
+
+@bot.event
+async def on_member_remove(member):
+    """Detecta cuando un miembro deja el servidor"""
+    if config.get('ignore_bots', True) and member.bot:
+        return
+    
+    if config.get('notify_member_leave', False):
+        message_template = config.get('messages', {}).get('member_leave', "👋 **{user}** dejó el servidor")
+        message = message_template.format(user=member.display_name)
+        await send_notification(message)
 
 def get_activity_verb(activity_type):
     """Traduce el tipo de actividad al español"""
@@ -124,7 +162,7 @@ def get_activity_verb(activity_type):
     return verbs.get(activity_type, activity_type)
 
 async def send_notification(message):
-    """Envía un mensaje al canal configurado"""
+    """Envía un mensaje al canal configurado con manejo de errores robusto"""
     channel_id = config.get('channel_id')
     if not channel_id:
         return
@@ -135,6 +173,20 @@ async def send_notification(message):
             await channel.send(message)
         else:
             print(f'⚠️  No se encontró el canal con ID {channel_id}')
+    except discord.errors.HTTPException as e:
+        if e.status == 429:  # Rate limited
+            retry_after = e.retry_after if hasattr(e, 'retry_after') else 1.0
+            print(f'⚠️  Rate limited al enviar mensaje. Esperando {retry_after} segundos...')
+            await asyncio.sleep(retry_after)
+            # Reintentar una vez después del delay
+            try:
+                await channel.send(message)
+            except Exception as retry_error:
+                print(f'❌ Error al reintentar envío: {retry_error}')
+        else:
+            print(f'❌ Error HTTP al enviar notificación: {e}')
+    except discord.errors.Forbidden:
+        print(f'⚠️  Sin permisos para enviar mensajes al canal {channel_id}')
     except Exception as e:
         print(f'❌ Error al enviar notificación: {e}')
 
@@ -162,31 +214,34 @@ async def toggle_notification(ctx, notification_type: str):
     - games: Notificaciones de juegos
     - voice: Notificaciones de entrada a voz
     - voiceleave: Notificaciones de salida de voz
+    - voicemove: Notificaciones de cambio de canal de voz
+    - memberjoin: Notificaciones de miembros que se unen
+    - memberleave: Notificaciones de miembros que se van
     """
     notification_type = notification_type.lower()
     
-    if notification_type == 'games':
-        config['notify_games'] = not config.get('notify_games', True)
-        status = 'activadas' if config['notify_games'] else 'desactivadas'
-        await ctx.send(f'✅ Notificaciones de juegos {status}')
+    toggle_map = {
+        'games': 'notify_games',
+        'voice': 'notify_voice',
+        'voiceleave': 'notify_voice_leave',
+        'voicemove': 'notify_voice_move',
+        'memberjoin': 'notify_member_join',
+        'memberleave': 'notify_member_leave'
+    }
     
-    elif notification_type == 'voice':
-        config['notify_voice'] = not config.get('notify_voice', True)
-        status = 'activadas' if config['notify_voice'] else 'desactivadas'
-        await ctx.send(f'✅ Notificaciones de entrada a voz {status}')
-    
-    elif notification_type == 'voiceleave':
-        config['notify_voice_leave'] = not config.get('notify_voice_leave', False)
-        status = 'activadas' if config['notify_voice_leave'] else 'desactivadas'
-        await ctx.send(f'✅ Notificaciones de salida de voz {status}')
-    
-    else:
-        await ctx.send('❌ Tipo de notificación no válido. Usa: `games`, `voice`, o `voiceleave`')
+    if notification_type not in toggle_map:
+        await ctx.send('❌ Tipo de notificación no válido. Usa: `games`, `voice`, `voiceleave`, `voicemove`, `memberjoin`, `memberleave`')
         return
+    
+    config_key = toggle_map[notification_type]
+    config[config_key] = not config.get(config_key, False)
+    status = 'activadas' if config[config_key] else 'desactivadas'
     
     # Guardar configuración
     with open('config.json', 'w', encoding='utf-8') as f:
         json.dump(config, f, indent=4, ensure_ascii=False)
+    
+    await ctx.send(f'✅ Notificaciones de {notification_type} {status}')
 
 @bot.command(name='config')
 @commands.has_permissions(administrator=True)
@@ -205,9 +260,51 @@ async def show_config(ctx):
     embed.add_field(name='Notificaciones de juegos', value='✅ Activadas' if config.get('notify_games') else '❌ Desactivadas', inline=True)
     embed.add_field(name='Notificaciones de entrada a voz', value='✅ Activadas' if config.get('notify_voice') else '❌ Desactivadas', inline=True)
     embed.add_field(name='Notificaciones de salida de voz', value='✅ Activadas' if config.get('notify_voice_leave') else '❌ Desactivadas', inline=True)
+    embed.add_field(name='Notificaciones de cambio de voz', value='✅ Activadas' if config.get('notify_voice_move', True) else '❌ Desactivadas', inline=True)
+    embed.add_field(name='Notificaciones de miembros (join)', value='✅ Activadas' if config.get('notify_member_join', False) else '❌ Desactivadas', inline=True)
+    embed.add_field(name='Notificaciones de miembros (leave)', value='✅ Activadas' if config.get('notify_member_leave', False) else '❌ Desactivadas', inline=True)
     embed.add_field(name='Ignorar bots', value='✅ Sí' if config.get('ignore_bots') else '❌ No', inline=True)
     
     await ctx.send(embed=embed)
+
+@bot.command(name='setmessage')
+@commands.has_permissions(administrator=True)
+async def set_message(ctx, message_type: str, *, message_template: str):
+    """Configura un mensaje personalizado para un tipo de evento
+    
+    Tipos disponibles:
+    - game_start: Cuando alguien empieza a jugar
+    - voice_join: Cuando alguien entra a voz
+    - voice_leave: Cuando alguien sale de voz
+    - voice_move: Cuando alguien cambia de canal
+    - member_join: Cuando un miembro se une
+    - member_leave: Cuando un miembro se va
+    
+    Variables disponibles:
+    - {user}: Nombre del usuario
+    - {activity}: Nombre de la actividad/juego
+    - {verb}: Verbo (jugando, viendo, etc.)
+    - {channel}: Nombre del canal
+    - {old_channel}: Canal anterior (solo voice_move)
+    - {new_channel}: Canal nuevo (solo voice_move)
+    """
+    message_type = message_type.lower()
+    valid_types = ['game_start', 'voice_join', 'voice_leave', 'voice_move', 'member_join', 'member_leave']
+    
+    if message_type not in valid_types:
+        await ctx.send(f'❌ Tipo de mensaje no válido. Tipos disponibles: {", ".join(valid_types)}')
+        return
+    
+    if 'messages' not in config:
+        config['messages'] = {}
+    
+    config['messages'][message_type] = message_template
+    
+    # Guardar configuración
+    with open('config.json', 'w', encoding='utf-8') as f:
+        json.dump(config, f, indent=4, ensure_ascii=False)
+    
+    await ctx.send(f'✅ Mensaje para `{message_type}` configurado:\n```{message_template}```')
 
 @bot.command(name='test')
 @commands.has_permissions(administrator=True)
@@ -218,43 +315,53 @@ async def test_notification(ctx):
 
 # Ejecutar el bot
 if __name__ == '__main__':
+    import asyncio
+    import logging
+    
+    # Configurar logging para mejor debugging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    logger = logging.getLogger('discord')
+    logger.setLevel(logging.WARNING)  # Reducir spam de logs de discord.py
+    
     token = os.getenv('DISCORD_BOT_TOKEN')
     if not token:
         print('❌ ERROR: No se encontró DISCORD_BOT_TOKEN en las variables de entorno')
         print('Por favor, crea un archivo .env con: DISCORD_BOT_TOKEN=tu_token_aqui')
         exit(1)
     
-    # Configurar reconexión con delays para evitar rate limiting
-    import asyncio
+    # Configuración de rate limiting desde config.json
+    rate_limit_config = config.get('rate_limiting', {})
+    max_retries = rate_limit_config.get('max_retries', 5)
+    initial_delay = rate_limit_config.get('initial_delay', 30)
+    max_delay = rate_limit_config.get('max_delay', 300)
+    exponential_base = rate_limit_config.get('exponential_base', 2)
     
-    async def run_bot():
-        max_retries = 5
-        retry_delay = 30  # segundos
-        
-        for attempt in range(max_retries):
-            try:
-                await bot.start(token)
-            except discord.errors.HTTPException as e:
-                if e.status == 429:  # Rate limited
-                    print(f'⚠️  Rate limited. Esperando {retry_delay} segundos antes de reintentar...')
-                    await asyncio.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
-                else:
-                    raise
-            except Exception as e:
-                print(f'❌ Error: {e}')
-                if attempt < max_retries - 1:
-                    print(f'Reintentando en {retry_delay} segundos...')
-                    await asyncio.sleep(retry_delay)
-                else:
-                    raise
+    # Manejo de errores mejorado con exponential backoff
+    @bot.event
+    async def on_error(event, *args, **kwargs):
+        """Maneja errores no capturados"""
+        logger.error(f'Error en evento {event}: {args}, {kwargs}', exc_info=True)
     
-    # Usar run con reconexión automática
+    # Usar run con reconexión automática y manejo de errores
     try:
-        bot.run(token, reconnect=True)
+        bot.run(token, reconnect=True, log_handler=None)
     except KeyboardInterrupt:
         print('\n🛑 Bot detenido por el usuario')
+        bot.close()
+    except discord.errors.LoginFailure:
+        print('❌ ERROR: Token inválido. Verifica tu DISCORD_BOT_TOKEN')
+        exit(1)
+    except discord.errors.PrivilegedIntentsRequired as e:
+        print('❌ ERROR: Privileged Intents no habilitados')
+        print('Ve a https://discord.com/developers/applications y habilita:')
+        print('  - PRESENCE INTENT')
+        print('  - SERVER MEMBERS INTENT')
+        exit(1)
     except Exception as e:
         print(f'❌ Error fatal: {e}')
+        logger.exception('Error fatal en el bot')
         exit(1)
 

@@ -3,12 +3,29 @@
     "notify_games": true,
     "notify_voice": true,
     "notify_voice_leave": false,
+    "notify_voice_move": true,
+    "notify_member_join": false,
+    "notify_member_leave": false,
     "ignore_bots": true,
     "game_activity_types": [
         "playing",
         "streaming",
         "watching",
         "listening"
-    ]
+    ],
+    "messages": {
+        "game_start": "🎮 **{user}** está {verb} **{activity}**",
+        "voice_join": "🔊 **{user}** entró al canal de voz **{channel}**",
+        "voice_leave": "🔇 **{user}** salió del canal de voz **{channel}**",
+        "voice_move": "🔄 **{user}** cambió de **{old_channel}** a **{new_channel}**",
+        "member_join": "👋 **{user}** se unió al servidor",
+        "member_leave": "👋 **{user}** dejó el servidor"
+    },
+    "rate_limiting": {
+        "max_retries": 5,
+        "initial_delay": 30,
+        "max_delay": 300,
+        "exponential_base": 2
+    }
 }
 
