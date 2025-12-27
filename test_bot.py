@@ -784,6 +784,66 @@ class TestCommandCoverage(unittest.TestCase):
         utility_commands = ['export', 'voicetime', 'voicetop', 'bothelp']
         self.assertEqual(len(utility_commands), 4)
 
+
+class TestCommandProcessing(unittest.TestCase):
+    """Tests para prevenir duplicación de comandos"""
+    
+    def test_on_message_does_not_call_process_commands(self):
+        """
+        Verifica que on_message en EventsCog NO llama a process_commands()
+        
+        CONTEXT: Bug histórico donde process_commands() se llamaba manualmente
+        en on_message del Cog, causando que todos los comandos se ejecutaran 2 veces.
+        
+        SOLUCIÓN: Con @commands.Cog.listener(), el bot procesa comandos automáticamente.
+        No es necesario (y causa duplicación) llamarlo manualmente.
+        """
+        import os
+        
+        # Leer el archivo directamente sin importarlo
+        events_path = os.path.join(os.path.dirname(__file__), 'cogs', 'events.py')
+        with open(events_path, 'r') as f:
+            source = f.read()
+        
+        # Verificar que NO contiene process_commands en on_message
+        # Buscar la función on_message
+        on_message_start = source.find('async def on_message(self, message):')
+        self.assertGreater(on_message_start, 0, "Debe existir on_message en EventsCog")
+        
+        # Buscar el siguiente método (para delimitar on_message)
+        next_method = source.find('@commands.Cog.listener()', on_message_start + 1)
+        on_message_code = source[on_message_start:next_method] if next_method > 0 else source[on_message_start:]
+        
+        # Verificar que NO contiene la LLAMADA a process_commands (await self.bot.process_commands)
+        self.assertNotIn('await self.bot.process_commands', on_message_code, 
+                        "❌ on_message NO debe llamar 'await self.bot.process_commands()' - causa duplicación de comandos")
+        self.assertNotIn('await bot.process_commands', on_message_code,
+                        "❌ on_message NO debe llamar 'await bot.process_commands()' - causa duplicación de comandos")
+        
+        # Verificar que tiene el comentario explicativo (está bien mencionarlo en comentarios)
+        self.assertIn('NO llamar process_commands', on_message_code,
+                     "✅ Debe tener comentario explicando por qué NO se llama process_commands")
+    
+    def test_events_cog_has_on_message_listener(self):
+        """
+        Verifica que EventsCog tiene el listener on_message con @commands.Cog.listener()
+        
+        Esto asegura que el bot procesa comandos automáticamente.
+        """
+        import os
+        
+        # Leer el archivo
+        events_path = os.path.join(os.path.dirname(__file__), 'cogs', 'events.py')
+        with open(events_path, 'r') as f:
+            source = f.read()
+        
+        # Verificar que existe @commands.Cog.listener() antes de on_message
+        self.assertIn('@commands.Cog.listener()', source, 
+                     "EventsCog debe usar @commands.Cog.listener()")
+        self.assertIn('async def on_message(self, message):', source,
+                     "EventsCog debe tener on_message")
+
+
 if __name__ == '__main__':
     success = run_tests()
     sys.exit(0 if success else 1)
