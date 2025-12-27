@@ -127,12 +127,15 @@ class EventsCog(commands.Cog, name='Events'):
             activity_type_name = game_activity.type.name.lower()
             
             # ✅ VERIFICACIÓN: Solo trackear juegos con application_id (verificados por Discord)
-            if not game_activity.application_id:
+            # Usar getattr para evitar crash con actividades especiales (Spotify, etc)
+            app_id = getattr(game_activity, 'application_id', None)
+            
+            if not app_id:
                 logger.debug(f'🚫 Juego sin verificar ignorado: "{game_name}" (usuario: {after.display_name}, sin application_id)')
                 continue  # Saltar este juego sin trackear
             
             # Si llegó aquí, el juego está verificado
-            logger.info(f'✅ Juego verificado: "{game_name}" (app_id: {game_activity.application_id}, usuario: {after.display_name})')
+            logger.info(f'✅ Juego verificado: "{game_name}" (app_id: {app_id}, usuario: {after.display_name})')
             
             if activity_type_name in config.get('game_activity_types', ['playing', 'streaming', 'watching', 'listening']):
                 # Verificar cooldown
