@@ -16,7 +16,15 @@ def record_game_event(user_id, username, game_name):
         stats['users'][user_id] = {
             'username': username,
             'games': {},
-            'voice': {'count': 0, 'last_join': None}
+            'voice': {'count': 0, 'last_join': None},
+            'messages': {'count': 0, 'characters': 0},
+            'reactions': {'total': 0, 'by_emoji': {}},
+            'stickers': {'total': 0, 'by_name': {}},
+            'daily_connections': {
+                'total': 0,
+                'by_date': {},
+                'personal_record': {'count': 0, 'date': None}
+            }
         }
     
     if game_name not in stats['users'][user_id]['games']:
@@ -50,7 +58,14 @@ def record_message_event(user_id, username, message_length):
             'username': username,
             'games': {},
             'voice': {'count': 0, 'last_join': None, 'total_minutes': 0, 'daily_minutes': {}},
-            'messages': {'count': 0, 'characters': 0, 'last_message': None}
+            'messages': {'count': 0, 'characters': 0, 'last_message': None},
+            'reactions': {'total': 0, 'by_emoji': {}},
+            'stickers': {'total': 0, 'by_name': {}},
+            'daily_connections': {
+                'total': 0,
+                'by_date': {},
+                'personal_record': {'count': 0, 'date': None}
+            }
         }
     
     # Asegurar que existe la estructura de mensajes
@@ -75,7 +90,15 @@ def start_game_session(user_id, username, game_name):
         stats['users'][user_id] = {
             'username': username,
             'games': {},
-            'voice': {'count': 0, 'last_join': None}
+            'voice': {'count': 0, 'last_join': None},
+            'messages': {'count': 0, 'characters': 0},
+            'reactions': {'total': 0, 'by_emoji': {}},
+            'stickers': {'total': 0, 'by_name': {}},
+            'daily_connections': {
+                'total': 0,
+                'by_date': {},
+                'personal_record': {'count': 0, 'date': None}
+            }
         }
     
     if game_name not in stats['users'][user_id]['games']:
@@ -153,6 +176,14 @@ def record_voice_event(user_id, username):
                 'total_minutes': 0,
                 'daily_minutes': {},
                 'current_session': None
+            },
+            'messages': {'count': 0, 'characters': 0},
+            'reactions': {'total': 0, 'by_emoji': {}},
+            'stickers': {'total': 0, 'by_name': {}},
+            'daily_connections': {
+                'total': 0,
+                'by_date': {},
+                'personal_record': {'count': 0, 'date': None}
             }
         }
     
@@ -184,6 +215,14 @@ def start_voice_session(user_id, username, channel_name):
                 'total_minutes': 0,
                 'daily_minutes': {},
                 'current_session': None
+            },
+            'messages': {'count': 0, 'characters': 0},
+            'reactions': {'total': 0, 'by_emoji': {}},
+            'stickers': {'total': 0, 'by_name': {}},
+            'daily_connections': {
+                'total': 0,
+                'by_date': {},
+                'personal_record': {'count': 0, 'date': None}
             }
         }
     
@@ -236,4 +275,76 @@ def end_voice_session(user_id, username):
         logger.error(f'Error al finalizar sesión de voz: {e}')
         voice_data['current_session'] = None
         save_stats()
+
+
+def record_connection_event(user_id, username):
+    """
+    Registra una conexión diaria del usuario (offline → online)
+    Retorna el contador actual del día y si rompió récord personal
+    """
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    # Inicializar estructura si no existe
+    if user_id not in stats['users']:
+        stats['users'][user_id] = {
+            'username': username,
+            'games': {},
+            'voice': {'count': 0},
+            'messages': {'count': 0, 'characters': 0},
+            'reactions': {'total': 0, 'by_emoji': {}},
+            'stickers': {'total': 0, 'by_name': {}},
+            'daily_connections': {
+                'total': 0,
+                'by_date': {},
+                'personal_record': {
+                    'count': 0,
+                    'date': None
+                }
+            }
+        }
+    
+    # Asegurar que existe la estructura de conexiones
+    if 'daily_connections' not in stats['users'][user_id]:
+        stats['users'][user_id]['daily_connections'] = {
+            'total': 0,
+            'by_date': {},
+            'personal_record': {
+                'count': 0,
+                'date': None
+            }
+        }
+    
+    connections = stats['users'][user_id]['daily_connections']
+    
+    # Asegurar campos
+    if 'total' not in connections:
+        connections['total'] = 0
+    if 'by_date' not in connections:
+        connections['by_date'] = {}
+    if 'personal_record' not in connections:
+        connections['personal_record'] = {'count': 0, 'date': None}
+    
+    # Incrementar contadores
+    connections['total'] += 1
+    connections['by_date'][today] = connections['by_date'].get(today, 0) + 1
+    
+    # Actualizar username
+    stats['users'][user_id]['username'] = username
+    
+    # Obtener contador actual del día
+    count_today = connections['by_date'][today]
+    
+    # Verificar récord personal
+    broke_record = False
+    personal_record = connections['personal_record']
+    if count_today > personal_record['count']:
+        personal_record['count'] = count_today
+        personal_record['date'] = today
+        broke_record = True
+    
+    save_stats()
+    
+    logger.info(f'📱 Conexión: {username} ({count_today} veces hoy, {connections["total"]} total)')
+    
+    return count_today, broke_record
 

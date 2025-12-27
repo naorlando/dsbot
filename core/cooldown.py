@@ -10,9 +10,15 @@ from core.persistence import stats, save_stats
 logger = logging.getLogger('dsbot')
 
 
-def check_cooldown(user_id, event_key):
+def check_cooldown(user_id, event_key, cooldown_seconds=600):
     """
-    Verifica si pasaron 10 minutos desde el último evento similar.
+    Verifica si pasó el tiempo de cooldown desde el último evento similar.
+    
+    Args:
+        user_id: ID del usuario
+        event_key: Clave del evento (ej: 'game:Fortnite', 'voice', 'daily_connection')
+        cooldown_seconds: Tiempo de cooldown en segundos (default: 600 = 10 minutos)
+    
     Retorna True si puede registrar el evento, False si está en cooldown.
     """
     cooldown_key = f"{user_id}:{event_key}"
@@ -21,8 +27,8 @@ def check_cooldown(user_id, event_key):
     if last_time_str:
         try:
             last_time = datetime.fromisoformat(last_time_str)
-            if datetime.now() - last_time < timedelta(minutes=10):
-                logger.debug(f'Cooldown activo para {cooldown_key}')
+            if datetime.now() - last_time < timedelta(seconds=cooldown_seconds):
+                logger.debug(f'Cooldown activo para {cooldown_key} ({cooldown_seconds}s)')
                 return False
         except ValueError:
             pass

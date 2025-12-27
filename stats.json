@@ -1,0 +1,63 @@
+{
+  "users": {
+    "test_user_456": {
+      "username": "TestUser2",
+      "games": {},
+      "voice": {
+        "count": 0
+      },
+      "messages": {
+        "count": 0,
+        "characters": 0
+      },
+      "reactions": {
+        "total": 0,
+        "by_emoji": {}
+      },
+      "stickers": {
+        "total": 0,
+        "by_name": {}
+      },
+      "daily_connections": {
+        "total": 4,
+        "by_date": {
+          "2025-12-27": 4
+        },
+        "personal_record": {
+          "count": 4,
+          "date": "2025-12-27"
+        }
+      }
+    },
+    "test_user_increment_456": {
+      "username": "TestUser2",
+      "games": {},
+      "voice": {
+        "count": 0
+      },
+      "messages": {
+        "count": 0,
+        "characters": 0
+      },
+      "reactions": {
+        "total": 0,
+        "by_emoji": {}
+      },
+      "stickers": {
+        "total": 0,
+        "by_name": {}
+      },
+      "daily_connections": {
+        "total": 3,
+        "by_date": {
+          "2025-12-27": 3
+        },
+        "personal_record": {
+          "count": 3,
+          "date": "2025-12-27"
+        }
+      }
+    }
+  },
+  "cooldowns": {}
+}

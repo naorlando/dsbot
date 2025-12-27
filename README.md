@@ -97,10 +97,15 @@ Esto mantiene tu canal general limpio y organizado. 🎯
 
 ### 📊 Estadísticas
 ```
-!statsmenu          - Menú interactivo completo
-!stats [@user]      - Stats de un usuario
-!topgames [período] - Ranking de juegos
-!topusers           - Usuarios más activos
+!statsmenu               - Menú interactivo completo
+!stats [@user]           - Stats de un usuario
+!topgames [período]      - Ranking de juegos
+!topusers                - Usuarios más activos
+!topconnections [período] - Ranking de conexiones diarias
+!topmessages [límite]    - Top usuarios por mensajes
+!topreactions [límite]   - Top reacciones más usadas
+!topemojis [límite]      - Top emojis favoritos
+!topstickers [límite]    - Top stickers más enviados
 ```
 
 ### 📈 Avanzadas
@@ -169,7 +174,7 @@ Minecraft         ████████ 21
 python test_bot.py
 ```
 
-**Cobertura:** 54/54 tests ✅
+**Cobertura:** 63/63 tests ✅
 - Gráficos ASCII
 - Tracking de tiempo
 - Filtros por período
@@ -177,6 +182,8 @@ python test_bot.py
 - Message tracking
 - Link filtering
 - Reactions y stickers
+- Conexiones diarias
+- Notificaciones de milestones
 
 ## 🛡️ Seguridad
 
@@ -198,8 +205,9 @@ dsbot/
 
 ## 💡 Features Destacados
 
-- **Cooldown inteligente:** 10 min para juegos, voz y cambios de canal
+- **Cooldown inteligente:** 10 min para juegos/voz, 5 min para conexiones
 - **Session tracking:** Detecta cuánto tiempo están en voz (>1 min)
+- **Conexiones diarias:** Trackea cuántas veces se conecta cada usuario
 - **Visualizaciones ASCII:** Gráficos que funcionan en Discord
 - **Menú interactivo:** Select menus con filtros de período
 - **Export:** JSON y CSV para análisis externos

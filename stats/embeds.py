@@ -384,3 +384,110 @@ async def create_timeline_embed(stats_data: Dict, period_label: str) -> discord.
     
     return embed
 
+
+async def create_connections_ranking_embed(filtered_stats: Dict, period_label: str, timeframe: str = 'today') -> discord.Embed:
+    """
+    Crea embed con ranking de conexiones diarias
+    
+    Args:
+        filtered_stats: Datos de estadísticas filtrados
+        period_label: Etiqueta del período
+        timeframe: 'today', 'week', o 'all'
+    """
+    embed = discord.Embed(
+        title=f'📱 Top Conexiones',
+        description=f'› {period_label}',
+        color=discord.Color.dark_magenta()
+    )
+    
+    # Recopilar conexiones por usuario
+    connection_stats = []
+    total_connections = 0
+    
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    for user_data in filtered_stats.get('users', {}).values():
+        username = user_data.get('username', 'Unknown')
+        connections_data = user_data.get('daily_connections', {})
+        
+        if not isinstance(connections_data, dict):
+            continue
+        
+        by_date = connections_data.get('by_date', {})
+        total = connections_data.get('total', 0)
+        personal_record = connections_data.get('personal_record', {})
+        
+        # Calcular según timeframe
+        if timeframe == 'today':
+            count = by_date.get(today, 0)
+        elif timeframe == 'week':
+            # Últimos 7 días
+            count = 0
+            for i in range(7):
+                from datetime import timedelta
+                date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
+                count += by_date.get(date, 0)
+        else:  # 'all'
+            count = total
+        
+        if count > 0:
+            connection_stats.append((
+                username, 
+                count, 
+                personal_record.get('count', 0),
+                personal_record.get('date', 'N/A')
+            ))
+            total_connections += count
+    
+    if not connection_stats:
+        embed.description = 'No hay conexiones registradas en este período.'
+        return embed
+    
+    # Ordenar por cantidad de conexiones
+    top_connections = sorted(connection_stats, key=lambda x: x[1], reverse=True)[:8]
+    
+    # Crear gráfico ASCII
+    chart_data = [(name, count) for name, count, _, _ in top_connections]
+    chart = create_bar_chart(chart_data, max_width=15)
+    
+    embed.description = f'```\n{chart}\n```'
+    
+    # Detalles con récord personal
+    details = []
+    for i, (name, count, record, record_date) in enumerate(top_connections[:5], 1):
+        medal = ['🥇', '🥈', '🥉'][i-1] if i <= 3 else f'{i}.'
+        detail_line = f'{medal} **{name}**: {count} veces'
+        
+        if timeframe != 'all' and record > 0:
+            detail_line += f' (récord: {record}'
+            if record_date != 'N/A':
+                try:
+                    record_formatted = datetime.strptime(record_date, '%Y-%m-%d').strftime('%d/%m')
+                    detail_line += f' el {record_formatted}'
+                except:
+                    pass
+            detail_line += ')'
+        
+        details.append(detail_line)
+    
+    embed.add_field(name='📋 Detalle Top 5', value='\n'.join(details), inline=False)
+    
+    # Total
+    timeframe_labels = {
+        'today': 'Hoy',
+        'week': 'Esta semana',
+        'all': 'Total histórico'
+    }
+    
+    embed.add_field(
+        name='📊 Total',
+        value=(
+            f'**{len(connection_stats)}** usuarios activos\n'
+            f'**{total_connections}** conexiones {timeframe_labels.get(timeframe, "")}\n'
+            f'**{total_connections / len(connection_stats):.1f}** promedio por usuario'
+        ),
+        inline=False
+    )
+    
+    return embed
+

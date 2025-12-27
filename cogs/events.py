@@ -11,7 +11,8 @@ from core.persistence import config, stats, save_stats, get_channel_id
 from core.tracking import (
     record_game_event, record_voice_event, record_message_event,
     start_game_session, end_game_session,
-    start_voice_session, end_voice_session
+    start_voice_session, end_voice_session,
+    record_connection_event
 )
 from core.cooldown import check_cooldown
 from core.helpers import is_link_spam, get_activity_verb, send_notification
@@ -57,28 +58,30 @@ class EventsCog(commands.Cog, name='Events'):
         if before.status == discord.Status.offline and after.status != discord.Status.offline:
             user_id = str(after.id)
             username = after.display_name
-            today = datetime.now().strftime('%Y-%m-%d')
             
-            # Inicializar estructura si no existe
-            if user_id not in stats['users']:
-                stats['users'][user_id] = {
-                    'username': username,
-                    'games': {},
-                    'voice': {'count': 0},
-                    'messages': {'count': 0, 'characters': 0},
-                    'reactions': {'total': 0, 'by_emoji': {}},
-                    'stickers': {'total': 0, 'by_name': {}},
-                    'daily_connections': {}
-                }
-            
-            # Registrar conexión del día (solo una vez por día)
-            if 'daily_connections' not in stats['users'][user_id]:
-                stats['users'][user_id]['daily_connections'] = {}
-            
-            if today not in stats['users'][user_id]['daily_connections']:
-                stats['users'][user_id]['daily_connections'][today] = True
-                save_stats()
-                logger.debug(f'🌐 Conexión diaria: {username} ({today})')
+            # Cooldown de 5 minutos para evitar contar reconexiones rápidas
+            if check_cooldown(user_id, 'daily_connection', cooldown_seconds=300):
+                count_today, broke_record = record_connection_event(user_id, username)
+                
+                # NOTIFICACIONES DE MILESTONES
+                MILESTONES = [10, 25, 50]
+                
+                if count_today in MILESTONES:
+                    # Mensajes divertidos según milestone
+                    milestone_messages = {
+                        10: f"🔥 ¡**{username}** se conectó **10 veces** hoy! ¿Todo bien en casa? 🏠",
+                        25: f"🚨 ¡ALERTA! **{username}** ya se conectó **25 veces** hoy. Alguien deténgalo. 🛑",
+                        50: f"💀 **50 CONEXIONES EN UN DÍA**. {username}, sal de tu casa. 🚪"
+                    }
+                    message = milestone_messages[count_today]
+                    await send_notification(message, self.bot)
+                    logger.info(f'🎉 Milestone alcanzado: {username} - {count_today} conexiones')
+                
+                # NOTIFICACIÓN DE RÉCORD PERSONAL
+                elif broke_record and count_today > 10:  # Solo notificar récords > 10
+                    message = f"🏆 ¡NUEVO RÉCORD! **{username}** se conectó **{count_today} veces** hoy (récord anterior: {count_today - 1})"
+                    await send_notification(message, self.bot)
+                    logger.info(f'🏆 Récord roto: {username} - {count_today} conexiones')
         
         if not config.get('notify_games', True):
             return
@@ -228,7 +231,11 @@ class EventsCog(commands.Cog, name='Events'):
                     'messages': {'count': 0, 'characters': 0},
                     'reactions': {'total': 0, 'by_emoji': {}},
                     'stickers': {'total': 0, 'by_name': {}},
-                    'daily_connections': {}
+                    'daily_connections': {
+                        'total': 0,
+                        'by_date': {},
+                        'personal_record': {'count': 0, 'date': None}
+                    }
                 }
             
             # Asegurar que existe la estructura de stickers
@@ -288,7 +295,11 @@ class EventsCog(commands.Cog, name='Events'):
                 'messages': {'count': 0, 'characters': 0},
                 'reactions': {'total': 0, 'by_emoji': {}},
                 'stickers': {'total': 0, 'by_name': {}},
-                'daily_connections': {}
+                'daily_connections': {
+                    'total': 0,
+                    'by_date': {},
+                    'personal_record': {'count': 0, 'date': None}
+                }
             }
         
         # Asegurar que existe la estructura de reacciones

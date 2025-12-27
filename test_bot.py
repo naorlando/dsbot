@@ -397,6 +397,8 @@ def run_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestMessageTracking))
     suite.addTests(loader.loadTestsFromTestCase(TestNewTracking))
     suite.addTests(loader.loadTestsFromTestCase(TestCommandCoverage))
+    suite.addTests(loader.loadTestsFromTestCase(TestCommandProcessing))
+    suite.addTests(loader.loadTestsFromTestCase(TestConnectionTracking))
     
     # Ejecutar tests
     runner = unittest.TextTestRunner(verbosity=2)
@@ -842,6 +844,166 @@ class TestCommandProcessing(unittest.TestCase):
                      "EventsCog debe usar @commands.Cog.listener()")
         self.assertIn('async def on_message(self, message):', source,
                      "EventsCog debe tener on_message")
+
+
+class TestConnectionTracking(unittest.TestCase):
+    """Tests para tracking de conexiones diarias"""
+    
+    def setUp(self):
+        """Setup para cada test"""
+        from core.persistence import stats
+        self.stats = stats
+        self.stats_backup = stats['users'].copy()
+    
+    def tearDown(self):
+        """Cleanup después de cada test"""
+        self.stats['users'] = self.stats_backup
+    
+    def test_record_connection_event_creates_structure(self):
+        """Verifica que record_connection_event crea la estructura correcta"""
+        from core.tracking import record_connection_event
+        from datetime import datetime
+        
+        user_id = 'test_user_123'
+        username = 'TestUser'
+        
+        # Primera conexión
+        count, broke_record = record_connection_event(user_id, username)
+        
+        # Verificar estructura
+        self.assertIn(user_id, self.stats['users'])
+        self.assertIn('daily_connections', self.stats['users'][user_id])
+        
+        connections = self.stats['users'][user_id]['daily_connections']
+        self.assertIn('total', connections)
+        self.assertIn('by_date', connections)
+        self.assertIn('personal_record', connections)
+        
+        # Verificar valores
+        self.assertEqual(count, 1)
+        self.assertTrue(broke_record)  # Primera conexión siempre rompe récord
+        self.assertEqual(connections['total'], 1)
+        
+        today = datetime.now().strftime('%Y-%m-%d')
+        self.assertEqual(connections['by_date'][today], 1)
+        self.assertEqual(connections['personal_record']['count'], 1)
+    
+    def test_record_connection_event_increments_correctly(self):
+        """Verifica que las conexiones se incrementan correctamente"""
+        from core.tracking import record_connection_event
+        from datetime import datetime
+        
+        user_id = 'test_user_increment_456'
+        username = 'TestUser2'
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        # Limpiar usuario si existe
+        if user_id in self.stats['users']:
+            del self.stats['users'][user_id]
+        
+        # Simular 3 conexiones
+        for i in range(3):
+            count, broke_record = record_connection_event(user_id, username)
+            self.assertEqual(count, i + 1, f"Conexión {i+1} debe tener count={i+1}")
+            if i > 0:
+                self.assertTrue(broke_record, f"Conexión {i+1} debe romper récord")
+        
+        # Verificar totales
+        connections = self.stats['users'][user_id]['daily_connections']
+        self.assertEqual(connections['total'], 3)
+        self.assertEqual(connections['by_date'][today], 3)
+        self.assertEqual(connections['personal_record']['count'], 3)
+        self.assertEqual(connections['personal_record']['date'], today)
+    
+    def test_cooldown_accepts_custom_seconds(self):
+        """Verifica que check_cooldown acepta cooldown personalizado"""
+        from core.cooldown import check_cooldown
+        
+        user_id = 'test_cooldown_user'
+        event_key = 'test_event'
+        
+        # Primera llamada debe pasar
+        self.assertTrue(check_cooldown(user_id, event_key, cooldown_seconds=5))
+        
+        # Segunda llamada inmediata debe fallar
+        self.assertFalse(check_cooldown(user_id, event_key, cooldown_seconds=5))
+        
+        # Limpiar cooldown
+        cooldown_key = f"{user_id}:{event_key}"
+        if cooldown_key in self.stats['cooldowns']:
+            del self.stats['cooldowns'][cooldown_key]
+    
+    def test_connections_milestone_notifications(self):
+        """Verifica que las notificaciones de milestone están implementadas"""
+        import os
+        
+        # Leer events.py
+        events_path = os.path.join(os.path.dirname(__file__), 'cogs', 'events.py')
+        with open(events_path, 'r') as f:
+            source = f.read()
+        
+        # Verificar que tiene los milestones definidos
+        self.assertIn('MILESTONES', source, "Debe tener MILESTONES definidos")
+        self.assertIn('10', source, "Debe incluir milestone de 10 conexiones")
+        self.assertIn('25', source, "Debe incluir milestone de 25 conexiones")
+        self.assertIn('50', source, "Debe incluir milestone de 50 conexiones")
+        
+        # Verificar que llama a record_connection_event
+        self.assertIn('record_connection_event', source, 
+                     "on_presence_update debe llamar record_connection_event")
+    
+    def test_topconnections_command_exists(self):
+        """Verifica que el comando !topconnections existe"""
+        import os
+        
+        # Leer commands_basic.py
+        commands_path = os.path.join(os.path.dirname(__file__), 'stats', 'commands_basic.py')
+        with open(commands_path, 'r') as f:
+            source = f.read()
+        
+        # Verificar que existe el comando
+        self.assertIn("@bot.command(name='topconnections'", source,
+                     "Debe existir comando topconnections")
+        self.assertIn("aliases=['conexiones']", source,
+                     "Debe tener alias 'conexiones'")
+        
+        # Verificar timeframes
+        self.assertIn("'today'", source, "Debe soportar timeframe 'today'")
+        self.assertIn("'week'", source, "Debe soportar timeframe 'week'")
+        self.assertIn("'all'", source, "Debe soportar timeframe 'all'")
+    
+    def test_connections_embed_exists(self):
+        """Verifica que existe el embed de conexiones"""
+        import os
+        
+        # Leer embeds.py
+        embeds_path = os.path.join(os.path.dirname(__file__), 'stats', 'embeds.py')
+        with open(embeds_path, 'r') as f:
+            source = f.read()
+        
+        # Verificar que existe la función
+        self.assertIn('async def create_connections_ranking_embed', source,
+                     "Debe existir create_connections_ranking_embed")
+        self.assertIn('timeframe', source,
+                     "Debe aceptar parámetro timeframe")
+    
+    def test_stats_command_shows_connections(self):
+        """Verifica que el comando !stats muestra conexiones"""
+        import os
+        
+        # Leer commands_basic.py
+        commands_path = os.path.join(os.path.dirname(__file__), 'stats', 'commands_basic.py')
+        with open(commands_path, 'r') as f:
+            source = f.read()
+        
+        # Buscar el comando stats
+        self.assertIn("@bot.command(name='stats'", source, "Debe existir comando stats")
+        
+        # Verificar que muestra conexiones
+        self.assertIn("daily_connections", source,
+                     "Comando stats debe mostrar daily_connections")
+        self.assertIn("📱 Conexiones", source,
+                     "Debe tener sección de Conexiones en el embed")
 
 
 if __name__ == '__main__':

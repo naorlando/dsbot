@@ -164,37 +164,40 @@ async def setup_basic_commands(bot: commands.Bot):
         
         # Estadísticas de conexiones diarias
         daily_connections = user_stats.get('daily_connections', {})
-        if daily_connections:
-            total_days = len(daily_connections)
+        if isinstance(daily_connections, dict) and daily_connections:
+            # Nueva estructura con contadores
+            by_date = daily_connections.get('by_date', {})
+            total = daily_connections.get('total', 0)
+            personal_record = daily_connections.get('personal_record', {})
             
-            # Contar días este mes
-            current_month = datetime.now().strftime('%Y-%m')
-            days_this_month = sum(1 for date in daily_connections.keys() if date.startswith(current_month))
+            # Conexiones hoy
+            today = datetime.now().strftime('%Y-%m-%d')
+            today_count = by_date.get(today, 0)
             
-            # Última conexión
-            last_connection = max(daily_connections.keys()) if daily_connections else None
-            if last_connection:
-                try:
-                    last_dt = datetime.strptime(last_connection, '%Y-%m-%d')
-                    days_ago = (datetime.now() - last_dt).days
-                    if days_ago == 0:
-                        time_str = 'hoy'
-                    elif days_ago == 1:
-                        time_str = 'ayer'
-                    else:
-                        time_str = f'hace {days_ago} días'
-                except:
-                    time_str = 'Desconocido'
-            else:
-                time_str = 'Desconocido'
+            # Días activos
+            total_days = len(by_date)
+            
+            # Récord personal
+            record_count = personal_record.get('count', 0)
+            record_date = personal_record.get('date', None)
             
             connections_text = (
-                f'Días activos: **{total_days}** días ({days_this_month} este mes)\n'
-                f'Última conexión: {time_str}'
+                f'Total: **{total:,}** conexiones\n'
+                f'Hoy: **{today_count}** veces\n'
+                f'Días activos: **{total_days}** días'
             )
             
+            if record_count > 0:
+                connections_text += f'\n🏆 Récord: **{record_count}** veces'
+                if record_date:
+                    try:
+                        record_formatted = datetime.strptime(record_date, '%Y-%m-%d').strftime('%d/%m/%Y')
+                        connections_text += f' ({record_formatted})'
+                    except:
+                        pass
+            
             embed.add_field(
-                name='🌐 Actividad',
+                name='📱 Conexiones',
                 value=connections_text,
                 inline=False
             )
@@ -493,5 +496,126 @@ async def setup_basic_commands(bot: commands.Bot):
             )
         
         embed.description = '\n'.join(lines)
+        await ctx.send(embed=embed)
+    
+    @bot.command(name='topconnections', aliases=['conexiones'])
+    async def top_connections(ctx, timeframe: str = 'today', limit: int = 5):
+        """Muestra el ranking de conexiones diarias
+        
+        Ejemplos:
+        - !topconnections - Ranking de hoy
+        - !topconnections week - Ranking de esta semana
+        - !topconnections all - Ranking histórico total
+        - !topconnections today 10 - Top 10 de hoy
+        """
+        # Verificar canal de stats
+        if not await check_stats_channel(ctx, ctx.bot):
+            return
+        
+        # Validar timeframe
+        valid_timeframes = ['today', 'week', 'all']
+        if timeframe not in valid_timeframes:
+            # Si no es válido, asumir que es el límite
+            try:
+                limit = int(timeframe)
+                timeframe = 'today'
+            except:
+                await ctx.send(f'⚠️ Timeframe inválido. Usa: `today`, `week`, o `all`')
+                return
+        
+        # Recopilar conexiones por usuario
+        connection_stats = []
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        for user_id, user_data in stats['users'].items():
+            username = user_data.get('username', 'Unknown')
+            connections_data = user_data.get('daily_connections', {})
+            
+            if not isinstance(connections_data, dict):
+                continue
+            
+            by_date = connections_data.get('by_date', {})
+            total = connections_data.get('total', 0)
+            personal_record = connections_data.get('personal_record', {})
+            
+            # Calcular según timeframe
+            if timeframe == 'today':
+                count = by_date.get(today, 0)
+            elif timeframe == 'week':
+                # Últimos 7 días
+                from datetime import timedelta
+                count = 0
+                for i in range(7):
+                    date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
+                    count += by_date.get(date, 0)
+            else:  # 'all'
+                count = total
+            
+            if count > 0:
+                connection_stats.append({
+                    'username': username,
+                    'count': count,
+                    'record': personal_record.get('count', 0),
+                    'record_date': personal_record.get('date', 'N/A')
+                })
+        
+        if not connection_stats:
+            timeframe_labels = {
+                'today': 'hoy',
+                'week': 'esta semana',
+                'all': 'histórico'
+            }
+            await ctx.send(f'📊 No hay conexiones registradas {timeframe_labels.get(timeframe, "")}.')
+            return
+        
+        # Ordenar por cantidad y limitar
+        top = sorted(connection_stats, key=lambda x: x['count'], reverse=True)[:limit]
+        
+        # Título según timeframe
+        timeframe_titles = {
+            'today': 'Hoy',
+            'week': 'Esta Semana',
+            'all': 'Histórico'
+        }
+        
+        embed = discord.Embed(
+            title=f'📱 Top {len(top)} Conexiones - {timeframe_titles.get(timeframe, "Hoy")}',
+            color=discord.Color.dark_magenta()
+        )
+        
+        lines = []
+        for i, user in enumerate(top, 1):
+            medal = ['🥇', '🥈', '🥉'][i-1] if i <= 3 else f'{i}.'
+            line = f'{medal} **{user["username"]}**: {user["count"]} veces'
+            
+            # Agregar récord personal si no estamos en vista 'all'
+            if timeframe != 'all' and user['record'] > 0:
+                line += f' (récord: {user["record"]}'
+                if user['record_date'] != 'N/A':
+                    try:
+                        record_formatted = datetime.strptime(user['record_date'], '%Y-%m-%d').strftime('%d/%m')
+                        line += f' el {record_formatted}'
+                    except:
+                        pass
+                line += ')'
+            
+            lines.append(line)
+        
+        embed.description = '\n'.join(lines)
+        
+        # Total
+        total_connections = sum(u['count'] for u in connection_stats)
+        avg = total_connections / len(connection_stats)
+        
+        embed.add_field(
+            name='📊 Total',
+            value=(
+                f'**{len(connection_stats)}** usuarios activos\n'
+                f'**{total_connections}** conexiones totales\n'
+                f'**{avg:.1f}** promedio por usuario'
+            ),
+            inline=False
+        )
+        
         await ctx.send(embed=embed)
 
