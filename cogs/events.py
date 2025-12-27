@@ -256,8 +256,8 @@ class EventsCog(commands.Cog, name='Events'):
         if message_length > 0 and not is_link_spam(message_content):
             record_message_event(user_id, username, message_length)
         
-        # Procesar comandos
-        await self.bot.process_commands(message)
+        # NO llamar process_commands() aquí - el bot lo hace automáticamente
+        # cuando se usa @commands.Cog.listener() en lugar de @bot.event
     
     @commands.Cog.listener()
     async def on_reaction_add(self, reaction, user):
