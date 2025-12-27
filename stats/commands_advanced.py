@@ -35,7 +35,7 @@ async def setup_advanced_commands(bot: commands.Bot):
         Ejemplo: !statsmenu
         """
         # Verificar canal de stats
-        if not await check_stats_channel(ctx):
+        if not await check_stats_channel(ctx, ctx.bot):
             return
         
         view = StatsView(period='all')
@@ -57,7 +57,7 @@ async def setup_advanced_commands(bot: commands.Bot):
         - !statsgames month
         """
         # Verificar canal de stats
-        if not await check_stats_channel(ctx):
+        if not await check_stats_channel(ctx, ctx.bot):
             return
         
         if period not in ['today', 'week', 'month', 'all']:
@@ -81,7 +81,7 @@ async def setup_advanced_commands(bot: commands.Bot):
         - !statsvoice week
         """
         # Verificar canal de stats
-        if not await check_stats_channel(ctx):
+        if not await check_stats_channel(ctx, ctx.bot):
             return
         
         if period not in ['today', 'week', 'month', 'all']:
@@ -104,7 +104,7 @@ async def setup_advanced_commands(bot: commands.Bot):
         - !timeline 14
         """
         # Verificar canal de stats
-        if not await check_stats_channel(ctx):
+        if not await check_stats_channel(ctx, ctx.bot):
             return
         
         if days < 1 or days > 30:
@@ -122,7 +122,7 @@ async def setup_advanced_commands(bot: commands.Bot):
         Ejemplo: !compare @usuario1 @usuario2
         """
         # Verificar canal de stats
-        if not await check_stats_channel(ctx):
+        if not await check_stats_channel(ctx, ctx.bot):
             return
         
         user1_id = str(user1.id)
@@ -154,7 +154,7 @@ async def setup_advanced_commands(bot: commands.Bot):
         - !statsuser @usuario
         """
         # Verificar canal de stats
-        if not await check_stats_channel(ctx):
+        if not await check_stats_channel(ctx, ctx.bot):
             return
         
         if member is None:
@@ -183,7 +183,7 @@ async def setup_advanced_commands(bot: commands.Bot):
         - !export csv
         """
         # Verificar canal de stats
-        if not await check_stats_channel(ctx):
+        if not await check_stats_channel(ctx, ctx.bot):
             return
         
         if format not in ['json', 'csv']:

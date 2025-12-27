@@ -23,7 +23,7 @@ async def setup_basic_commands(bot: commands.Bot):
         - !stats @usuario - Estadísticas de otro usuario
         """
         # Verificar canal de stats
-        if not await check_stats_channel(ctx):
+        if not await check_stats_channel(ctx, ctx.bot):
             return
         
         if member is None:
@@ -204,7 +204,7 @@ async def setup_basic_commands(bot: commands.Bot):
         Ejemplo: !topgames o !topgames 10
         """
         # Verificar canal de stats
-        if not await check_stats_channel(ctx):
+        if not await check_stats_channel(ctx, ctx.bot):
             return
         
         # Recopilar todos los juegos CON TIEMPO
@@ -243,7 +243,7 @@ async def setup_basic_commands(bot: commands.Bot):
         Ejemplo: !topmessages o !topmessages 10
         """
         # Verificar canal de stats
-        if not await check_stats_channel(ctx):
+        if not await check_stats_channel(ctx, ctx.bot):
             return
         
         # Recopilar mensajes por usuario
@@ -292,7 +292,7 @@ async def setup_basic_commands(bot: commands.Bot):
         Ejemplo: !topreactions o !topreactions 10
         """
         # Verificar canal de stats
-        if not await check_stats_channel(ctx):
+        if not await check_stats_channel(ctx, ctx.bot):
             return
         
         # Recopilar reacciones por usuario
@@ -344,7 +344,7 @@ async def setup_basic_commands(bot: commands.Bot):
         Ejemplo: !topemojis o !topemojis 15
         """
         # Verificar canal de stats
-        if not await check_stats_channel(ctx):
+        if not await check_stats_channel(ctx, ctx.bot):
             return
         
         # Recopilar todos los emojis de todos los usuarios
@@ -394,7 +394,7 @@ async def setup_basic_commands(bot: commands.Bot):
         Ejemplo: !topstickers o !topstickers 15
         """
         # Verificar canal de stats
-        if not await check_stats_channel(ctx):
+        if not await check_stats_channel(ctx, ctx.bot):
             return
         
         # Recopilar todos los stickers de todos los usuarios
@@ -444,7 +444,7 @@ async def setup_basic_commands(bot: commands.Bot):
         Ejemplo: !topusers o !topusers 10
         """
         # Verificar canal de stats
-        if not await check_stats_channel(ctx):
+        if not await check_stats_channel(ctx, ctx.bot):
             return
         
         # Calcular actividad total por usuario CON TIEMPO

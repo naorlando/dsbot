@@ -25,7 +25,7 @@ async def setup_voice_commands(bot: commands.Bot):
         - !voicetime @usuario week
         """
         # Verificar canal de stats
-        if not await check_stats_channel(ctx):
+        if not await check_stats_channel(ctx, ctx.bot):
             return
         
         if member is None:
@@ -121,7 +121,7 @@ async def setup_voice_commands(bot: commands.Bot):
         - !voicetop month
         """
         # Verificar canal de stats
-        if not await check_stats_channel(ctx):
+        if not await check_stats_channel(ctx, ctx.bot):
             return
         
         # Calcular tiempo por usuario según período
