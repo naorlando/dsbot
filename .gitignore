@@ -44,3 +44,6 @@ Thumbs.db
 
 # Configuración local (puede contener tokens)
 config.local.json
+
+# Código viejo / Backups
+old/

@@ -29,14 +29,25 @@ cd dsbot
 pip install -r requirements.txt
 ```
 
-### 3. Configurar Token
+### 3. Configurar Variables de Entorno
 
-Crea `.env`:
+Crea `.env` (ver [ENV_TEMPLATE.md](ENV_TEMPLATE.md) para detalles):
 ```env
+# REQUERIDAS
 DISCORD_BOT_TOKEN=tu_token_aqui
-DISCORD_CHANNEL_ID=id_del_canal        # Opcional (notificaciones)
-DISCORD_STATS_CHANNEL_ID=id_del_canal  # Opcional (comandos stats)
+DISCORD_OWNER_ID=tu_user_id            # Para comandos protegidos
+# DISCORD_OWNER_ID=id1,id2,id3         # Múltiples owners (separados por comas)
+
+# OPCIONALES
+DISCORD_CHANNEL_ID=id_del_canal        # Canal de notificaciones
+DISCORD_STATS_CHANNEL_ID=id_del_canal  # Canal de comandos stats
 ```
+
+**¿Cómo obtener tu User ID?**
+1. Habilita "Modo Desarrollador" en Discord (Settings > Advanced)
+2. Clic derecho en tu perfil > "Copiar ID de usuario"
+
+**💡 Tip:** Puedes agregar múltiples owners separándolos por comas
 
 ### 4. Ejecutar
 
@@ -69,13 +80,20 @@ Esto mantiene tu canal general limpio y organizado. 🎯
 
 ### 🔧 Configuración
 ```
-!setchannel         - Configurar canal de notificaciones (avisos)
-!setstatschannel    - Configurar canal de estadísticas (comandos)
+# Solo Owner 🔒
+!setchannel         - Configurar canal de notificaciones
+!setstatschannel    - Configurar canal de estadísticas
+!unsetchannel       - Desconfigurar canal de notificaciones
+!unsetstatschannel  - Desconfigurar canal de stats
+
+# Públicos
 !channels           - Ver configuración de canales
 !toggle             - Activar/desactivar notificaciones (menú)
 !config             - Ver configuración actual
 !test               - Mensaje de prueba
 ```
+
+**Nota:** Los comandos de owner (🔒) requieren `DISCORD_OWNER_ID` configurado.
 
 ### 📊 Estadísticas
 ```
