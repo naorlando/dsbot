@@ -63,7 +63,7 @@ class EventsCog(commands.Cog, name='Events'):
             if check_cooldown(user_id, 'daily_connection', cooldown_seconds=300):
                 count_today, broke_record = record_connection_event(user_id, username)
                 
-                # NOTIFICACIONES DE MILESTONES
+                # NOTIFICACIONES DE MILESTONES (prioridad)
                 MILESTONES = [10, 25, 50]
                 
                 if count_today in MILESTONES:
@@ -78,10 +78,14 @@ class EventsCog(commands.Cog, name='Events'):
                     logger.info(f'🎉 Milestone alcanzado: {username} - {count_today} conexiones')
                 
                 # NOTIFICACIÓN DE RÉCORD PERSONAL
-                elif broke_record and count_today > 10:  # Solo notificar récords > 10
-                    message = f"🏆 ¡NUEVO RÉCORD! **{username}** se conectó **{count_today} veces** hoy (récord anterior: {count_today - 1})"
-                    await send_notification(message, self.bot)
-                    logger.info(f'🏆 Récord roto: {username} - {count_today} conexiones')
+                # Solo notificar si el récord anterior era >= 10 (evita spam inicial)
+                elif broke_record and count_today > 10:
+                    # Récord anterior = count_today - 1
+                    previous_record = count_today - 1
+                    if previous_record >= 10:
+                        message = f"🏆 ¡NUEVO RÉCORD! **{username}** se conectó **{count_today} veces** hoy (récord anterior: {previous_record})"
+                        await send_notification(message, self.bot)
+                        logger.info(f'🏆 Récord roto: {username} - {count_today} conexiones (anterior: {previous_record})')
         
         if not config.get('notify_games', True):
             return
