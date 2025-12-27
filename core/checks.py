@@ -56,9 +56,15 @@ async def check_stats_channel(ctx, bot):
         )
         
         if stats_channel:
-            await thread.send(f'{ctx.author.mention} 📊 Los comandos de estadísticas solo funcionan en {stats_channel.mention}\n💡 Usa `!channels` para ver la configuración actual.')
+            await thread.send(
+                f'{ctx.author.mention} 📊 Los comandos de estadísticas solo funcionan en {stats_channel.mention}\n💡 Usa `!channels` para ver la configuración actual.',
+                delete_after=10
+            )
         else:
-            await thread.send(f'{ctx.author.mention} ⚠️ El canal de estadísticas configurado no existe (ID: {stats_channel_id})\n💡 Usa `!unsetstatschannel` para desconfigurar.')
+            await thread.send(
+                f'{ctx.author.mention} ⚠️ El canal de estadísticas configurado no existe (ID: {stats_channel_id})\n💡 Usa `!unsetstatschannel` para desconfigurar.',
+                delete_after=10
+            )
     except:
         # Fallback: mensaje que se autodestruye
         if stats_channel:
