@@ -126,6 +126,14 @@ class EventsCog(commands.Cog, name='Events'):
             game_activity = next(act for act in after_games if act.name == game_name)
             activity_type_name = game_activity.type.name.lower()
             
+            # ✅ VERIFICACIÓN: Solo trackear juegos con application_id (verificados por Discord)
+            if not game_activity.application_id:
+                logger.debug(f'🚫 Juego sin verificar ignorado: "{game_name}" (usuario: {after.display_name}, sin application_id)')
+                continue  # Saltar este juego sin trackear
+            
+            # Si llegó aquí, el juego está verificado
+            logger.info(f'✅ Juego verificado: "{game_name}" (app_id: {game_activity.application_id}, usuario: {after.display_name})')
+            
             if activity_type_name in config.get('game_activity_types', ['playing', 'streaming', 'watching', 'listening']):
                 # Verificar cooldown
                 if check_cooldown(str(after.id), f'game:{game_name}'):
