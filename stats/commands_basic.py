@@ -14,6 +14,10 @@ from stats_viz import format_time
 async def setup_basic_commands(bot: commands.Bot):
     """Registra los comandos básicos de stats"""
     
+    # Evitar registro duplicado
+    if 'stats' in bot.all_commands:
+        return
+    
     @bot.command(name='stats', aliases=['mystats'])
     async def show_stats(ctx, member: discord.Member = None):
         """Muestra estadísticas de un usuario

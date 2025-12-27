@@ -27,6 +27,10 @@ logger = logging.getLogger('dsbot')
 async def setup_advanced_commands(bot: commands.Bot):
     """Registra los comandos avanzados de stats"""
     
+    # Evitar registro duplicado
+    if 'statsmenu' in bot.all_commands:
+        return
+    
     @bot.command(name='statsmenu', aliases=['statsinteractive'])
     async def stats_menu(ctx):
         """

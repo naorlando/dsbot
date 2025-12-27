@@ -45,12 +45,26 @@ async def check_stats_channel(ctx, bot):
     if ctx.channel.id == stats_channel_id:
         return True
     
-    # Si no estamos en el canal correcto, redirigir
+    # Si no estamos en el canal correcto, redirigir en thread (privado)
     stats_channel = bot.get_channel(stats_channel_id)
-    if stats_channel:
-        await ctx.send(f'📊 Los comandos de estadísticas solo funcionan en {stats_channel.mention}\n💡 Usa `!channels` para ver la configuración actual.')
-    else:
-        await ctx.send(f'⚠️ El canal de estadísticas configurado no existe (ID: {stats_channel_id})\n💡 Usa `!unsetstatschannel` para desconfigurar o `!setstatschannel` para cambiar.')
+    
+    try:
+        # Crear thread del mensaje (solo visible para el usuario)
+        thread = await ctx.message.create_thread(
+            name=f"Redirección {ctx.author.display_name}",
+            auto_archive_duration=60
+        )
+        
+        if stats_channel:
+            await thread.send(f'{ctx.author.mention} 📊 Los comandos de estadísticas solo funcionan en {stats_channel.mention}\n💡 Usa `!channels` para ver la configuración actual.')
+        else:
+            await thread.send(f'{ctx.author.mention} ⚠️ El canal de estadísticas configurado no existe (ID: {stats_channel_id})\n💡 Usa `!unsetstatschannel` para desconfigurar.')
+    except:
+        # Fallback: mensaje que se autodestruye
+        if stats_channel:
+            await ctx.send(f'{ctx.author.mention} 📊 Los comandos de estadísticas solo funcionan en {stats_channel.mention}', delete_after=10)
+        else:
+            await ctx.send(f'{ctx.author.mention} ⚠️ Canal de stats no existe (ID: {stats_channel_id})', delete_after=10)
     
     return False
 

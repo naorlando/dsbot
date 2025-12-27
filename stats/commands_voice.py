@@ -14,6 +14,10 @@ from stats_viz import create_bar_chart
 async def setup_voice_commands(bot: commands.Bot):
     """Registra los comandos de voz"""
     
+    # Evitar registro duplicado
+    if 'voicetime' in bot.all_commands:
+        return
+    
     @bot.command(name='voicetime')
     async def voice_time_cmd(ctx, member: discord.Member = None, period: str = 'all'):
         """
