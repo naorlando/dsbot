@@ -101,6 +101,8 @@ class VoiceSessionManager(BaseSessionManager):
         # - O debe estar confirmada (pasó la verificación completa)
         session_is_valid = duration_seconds >= self.min_duration_seconds or session.is_confirmed
         
+        logger.debug(f'🔊 Sesión terminada: {member.display_name} - {channel.name} - Duración: {duration_seconds:.1f}s ({minutes} min) - Confirmada: {session.is_confirmed} - Válida: {session_is_valid}')
+        
         # Si la sesión NO fue válida, borrar notificación y no guardar/notificar
         if not session_is_valid:
             if session.notification_message:
@@ -113,9 +115,12 @@ class VoiceSessionManager(BaseSessionManager):
                     logger.error(f'Error borrando notificación: {e}')
             # No guardar tiempo ni notificar salida si la sesión no fue válida
         else:
-            # Sesión válida (confirmada y > 10s): guardar tiempo y notificar salida si está habilitado
-            if minutes >= 1:  # Solo guardar si duró más de 1 minuto
+            # Sesión válida: guardar tiempo si duró al menos 1 minuto
+            if minutes >= 1:
                 save_voice_time(user_id, member.display_name, minutes, session.channel_name)
+                logger.info(f'💾 Tiempo guardado: {member.display_name} estuvo en {channel.name} por {minutes} min ({duration_seconds:.1f}s)')
+            else:
+                logger.debug(f'⏭️  Tiempo no guardado: {member.display_name} estuvo en {channel.name} por {duration_seconds:.1f}s (< 1 minuto)')
             
             # Notificar salida con cooldown (solo si la sesión fue confirmada)
             if config.get('notify_voice_leave', False):
