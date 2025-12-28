@@ -205,9 +205,14 @@ dsbot/
 
 ## 💡 Features Destacados
 
+- **Verificación de voz:** Sistema de 2 fases (3s + 7s) para filtrar entradas rápidas
+- **Juegos verificados:** Filtro multicapa que solo trackea actividades legítimas
+  - Whitelist de clases: `Game`, `Streaming`, `Activity`, `Spotify`
+  - Blacklist configurable de app IDs
+  - Filtro de nombres sospechosos
 - **Cooldown inteligente:** 10 min para juegos/voz, 5 min para conexiones
-- **Session tracking:** Detecta cuánto tiempo están en voz (>1 min)
-- **Conexiones diarias:** Trackea cuántas veces se conecta cada usuario
+- **Session tracking:** Detecta cuánto tiempo están en voz (>1 min) y jugando
+- **Conexiones diarias:** Trackea cuántas veces se conecta cada usuario con milestones
 - **Visualizaciones ASCII:** Gráficos que funcionan en Discord
 - **Menú interactivo:** Select menus con filtros de período
 - **Export:** JSON y CSV para análisis externos

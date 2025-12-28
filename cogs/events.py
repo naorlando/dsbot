@@ -5,6 +5,7 @@ Cog de Events - Maneja todos los event listeners del bot
 import discord
 from discord.ext import commands
 import logging
+import asyncio
 from datetime import datetime
 
 from core.persistence import config, stats, save_stats, get_channel_id
@@ -126,16 +127,52 @@ class EventsCog(commands.Cog, name='Events'):
             game_activity = next(act for act in after_games if act.name == game_name)
             activity_type_name = game_activity.type.name.lower()
             
-            # ✅ VERIFICACIÓN: Solo trackear juegos con application_id (verificados por Discord)
-            # Usar getattr para evitar crash con actividades especiales (Spotify, etc)
+            # ✅ VERIFICACIÓN MULTICAPA: Filtrar juegos falsos/custom
+            
+            # 1. Verificar que NO sea un custom status (type='custom')
+            if activity_type_name == 'custom':
+                logger.debug(f'🚫 Custom status ignorado: "{game_name}" (usuario: {after.display_name})')
+                continue
+            
+            # 2. Obtener clase de actividad (para verificar legitimidad)
+            activity_class = game_activity.__class__.__name__
+            
+            # 3. WHITELIST: Solo aceptar clases de actividad legítimas
+            # Game: Juegos normales detectados por Discord
+            # Streaming: Streaming en Twitch/YouTube
+            # Activity: Rich Presence oficial (verificado por Discord)
+            # Spotify: Música (aunque se maneja aparte)
+            allowed_classes = ['Game', 'Streaming', 'Activity', 'Spotify']
+            
+            if activity_class not in allowed_classes:
+                logger.debug(f'🚫 Tipo de actividad no permitido: "{game_name}" (clase: {activity_class}, usuario: {after.display_name})')
+                continue
+            
+            # 4. Verificar application_id (usar getattr para evitar crash con Spotify)
             app_id = getattr(game_activity, 'application_id', None)
             
-            if not app_id:
-                logger.debug(f'🚫 Juego sin verificar ignorado: "{game_name}" (usuario: {after.display_name}, sin application_id)')
-                continue  # Saltar este juego sin trackear
+            # Solo Spotify puede no tener app_id (se maneja diferente)
+            if not app_id and activity_class != 'Spotify':
+                logger.debug(f'🚫 Actividad sin application_id ignorada: "{game_name}" (clase: {activity_class}, usuario: {after.display_name})')
+                continue
             
-            # Si llegó aquí, el juego está verificado
-            logger.info(f'✅ Juego verificado: "{game_name}" (app_id: {app_id}, usuario: {after.display_name})')
+            # 5. Verificar contra blacklist configurable
+            blacklisted_apps = config.get('blacklisted_app_ids', [])
+            if app_id and str(app_id) in blacklisted_apps:
+                logger.debug(f'🚫 Aplicación en blacklist: "{game_name}" (app_id: {app_id}, usuario: {after.display_name})')
+                continue
+            
+            # 6. Filtro de nombres sospechosos (última línea de defensa)
+            suspicious_names = ['test', 'asdf', 'fake', 'custom', 'prueba', 'ejemplo']
+            if game_name.lower() in suspicious_names:
+                logger.warning(f'⚠️  Nombre sospechoso ignorado: "{game_name}" (app_id: {app_id}, clase: {activity_class}, usuario: {after.display_name})')
+                continue
+            
+            # Si llegó aquí, la actividad pasó TODAS las verificaciones
+            if activity_class == 'Spotify':
+                logger.info(f'✅ Actividad verificada: "{game_name}" (tipo: Spotify, usuario: {after.display_name})')
+            else:
+                logger.info(f'✅ Actividad verificada: "{game_name}" (app_id: {app_id}, clase: {activity_class}, type: {activity_type_name}, usuario: {after.display_name})')
             
             if activity_type_name in config.get('game_activity_types', ['playing', 'streaming', 'watching', 'listening']):
                 # Verificar cooldown
@@ -171,9 +208,20 @@ class EventsCog(commands.Cog, name='Events'):
         
         # Entrada a canal de voz
         if not before.channel and after.channel:
-            # Iniciar tracking de tiempo
+            # ✅ VERIFICACIÓN EN 2 FASES (3s + 7s = 10s total)
+            # Fase 1: Delay anti-spam de 3s para filtrar entradas/salidas rápidas
+            await asyncio.sleep(3)
+            
+            # Verificar que el usuario SIGUE en el canal después de 3s
+            member_now = after.channel.guild.get_member(member.id)
+            if not member_now or not member_now.voice or member_now.voice.channel != after.channel:
+                logger.debug(f'⏭️  Entrada < 3s ignorada: {member.display_name} en {after.channel.name}')
+                return  # No trackear ni notificar
+            
+            # Fase 2: Usuario confirmado en canal por 3s → Iniciar tracking
             start_voice_session(str(member.id), member.display_name, after.channel.name)
             
+            notification_message = None
             if config.get('notify_voice', True):
                 # Verificar cooldown
                 if check_cooldown(str(member.id), 'voice'):
@@ -182,13 +230,32 @@ class EventsCog(commands.Cog, name='Events'):
                     # Registrar en estadísticas
                     record_voice_event(str(member.id), member.display_name)
                     
-                    # Enviar notificación
+                    # Enviar notificación (con return_message para poder borrarla después)
                     message_template = messages_config.get('voice_join', "🔊 **{user}** entró al canal de voz **{channel}**")
                     message = message_template.format(
                         user=member.display_name,
                         channel=after.channel.name
                     )
-                    await send_notification(message, self.bot)
+                    notification_message = await send_notification(message, self.bot, return_message=True)
+            
+            # Fase 3: Monitoreo adicional de 7s (total 10s desde entrada)
+            if notification_message:
+                await asyncio.sleep(7)
+                
+                # Verificar si el usuario TODAVÍA está en el canal
+                member_now = after.channel.guild.get_member(member.id)
+                if not member_now or not member_now.voice or member_now.voice.channel != after.channel:
+                    # Se fue en menos de 10s: Borrar notificación
+                    try:
+                        await notification_message.delete()
+                        logger.info(f'🗑️  Notificación borrada: {member.display_name} estuvo < 10s en {after.channel.name}')
+                    except discord.errors.NotFound:
+                        logger.debug(f'⚠️  Mensaje ya fue borrado: {member.display_name}')
+                    except Exception as e:
+                        logger.error(f'❌ Error borrando notificación: {e}')
+                else:
+                    # Sesión confirmada: Usuario sigue después de 10s
+                    logger.debug(f'✅ Sesión confirmada: {member.display_name} > 10s en {after.channel.name}')
         
         # Salida de canal de voz
         elif before.channel and not after.channel:

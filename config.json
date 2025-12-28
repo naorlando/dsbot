@@ -13,6 +13,9 @@
         "watching",
         "listening"
     ],
+    "blacklisted_app_ids": [
+        "1435707463935594496"
+    ],
     "messages": {
         "game_start": "🎮 **{user}** está {verb} **{activity}**",
         "voice_join": "🔊 **{user}** entró al canal de voz **{channel}**",

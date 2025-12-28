@@ -63,33 +63,51 @@ def get_activity_verb(activity_type):
     return verbs.get(activity_type, activity_type)
 
 
-async def send_notification(message, bot):
-    """Envía un mensaje al canal configurado con manejo de errores robusto"""
+async def send_notification(message, bot, return_message=False):
+    """Envía un mensaje al canal configurado con manejo de errores robusto
+    
+    Args:
+        message: Contenido del mensaje a enviar
+        bot: Instancia del bot
+        return_message: Si True, retorna el objeto Message enviado (para poder borrarlo después)
+        
+    Returns:
+        discord.Message si return_message=True y envío exitoso, None en otro caso
+    """
     channel_id = get_channel_id()
     if not channel_id:
         logger.warning('⚠️  No hay canal configurado. Configura DISCORD_CHANNEL_ID o usa !setchannel')
-        return
+        return None
     
     try:
         channel = bot.get_channel(channel_id)
         if channel:
-            await channel.send(message)
+            sent_message = await channel.send(message)
             logger.info(f'✅ Notificación enviada: {message[:50]}...')
+            if return_message:
+                return sent_message
         else:
             logger.error(f'⚠️  No se encontró el canal con ID {channel_id}')
+            return None
     except discord.errors.HTTPException as e:
         if e.status == 429:  # Rate limited
             retry_after = e.retry_after if hasattr(e, 'retry_after') else 1.0
             logger.warning(f'⚠️  Rate limited. Esperando {retry_after}s...')
             await asyncio.sleep(retry_after)
             try:
-                await channel.send(message)
+                sent_message = await channel.send(message)
+                if return_message:
+                    return sent_message
             except Exception as retry_error:
                 logger.error(f'❌ Error al reintentar: {retry_error}')
+                return None
         else:
             logger.error(f'❌ Error HTTP: {e}')
+            return None
     except discord.errors.Forbidden:
         logger.error(f'⚠️  Sin permisos para enviar mensajes al canal {channel_id}')
+        return None
     except Exception as e:
         logger.error(f'❌ Error al enviar notificación: {e}')
+        return None
 
