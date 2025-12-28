@@ -38,3 +38,28 @@ def check_cooldown(user_id, event_key, cooldown_seconds=600):
     save_stats()
     return True
 
+
+def is_cooldown_passed(user_id, event_key, cooldown_seconds=600):
+    """
+    Verifica si pasó el tiempo de cooldown SIN actualizarlo.
+    Útil para verificar el estado del cooldown sin consumirlo.
+    
+    Args:
+        user_id: ID del usuario
+        event_key: Clave del evento
+        cooldown_seconds: Tiempo de cooldown en segundos
+    
+    Retorna True si el cooldown ya pasó, False si aún está activo.
+    """
+    cooldown_key = f"{user_id}:{event_key}"
+    last_time_str = stats['cooldowns'].get(cooldown_key)
+    
+    if not last_time_str:
+        return True  # No hay cooldown registrado, se considera que pasó
+    
+    try:
+        last_time = datetime.fromisoformat(last_time_str)
+        return datetime.now() - last_time >= timedelta(seconds=cooldown_seconds)
+    except ValueError:
+        return True  # Error al parsear, se considera que pasó
+

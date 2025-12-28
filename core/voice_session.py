@@ -13,7 +13,7 @@ from core.session_dto import (
     save_voice_time, increment_voice_count,
     set_voice_session_start, clear_voice_session
 )
-from core.cooldown import check_cooldown
+from core.cooldown import check_cooldown, is_cooldown_passed
 from core.helpers import send_notification
 
 logger = logging.getLogger('dsbot')
@@ -133,29 +133,49 @@ class VoiceSessionManager(BaseSessionManager):
             
             # Notificar salida SOLO si:
             # 1. La sesión fue CONFIRMADA (pasó los 10s completos)
-            # 2. Se envió notificación de entrada (no estamos en cooldown de entrada)
-            # 3. Está habilitado en config
-            if config.get('notify_voice_leave', False) and session_is_confirmed and session.entry_notification_sent:
-                cooldown_passed = check_cooldown(user_id, 'voice_leave', cooldown_seconds=300)
-                logger.debug(f'🔇 Cooldown voice_leave para {member.display_name}: {"✅ Pasó" if cooldown_passed else "❌ Activo"}')
-                if cooldown_passed:
-                    messages_config = config.get('messages', {})
-                    message_template = messages_config.get('voice_leave', "🔇 **{user}** salió del canal de voz **{channel}**")
-                    message = message_template.format(
-                        user=member.display_name,
-                        channel=channel.name
-                    )
-                    await send_notification(message, self.bot)
-                    logger.info(f'🔇 Notificación de salida enviada: {member.display_name} de {channel.name}')
+            # 2. Está habilitado en config
+            # 3. Si hubo notificación de entrada: verificar cooldown de salida normalmente
+            # 4. Si NO hubo notificación de entrada: solo notificar si el cooldown de entrada ya pasó (10 min)
+            if config.get('notify_voice_leave', False) and session_is_confirmed:
+                # Si hubo notificación de entrada, verificar cooldown de salida normalmente
+                if session.entry_notification_sent:
+                    cooldown_passed = check_cooldown(user_id, 'voice_leave', cooldown_seconds=300)
+                    logger.debug(f'🔇 Cooldown voice_leave para {member.display_name}: {"✅ Pasó" if cooldown_passed else "❌ Activo"}')
+                    if cooldown_passed:
+                        messages_config = config.get('messages', {})
+                        message_template = messages_config.get('voice_leave', "🔇 **{user}** salió del canal de voz **{channel}**")
+                        message = message_template.format(
+                            user=member.display_name,
+                            channel=channel.name
+                        )
+                        await send_notification(message, self.bot)
+                        logger.info(f'🔇 Notificación de salida enviada: {member.display_name} de {channel.name}')
+                    else:
+                        logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} (cooldown activo)')
                 else:
-                    logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} (cooldown activo)')
+                    # No hubo notificación de entrada: solo notificar si el cooldown de entrada ya pasó (10 min)
+                    entry_cooldown_passed = is_cooldown_passed(user_id, 'voice', cooldown_seconds=600)
+                    if entry_cooldown_passed:
+                        cooldown_passed = check_cooldown(user_id, 'voice_leave', cooldown_seconds=300)
+                        logger.debug(f'🔇 Cooldown voice_leave para {member.display_name} (sin entrada previa): {"✅ Pasó" if cooldown_passed else "❌ Activo"}')
+                        if cooldown_passed:
+                            messages_config = config.get('messages', {})
+                            message_template = messages_config.get('voice_leave', "🔇 **{user}** salió del canal de voz **{channel}**")
+                            message = message_template.format(
+                                user=member.display_name,
+                                channel=channel.name
+                            )
+                            await send_notification(message, self.bot)
+                            logger.info(f'🔇 Notificación de salida enviada: {member.display_name} de {channel.name} (sin entrada previa, cooldown de entrada pasó)')
+                        else:
+                            logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} (cooldown de salida activo)')
+                    else:
+                        logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} (no hubo entrada y cooldown de entrada aún activo)')
             else:
                 if not config.get('notify_voice_leave', False):
                     logger.debug(f'⏭️  Notificación de salida deshabilitada en config')
                 elif not session_is_confirmed:
                     logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} (sesión no confirmada)')
-                elif not session.entry_notification_sent:
-                    logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} (no hubo notificación de entrada - cooldown activo)')
         
         # Limpiar sesión
         clear_voice_session(user_id)

@@ -98,5 +98,7 @@
       }
     }
   },
-  "cooldowns": {}
+  "cooldowns": {
+    "test_user_no_update:test_event": "2025-12-28T14:06:04.993154"
+  }
 }

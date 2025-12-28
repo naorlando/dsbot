@@ -399,6 +399,7 @@ def run_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestCommandCoverage))
     suite.addTests(loader.loadTestsFromTestCase(TestCommandProcessing))
     suite.addTests(loader.loadTestsFromTestCase(TestConnectionTracking))
+    suite.addTests(loader.loadTestsFromTestCase(TestVoiceLeaveNotificationLogic))
     
     # Ejecutar tests
     runner = unittest.TextTestRunner(verbosity=2)
@@ -1075,6 +1076,212 @@ class TestVoiceMessageTracking(unittest.TestCase):
             # Verificar que guarda guild_id en la sesión
             self.assertIn("guild_id", voice_source,
                          "Debe guardar guild_id en la sesión")
+
+
+class TestVoiceLeaveNotificationLogic(unittest.TestCase):
+    """Tests para la lógica de notificaciones de salida de voz con cooldowns"""
+    
+    def setUp(self):
+        """Setup para cada test"""
+        from core.persistence import stats
+        self.stats = stats
+        self.stats_backup = stats['cooldowns'].copy()
+    
+    def tearDown(self):
+        """Cleanup después de cada test"""
+        self.stats['cooldowns'] = self.stats_backup.copy()
+    
+    def test_is_cooldown_passed_exists(self):
+        """Verifica que existe la función is_cooldown_passed"""
+        from core.cooldown import is_cooldown_passed
+        self.assertTrue(callable(is_cooldown_passed))
+    
+    def test_is_cooldown_passed_no_cooldown(self):
+        """Verifica que is_cooldown_passed retorna True si no hay cooldown"""
+        from core.cooldown import is_cooldown_passed
+        
+        user_id = 'test_user_no_cooldown'
+        event_key = 'test_event'
+        
+        # Limpiar cooldown si existe
+        cooldown_key = f"{user_id}:{event_key}"
+        if cooldown_key in self.stats['cooldowns']:
+            del self.stats['cooldowns'][cooldown_key]
+        
+        # Debe retornar True (no hay cooldown)
+        self.assertTrue(is_cooldown_passed(user_id, event_key, cooldown_seconds=600))
+    
+    def test_is_cooldown_passed_active_cooldown(self):
+        """Verifica que is_cooldown_passed retorna False si el cooldown está activo"""
+        from core.cooldown import is_cooldown_passed
+        from datetime import datetime
+        
+        user_id = 'test_user_active'
+        event_key = 'test_event'
+        cooldown_key = f"{user_id}:{event_key}"
+        
+        # Establecer cooldown reciente (hace 5 minutos, cooldown de 10 min)
+        self.stats['cooldowns'][cooldown_key] = (datetime.now() - timedelta(minutes=5)).isoformat()
+        
+        # Debe retornar False (cooldown activo)
+        self.assertFalse(is_cooldown_passed(user_id, event_key, cooldown_seconds=600))
+    
+    def test_is_cooldown_passed_expired_cooldown(self):
+        """Verifica que is_cooldown_passed retorna True si el cooldown expiró"""
+        from core.cooldown import is_cooldown_passed
+        from datetime import datetime
+        
+        user_id = 'test_user_expired'
+        event_key = 'test_event'
+        cooldown_key = f"{user_id}:{event_key}"
+        
+        # Establecer cooldown antiguo (hace 15 minutos, cooldown de 10 min)
+        self.stats['cooldowns'][cooldown_key] = (datetime.now() - timedelta(minutes=15)).isoformat()
+        
+        # Debe retornar True (cooldown expirado)
+        self.assertTrue(is_cooldown_passed(user_id, event_key, cooldown_seconds=600))
+    
+    def test_is_cooldown_passed_does_not_update(self):
+        """Verifica que is_cooldown_passed NO actualiza el cooldown"""
+        from core.cooldown import is_cooldown_passed, check_cooldown
+        from datetime import datetime
+        
+        user_id = 'test_user_no_update'
+        event_key = 'test_event'
+        cooldown_key = f"{user_id}:{event_key}"
+        
+        # Establecer cooldown antiguo
+        old_time = (datetime.now() - timedelta(minutes=15)).isoformat()
+        self.stats['cooldowns'][cooldown_key] = old_time
+        
+        # Llamar is_cooldown_passed (no debe actualizar)
+        result = is_cooldown_passed(user_id, event_key, cooldown_seconds=600)
+        self.assertTrue(result)
+        
+        # Verificar que el cooldown NO cambió
+        self.assertEqual(self.stats['cooldowns'][cooldown_key], old_time)
+        
+        # Comparar con check_cooldown que SÍ actualiza
+        check_cooldown(user_id, event_key, cooldown_seconds=600)
+        new_time = self.stats['cooldowns'][cooldown_key]
+        self.assertNotEqual(new_time, old_time)
+    
+    def test_voice_leave_logic_with_entry_notification(self):
+        """Verifica lógica de salida cuando hubo notificación de entrada"""
+        import os
+        voice_session_file = Path(__file__).parent / 'core' / 'voice_session.py'
+        if not voice_session_file.exists():
+            self.skipTest("No se encontró core/voice_session.py")
+        
+        with open(voice_session_file, 'r', encoding='utf-8') as f:
+            source = f.read()
+        
+        # Verificar que si entry_notification_sent es True, verifica cooldown de salida
+        self.assertIn('if session.entry_notification_sent:', source)
+        self.assertIn('check_cooldown(user_id, \'voice_leave\'', source)
+    
+    def test_voice_leave_logic_without_entry_notification(self):
+        """Verifica lógica de salida cuando NO hubo notificación de entrada"""
+        import os
+        voice_session_file = Path(__file__).parent / 'core' / 'voice_session.py'
+        if not voice_session_file.exists():
+            self.skipTest("No se encontró core/voice_session.py")
+        
+        with open(voice_session_file, 'r', encoding='utf-8') as f:
+            source = f.read()
+        
+        # Verificar que si entry_notification_sent es False, verifica cooldown de entrada primero
+        self.assertIn('else:', source)  # Debe tener else para cuando no hay entrada
+        self.assertIn('is_cooldown_passed(user_id, \'voice\'', source)
+        self.assertIn('cooldown_seconds=600', source)  # 10 minutos para entrada
+    
+    def test_tracking_independent_of_notifications(self):
+        """Verifica que el tracking NO se ve afectado por las notificaciones"""
+        import os
+        voice_session_file = Path(__file__).parent / 'core' / 'voice_session.py'
+        if not voice_session_file.exists():
+            self.skipTest("No se encontró core/voice_session.py")
+        
+        with open(voice_session_file, 'r', encoding='utf-8') as f:
+            source = f.read()
+        
+        # Verificar que save_voice_time se llama
+        self.assertIn('save_voice_time', source, "Debe llamar save_voice_time")
+        
+        # Verificar que save_voice_time está en el bloque else (sesión válida)
+        # Buscar el bloque else después de session_is_valid_for_time
+        valid_pos = source.find('session_is_valid_for_time')
+        else_pos = source.find('else:', valid_pos)
+        
+        self.assertGreater(else_pos, valid_pos, "Debe tener bloque else para sesión válida")
+        
+        # Buscar save_voice_time después del else
+        save_time_pos = source.find('save_voice_time', else_pos)
+        self.assertGreater(save_time_pos, else_pos, 
+                          "save_voice_time debe estar en el bloque else (sesión válida)")
+        
+        # Verificar que save_voice_time está antes de las notificaciones
+        notify_leave_pos = source.find('notify_voice_leave', save_time_pos)
+        self.assertGreater(notify_leave_pos, save_time_pos,
+                          "save_voice_time debe estar antes de las notificaciones")
+    
+    def test_entry_notification_sent_flag_exists(self):
+        """Verifica que existe el flag entry_notification_sent en BaseSession"""
+        import os
+        base_session_file = Path(__file__).parent / 'core' / 'base_session.py'
+        if not base_session_file.exists():
+            self.skipTest("No se encontró core/base_session.py")
+        
+        with open(base_session_file, 'r', encoding='utf-8') as f:
+            source = f.read()
+        
+        # Verificar que existe el flag
+        self.assertIn('entry_notification_sent', source)
+        self.assertIn('self.entry_notification_sent = False', source)
+    
+    def test_entry_notification_sent_set_in_phase1(self):
+        """Verifica que entry_notification_sent se setea en _on_session_confirmed_phase1"""
+        import os
+        voice_session_file = Path(__file__).parent / 'core' / 'voice_session.py'
+        if not voice_session_file.exists():
+            self.skipTest("No se encontró core/voice_session.py")
+        
+        with open(voice_session_file, 'r', encoding='utf-8') as f:
+            source = f.read()
+        
+        # Verificar que se setea en phase1 (buscar hasta el siguiente método)
+        phase1_pos = source.find('_on_session_confirmed_phase1')
+        next_method_pos = source.find('async def _on_session_confirmed_phase2', phase1_pos)
+        if next_method_pos == -1:
+            next_method_pos = len(source)
+        
+        phase1_block = source[phase1_pos:next_method_pos]
+        
+        self.assertIn('entry_notification_sent = True', phase1_block)
+        self.assertIn('entry_notification_sent = False', phase1_block)
+    
+    def test_game_leave_logic_matches_voice(self):
+        """Verifica que la lógica de salida de juegos coincide con voz"""
+        import os
+        game_session_file = Path(__file__).parent / 'core' / 'game_session.py'
+        voice_session_file = Path(__file__).parent / 'core' / 'voice_session.py'
+        
+        if not game_session_file.exists() or not voice_session_file.exists():
+            self.skipTest("No se encontraron archivos de sesiones")
+        
+        with open(game_session_file, 'r', encoding='utf-8') as f:
+            game_source = f.read()
+        
+        with open(voice_session_file, 'r', encoding='utf-8') as f:
+            voice_source = f.read()
+        
+        # Verificar que ambos usan is_cooldown_passed
+        self.assertIn('is_cooldown_passed', game_source)
+        self.assertIn('is_cooldown_passed', voice_source)
+        
+        # Verificar que ambos verifican entry_notification_sent
+        self.assertIn('entry_notification_sent', game_source)
+        self.assertIn('entry_notification_sent', voice_source)
 
 
 if __name__ == '__main__':
