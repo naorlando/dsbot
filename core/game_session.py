@@ -162,8 +162,11 @@ class GameSessionManager(BaseSessionManager):
             else:
                 logger.debug(f'⏭️  Tiempo no guardado: {member.display_name} jugó {game_name} por {duration_seconds:.1f}s (< 1 minuto)')
             
-            # Notificar salida con cooldown (SOLO si la sesión fue CONFIRMADA, no solo válida)
-            if config.get('notify_game_end', False) and session_is_confirmed:
+            # Notificar salida SOLO si:
+            # 1. La sesión fue CONFIRMADA (pasó los 10s completos)
+            # 2. Se envió notificación de entrada (no estamos en cooldown de entrada)
+            # 3. Está habilitado en config
+            if config.get('notify_game_end', False) and session_is_confirmed and session.entry_notification_sent:
                 if check_cooldown(user_id, f'game_end:{game_name}', cooldown_seconds=300):
                     messages_config = config.get('messages', {})
                     message_template = messages_config.get('game_end', "🎮 **{user}** dejó de jugar **{game}**")
@@ -173,6 +176,15 @@ class GameSessionManager(BaseSessionManager):
                     )
                     await send_notification(message, self.bot)
                     logger.info(f'🎮 Notificación de salida enviada: {member.display_name} dejó {game_name}')
+                else:
+                    logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} - {game_name} (cooldown activo)')
+            else:
+                if not config.get('notify_game_end', False):
+                    logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} - {game_name} (notify_game_end deshabilitado)')
+                elif not session_is_confirmed:
+                    logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} - {game_name} (sesión no confirmada)')
+                elif not session.entry_notification_sent:
+                    logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} - {game_name} (no hubo notificación de entrada - cooldown activo)')
         
         # Limpiar sesión
         clear_game_session(user_id, game_name)
@@ -237,11 +249,14 @@ class GameSessionManager(BaseSessionManager):
                     activity=session.game_name
                 )
                 session.notification_message = await send_notification(message, self.bot, return_message=True)
+                session.entry_notification_sent = True  # Marcar que se envió notificación de entrada
                 logger.info(f'🎮 Notificación enviada: {session.username} está {verb} {session.game_name}')
             else:
                 logger.debug(f'⏭️  Notificación de entrada no enviada: {session.username} - {session.game_name} (cooldown activo)')
+                session.entry_notification_sent = False  # No se envió por cooldown
         else:
             logger.debug(f'⏭️  Notificación de entrada deshabilitada en config')
+            session.entry_notification_sent = False  # No se envió porque está deshabilitado
     
     async def _on_session_confirmed_phase2(self, session: BaseSession, member: discord.Member, config: dict):
         """Callback cuando la sesión es confirmada después de 10s"""

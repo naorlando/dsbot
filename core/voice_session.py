@@ -89,8 +89,13 @@ class VoiceSessionManager(BaseSessionManager):
             return
         
         # Cancelar task de verificación si aún está corriendo
+        # Esto hará que la task lance CancelledError y se limpie automáticamente
         if session.verification_task and not session.verification_task.done():
             session.verification_task.cancel()
+            # Esperar un poco para que la task procese la cancelación y borre el mensaje si existe
+            # (solo si la sesión es corta, para evitar esperas innecesarias)
+            if session.duration_seconds() < self.min_duration_seconds:
+                await asyncio.sleep(0.1)  # Pequeño delay para que la task procese la cancelación
         
         # Calcular tiempo de sesión
         duration_seconds = session.duration_seconds()
@@ -106,14 +111,15 @@ class VoiceSessionManager(BaseSessionManager):
         
         logger.debug(f'🔊 Sesión terminada: {member.display_name} - {channel.name} - Duración: {duration_seconds:.1f}s ({minutes} min) - Confirmada: {session.is_confirmed} - Válida para tiempo: {session_is_valid_for_time}')
         
-        # Si la sesión NO fue válida, borrar notificación y no guardar/notificar
+        # Si la sesión NO fue válida, verificar si aún hay mensaje que borrar
+        # (la task puede haberlo borrado ya, pero por si acaso lo verificamos)
         if not session_is_valid_for_time:
             if session.notification_message:
                 try:
                     await session.notification_message.delete()
                     logger.info(f'🗑️  Notificación borrada: {member.display_name} estuvo < {self.min_duration_seconds}s o no fue confirmada')
                 except discord.errors.NotFound:
-                    logger.debug(f'⚠️  Mensaje ya fue borrado: {member.display_name}')
+                    logger.debug(f'⚠️  Mensaje ya fue borrado por la task de verificación: {member.display_name}')
                 except Exception as e:
                     logger.error(f'Error borrando notificación: {e}')
             # No guardar tiempo ni notificar salida si la sesión no fue válida
@@ -125,9 +131,14 @@ class VoiceSessionManager(BaseSessionManager):
             else:
                 logger.debug(f'⏭️  Tiempo no guardado: {member.display_name} estuvo en {channel.name} por {duration_seconds:.1f}s (< 1 minuto)')
             
-            # Notificar salida con cooldown (SOLO si la sesión fue CONFIRMADA, no solo válida)
-            if config.get('notify_voice_leave', False) and session_is_confirmed:
-                if check_cooldown(user_id, 'voice_leave', cooldown_seconds=300):
+            # Notificar salida SOLO si:
+            # 1. La sesión fue CONFIRMADA (pasó los 10s completos)
+            # 2. Se envió notificación de entrada (no estamos en cooldown de entrada)
+            # 3. Está habilitado en config
+            if config.get('notify_voice_leave', False) and session_is_confirmed and session.entry_notification_sent:
+                cooldown_passed = check_cooldown(user_id, 'voice_leave', cooldown_seconds=300)
+                logger.debug(f'🔇 Cooldown voice_leave para {member.display_name}: {"✅ Pasó" if cooldown_passed else "❌ Activo"}')
+                if cooldown_passed:
                     messages_config = config.get('messages', {})
                     message_template = messages_config.get('voice_leave', "🔇 **{user}** salió del canal de voz **{channel}**")
                     message = message_template.format(
@@ -136,6 +147,15 @@ class VoiceSessionManager(BaseSessionManager):
                     )
                     await send_notification(message, self.bot)
                     logger.info(f'🔇 Notificación de salida enviada: {member.display_name} de {channel.name}')
+                else:
+                    logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} (cooldown activo)')
+            else:
+                if not config.get('notify_voice_leave', False):
+                    logger.debug(f'⏭️  Notificación de salida deshabilitada en config')
+                elif not session_is_confirmed:
+                    logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} (sesión no confirmada)')
+                elif not session.entry_notification_sent:
+                    logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} (no hubo notificación de entrada - cooldown activo)')
         
         # Limpiar sesión
         clear_voice_session(user_id)
@@ -210,7 +230,14 @@ class VoiceSessionManager(BaseSessionManager):
                     channel=session.channel_name
                 )
                 session.notification_message = await send_notification(message, self.bot, return_message=True)
+                session.entry_notification_sent = True  # Marcar que se envió notificación de entrada
                 logger.info(f'🔊 Notificación enviada: {session.username} en {session.channel_name}')
+            else:
+                logger.debug(f'⏭️  Notificación de entrada no enviada: {session.username} - {session.channel_name} (cooldown activo)')
+                session.entry_notification_sent = False  # No se envió por cooldown
+        else:
+            logger.debug(f'⏭️  Notificación de entrada no enviada: {session.username} - {session.channel_name} (notify_voice deshabilitado)')
+            session.entry_notification_sent = False  # No se envió porque está deshabilitado
     
     async def _on_session_confirmed_phase2(self, session: BaseSession, member: discord.Member, config: dict):
         """Callback cuando la sesión es confirmada después de 10s"""

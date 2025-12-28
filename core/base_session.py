@@ -24,6 +24,7 @@ class BaseSession:
         self.notification_message: Optional[discord.Message] = None
         self.verification_task: Optional[asyncio.Task] = None
         self.is_confirmed = False  # True si pasó el threshold mínimo
+        self.entry_notification_sent = False  # True si se envió notificación de entrada (para no notificar salida si no hubo entrada)
     
     def duration_seconds(self) -> float:
         """Retorna la duración de la sesión en segundos"""

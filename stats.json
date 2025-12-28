@@ -29,15 +29,54 @@
         }
       }
     },
+    "test_user_123": {
+      "username": "TestUser",
+      "games": {},
+      "voice": {
+        "count": 0,
+        "last_join": null,
+        "total_minutes": 0,
+        "daily_minutes": {},
+        "current_session": null
+      },
+      "messages": {
+        "count": 0,
+        "characters": 0,
+        "last_message": null
+      },
+      "reactions": {
+        "total": 0,
+        "by_emoji": {}
+      },
+      "stickers": {
+        "total": 0,
+        "by_name": {}
+      },
+      "daily_connections": {
+        "total": 2,
+        "by_date": {
+          "2025-12-28": 2
+        },
+        "personal_record": {
+          "count": 2,
+          "date": "2025-12-28"
+        }
+      }
+    },
     "test_user_increment_456": {
       "username": "TestUser2",
       "games": {},
       "voice": {
-        "count": 0
+        "count": 0,
+        "last_join": null,
+        "total_minutes": 0,
+        "daily_minutes": {},
+        "current_session": null
       },
       "messages": {
         "count": 0,
-        "characters": 0
+        "characters": 0,
+        "last_message": null
       },
       "reactions": {
         "total": 0,
