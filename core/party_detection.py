@@ -18,7 +18,8 @@ logger = logging.getLogger('dsbot')
 class PartyDetector:
     """Detecta y gestiona parties (grupos de jugadores en el mismo juego)"""
     
-    def __init__(self):
+    def __init__(self, bot):
+        self.bot = bot
         self._ensure_party_structure()
     
     def _ensure_party_structure(self):

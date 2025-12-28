@@ -17,7 +17,7 @@ class UtilityCog(commands.Cog, name='Utilidades'):
     
     def __init__(self, bot):
         self.bot = bot
-        self.party_detector = PartyDetector()
+        self.party_detector = PartyDetector(bot)
     
     @commands.command(name='bothelp', aliases=['help', 'ayuda', 'comandos'])
     @stats_channel_only()
