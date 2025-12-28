@@ -36,6 +36,30 @@ class GameSessionManager(BaseSessionManager):
     def __init__(self, bot):
         super().__init__(bot, min_duration_seconds=10)
     
+    # Métodos abstractos requeridos por BaseSessionManager
+    async def handle_start(self, member: discord.Member, config: dict, *args, **kwargs):
+        """
+        Implementa handle_start abstracto.
+        Para juegos, requiere game_activity y activity_type en kwargs.
+        """
+        game_activity = kwargs.get('game_activity')
+        activity_type = kwargs.get('activity_type')
+        if game_activity is None or activity_type is None:
+            logger.error("GameSessionManager.handle_start requiere game_activity y activity_type en kwargs")
+            return
+        await self.handle_game_start(member, game_activity, activity_type, config)
+    
+    async def handle_end(self, member: discord.Member, config: dict, *args, **kwargs):
+        """
+        Implementa handle_end abstracto.
+        Para juegos, requiere game_name en kwargs.
+        """
+        game_name = kwargs.get('game_name')
+        if game_name is None:
+            logger.error("GameSessionManager.handle_end requiere game_name en kwargs")
+            return
+        await self.handle_game_end(member, game_name, config)
+    
     async def handle_game_start(self, member: discord.Member, game_activity: discord.Activity, 
                                activity_type: str, config: dict):
         """

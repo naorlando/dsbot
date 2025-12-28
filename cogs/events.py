@@ -179,11 +179,11 @@ class EventsCog(commands.Cog, name='Events'):
             
             if activity_type_name in config.get('game_activity_types', ['playing', 'streaming', 'watching', 'listening']):
                 # Usar GameSessionManager para manejar inicio de juego
-                await self.game_manager.handle_game_start(after, game_activity, activity_type_name, config)
+                await self.game_manager.handle_start(after, config, game_activity=game_activity, activity_type=activity_type_name)
         
         # Procesar juegos que terminaron (para finalizar sesiones)
         for game_name in ended_games:
-            await self.game_manager.handle_game_end(after, game_name, config)
+            await self.game_manager.handle_end(after, config, game_name=game_name)
     
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):

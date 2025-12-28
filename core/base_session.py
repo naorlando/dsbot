@@ -43,12 +43,12 @@ class BaseSessionManager(ABC):
         self.active_sessions: Dict[str, BaseSession] = {}
     
     @abstractmethod
-    async def handle_start(self, member: discord.Member, config: dict):
+    async def handle_start(self, member: discord.Member, config: dict, *args, **kwargs):
         """Maneja el inicio de una sesión. Debe ser implementado por subclases."""
         pass
     
     @abstractmethod
-    async def handle_end(self, member: discord.Member, config: dict):
+    async def handle_end(self, member: discord.Member, config: dict, *args, **kwargs):
         """Maneja el fin de una sesión. Debe ser implementado por subclases."""
         pass
     
