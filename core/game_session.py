@@ -133,18 +133,24 @@ class GameSessionManager(BaseSessionManager):
         duration_seconds = session.duration_seconds()
         minutes = int(duration_seconds / 60)
         
-        # Si la sesión fue corta, borrar notificación
-        if session.is_short(self.min_duration_seconds):
+        # Verificar si la sesión fue válida:
+        # - Debe haber durado al menos min_duration_seconds (10s)
+        # - O debe estar confirmada (pasó la verificación completa)
+        session_is_valid = duration_seconds >= self.min_duration_seconds or session.is_confirmed
+        
+        # Si la sesión NO fue válida, borrar notificación y no guardar/notificar
+        if not session_is_valid:
             if session.notification_message:
                 try:
                     await session.notification_message.delete()
-                    logger.info(f'🗑️  Notificación borrada: {member.display_name} jugó < {self.min_duration_seconds}s')
+                    logger.info(f'🗑️  Notificación borrada: {member.display_name} jugó < {self.min_duration_seconds}s o no fue confirmada')
                 except discord.errors.NotFound:
                     logger.debug(f'⚠️  Mensaje ya fue borrado: {member.display_name}')
                 except Exception as e:
                     logger.error(f'Error borrando notificación: {e}')
+            # No guardar tiempo ni notificar salida si la sesión no fue válida
         else:
-            # Sesión válida: guardar tiempo y notificar salida si está habilitado
+            # Sesión válida (confirmada y > 10s): guardar tiempo y notificar salida si está habilitado
             if minutes >= 1:  # Solo guardar si duró más de 1 minuto
                 save_game_time(user_id, member.display_name, game_name, minutes)
             
