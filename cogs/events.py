@@ -30,6 +30,8 @@ class EventsCog(commands.Cog, name='Events'):
         # Sistema centralizado de gestión de sesiones
         self.voice_manager = VoiceSessionManager(bot)
         self.game_manager = GameSessionManager(bot)
+        # Sistema de detección de parties
+        self.party_detector = PartyDetector(bot)
     
     @commands.Cog.listener()
     async def on_ready(self):
