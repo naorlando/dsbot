@@ -1009,11 +1009,12 @@ class TestConnectionTracking(unittest.TestCase):
 class TestVoiceMessageTracking(unittest.TestCase):
     """Tests para el sistema de tracking de mensajes de voz pendientes"""
     
-    def test_events_cog_has_pending_messages_dict(self):
-        """Verifica que EventsCog tiene el diccionario de mensajes pendientes"""
+    def test_events_cog_has_voice_manager(self):
+        """Verifica que EventsCog tiene VoiceSessionManager"""
         # Importar el cog
         try:
             from cogs.events import EventsCog
+            from core.voice_session import VoiceSessionManager
             from unittest.mock import MagicMock
             
             # Crear instancia mock del bot
@@ -1022,17 +1023,17 @@ class TestVoiceMessageTracking(unittest.TestCase):
             # Crear instancia del cog
             cog = EventsCog(mock_bot)
             
-            # Verificar que tiene el diccionario
-            self.assertIsInstance(cog.pending_voice_messages, dict,
-                                "EventsCog debe tener pending_voice_messages como dict")
-            self.assertEqual(len(cog.pending_voice_messages), 0,
-                           "pending_voice_messages debe estar vacío al inicio")
+            # Verificar que tiene el voice_manager
+            self.assertIsInstance(cog.voice_manager, VoiceSessionManager,
+                                "EventsCog debe tener voice_manager de tipo VoiceSessionManager")
+            self.assertEqual(len(cog.voice_manager.active_sessions), 0,
+                           "active_sessions debe estar vacío al inicio")
             
         except ImportError as e:
-            self.skipTest(f"No se pudo importar EventsCog: {e}")
+            self.skipTest(f"No se pudo importar EventsCog o VoiceSessionManager: {e}")
     
     def test_voice_verification_uses_member_guild(self):
-        """Verifica que el código usa member.guild en lugar de after.channel.guild"""
+        """Verifica que el código usa VoiceSessionManager y no bloquea el event handler"""
         # Leer el archivo de eventos
         events_file = Path(__file__).parent / 'cogs' / 'events.py'
         if not events_file.exists():
@@ -1041,23 +1042,35 @@ class TestVoiceMessageTracking(unittest.TestCase):
         with open(events_file, 'r', encoding='utf-8') as f:
             source = f.read()
         
-        # Verificar que guarda guild antes del sleep
-        self.assertIn("guild = member.guild", source,
-                     "Debe guardar member.guild antes del sleep")
+        # Verificar que usa VoiceSessionManager
+        self.assertIn("VoiceSessionManager", source,
+                     "Debe usar VoiceSessionManager para gestionar sesiones")
         
-        # Verificar que usa guild guardado en lugar de after.channel.guild
-        self.assertIn("guild.get_member", source,
-                     "Debe usar guild guardado para get_member")
+        # Verificar que NO bloquea el event handler con sleep
+        self.assertNotIn("await asyncio.sleep(3)", source,
+                        "No debe bloquear el event handler con sleep")
+        self.assertNotIn("await asyncio.sleep(7)", source,
+                        "No debe bloquear el event handler con sleep")
         
-        # Verificar que NO usa after.channel.guild después del sleep
-        # (puede aparecer en comentarios, pero no en código activo después del sleep)
-        lines = source.split('\n')
-        after_sleep_found = False
-        for i, line in enumerate(lines):
-            if 'await asyncio.sleep(7)' in line:
-                after_sleep_found = True
-            if after_sleep_found and 'after.channel.guild' in line and not line.strip().startswith('#'):
-                self.fail("No debe usar after.channel.guild después del sleep (línea {})".format(i+1))
+        # Verificar que delega al manager
+        self.assertIn("voice_manager.handle_voice_join", source,
+                     "Debe delegar entrada al voice_manager")
+        self.assertIn("voice_manager.handle_voice_leave", source,
+                     "Debe delegar salida al voice_manager")
+        
+        # Verificar que voice_session.py usa tasks en background
+        voice_session_file = Path(__file__).parent / 'core' / 'voice_session.py'
+        if voice_session_file.exists():
+            with open(voice_session_file, 'r', encoding='utf-8') as f:
+                voice_source = f.read()
+            
+            # Verificar que usa asyncio.create_task (no bloquea)
+            self.assertIn("asyncio.create_task", voice_source,
+                         "Debe usar tasks en background para verificación")
+            
+            # Verificar que guarda guild_id en la sesión
+            self.assertIn("guild_id", voice_source,
+                         "Debe guardar guild_id en la sesión")
 
 
 if __name__ == '__main__':
