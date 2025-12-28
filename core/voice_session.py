@@ -96,15 +96,18 @@ class VoiceSessionManager(BaseSessionManager):
         duration_seconds = session.duration_seconds()
         minutes = int(duration_seconds / 60)
         
-        # Verificar si la sesión fue válida:
+        # Verificar si la sesión fue válida para guardar tiempo:
         # - Debe haber durado al menos min_duration_seconds (10s)
         # - O debe estar confirmada (pasó la verificación completa)
-        session_is_valid = duration_seconds >= self.min_duration_seconds or session.is_confirmed
+        session_is_valid_for_time = duration_seconds >= self.min_duration_seconds or session.is_confirmed
         
-        logger.debug(f'🔊 Sesión terminada: {member.display_name} - {channel.name} - Duración: {duration_seconds:.1f}s ({minutes} min) - Confirmada: {session.is_confirmed} - Válida: {session_is_valid}')
+        # Para notificación de salida: SOLO si fue confirmada (pasó los 10s completos)
+        session_is_confirmed = session.is_confirmed
+        
+        logger.debug(f'🔊 Sesión terminada: {member.display_name} - {channel.name} - Duración: {duration_seconds:.1f}s ({minutes} min) - Confirmada: {session.is_confirmed} - Válida para tiempo: {session_is_valid_for_time}')
         
         # Si la sesión NO fue válida, borrar notificación y no guardar/notificar
-        if not session_is_valid:
+        if not session_is_valid_for_time:
             if session.notification_message:
                 try:
                     await session.notification_message.delete()
@@ -122,8 +125,8 @@ class VoiceSessionManager(BaseSessionManager):
             else:
                 logger.debug(f'⏭️  Tiempo no guardado: {member.display_name} estuvo en {channel.name} por {duration_seconds:.1f}s (< 1 minuto)')
             
-            # Notificar salida con cooldown (solo si la sesión fue confirmada)
-            if config.get('notify_voice_leave', False):
+            # Notificar salida con cooldown (SOLO si la sesión fue CONFIRMADA, no solo válida)
+            if config.get('notify_voice_leave', False) and session_is_confirmed:
                 if check_cooldown(user_id, 'voice_leave', cooldown_seconds=300):
                     messages_config = config.get('messages', {})
                     message_template = messages_config.get('voice_leave', "🔇 **{user}** salió del canal de voz **{channel}**")
