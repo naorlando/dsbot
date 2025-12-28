@@ -27,6 +27,7 @@ def load_config():
             "channel_id": None,
             "stats_channel_id": None,
             "notify_games": True,
+            "notify_game_end": False,
             "notify_voice": True,
             "notify_voice_leave": False,
             "notify_voice_move": True,
@@ -34,13 +35,22 @@ def load_config():
             "notify_member_leave": False,
             "ignore_bots": True,
             "game_activity_types": ["playing", "streaming", "watching", "listening"],
+            "game_min_duration_seconds": 10,
+            "blacklisted_app_ids": [],
             "messages": {
                 "game_start": "🎮 **{user}** está {verb} **{activity}**",
+                "game_end": "🎮 **{user}** dejó de jugar **{game}**",
                 "voice_join": "🔊 **{user}** entró al canal de voz **{channel}**",
                 "voice_leave": "🔇 **{user}** salió del canal de voz **{channel}**",
                 "voice_move": "🔄 **{user}** cambió de **{old_channel}** a **{new_channel}**",
                 "member_join": "👋 **{user}** se unió al servidor",
                 "member_leave": "👋 **{user}** dejó el servidor"
+            },
+            "rate_limiting": {
+                "max_retries": 5,
+                "initial_delay": 30,
+                "max_delay": 300,
+                "exponential_base": 2
             }
         }
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:

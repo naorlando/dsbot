@@ -9,12 +9,12 @@ import asyncio
 from datetime import datetime
 
 from core.persistence import config, stats, save_stats, get_channel_id
-from core.tracking import (
-    record_game_event, record_message_event,
-    start_game_session, end_game_session,
-    record_connection_event
+from core.session_dto import (
+    save_message_event, save_reaction_event, save_sticker_event,
+    save_connection_event
 )
 from core.voice_session import VoiceSessionManager
+from core.game_session import GameSessionManager
 from core.cooldown import check_cooldown
 from core.helpers import is_link_spam, get_activity_verb, send_notification
 
@@ -26,8 +26,9 @@ class EventsCog(commands.Cog, name='Events'):
     
     def __init__(self, bot):
         self.bot = bot
-        # Sistema centralizado de gestión de sesiones de voz
+        # Sistema centralizado de gestión de sesiones
         self.voice_manager = VoiceSessionManager(bot)
+        self.game_manager = GameSessionManager(bot)
     
     @commands.Cog.listener()
     async def on_ready(self):
@@ -64,7 +65,7 @@ class EventsCog(commands.Cog, name='Events'):
             
             # Cooldown de 5 minutos para evitar contar reconexiones rápidas
             if check_cooldown(user_id, 'daily_connection', cooldown_seconds=300):
-                count_today, broke_record = record_connection_event(user_id, username)
+                count_today, broke_record = save_connection_event(user_id, username)
                 
                 # NOTIFICACIONES DE MILESTONES (prioridad)
                 MILESTONES = [10, 25, 50]
@@ -177,28 +178,12 @@ class EventsCog(commands.Cog, name='Events'):
                 logger.info(f'✅ Actividad verificada: "{game_name}" (app_id: {app_id}, clase: {activity_class}, type: {activity_type_name}, usuario: {after.display_name})')
             
             if activity_type_name in config.get('game_activity_types', ['playing', 'streaming', 'watching', 'listening']):
-                # Verificar cooldown
-                if check_cooldown(str(after.id), f'game:{game_name}'):
-                    logger.info(f'🎮 Detectado: {after.display_name} está {get_activity_verb(activity_type_name)} {game_name}')
-                    
-                    # Iniciar sesión de juego para tracking de tiempo
-                    start_game_session(str(after.id), after.display_name, game_name)
-                    
-                    # Registrar en estadísticas
-                    record_game_event(str(after.id), after.display_name, game_name)
-                    
-                    # Enviar notificación
-                    message_template = config.get('messages', {}).get('game_start', "🎮 **{user}** está {verb} **{activity}**")
-                    message = message_template.format(
-                        user=after.display_name,
-                        verb=get_activity_verb(activity_type_name),
-                        activity=game_name
-                    )
-                    await send_notification(message, self.bot)
+                # Usar GameSessionManager para manejar inicio de juego
+                await self.game_manager.handle_game_start(after, game_activity, activity_type_name, config)
         
         # Procesar juegos que terminaron (para finalizar sesiones)
         for game_name in ended_games:
-            end_game_session(str(after.id), after.display_name, game_name)
+            await self.game_manager.handle_game_end(after, game_name, config)
     
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
@@ -208,11 +193,11 @@ class EventsCog(commands.Cog, name='Events'):
         
         # Entrada a canal de voz
         if not before.channel and after.channel:
-            await self.voice_manager.handle_voice_join(member, after.channel, config)
+            await self.voice_manager.handle_start(member, after.channel, config)
         
         # Salida de canal de voz
         elif before.channel and not after.channel:
-            await self.voice_manager.handle_voice_leave(member, before.channel, config)
+            await self.voice_manager.handle_end(member, before.channel, config)
         
         # Cambio de canal de voz
         elif before.channel and after.channel and before.channel != after.channel:
@@ -237,46 +222,12 @@ class EventsCog(commands.Cog, name='Events'):
         
         # Trackear stickers si el mensaje los tiene
         if message.stickers:
-            # Inicializar estructura si no existe
-            if user_id not in stats['users']:
-                stats['users'][user_id] = {
-                    'username': username,
-                    'games': {},
-                    'voice': {'count': 0},
-                    'messages': {'count': 0, 'characters': 0},
-                    'reactions': {'total': 0, 'by_emoji': {}},
-                    'stickers': {'total': 0, 'by_name': {}},
-                    'daily_connections': {
-                        'total': 0,
-                        'by_date': {},
-                        'personal_record': {'count': 0, 'date': None}
-                    }
-                }
-            
-            # Asegurar que existe la estructura de stickers
-            if 'stickers' not in stats['users'][user_id]:
-                stats['users'][user_id]['stickers'] = {'total': 0, 'by_name': {}}
-            
             for sticker in message.stickers:
-                sticker_name = sticker.name
-                
-                stats['users'][user_id]['stickers']['total'] += 1
-                
-                if sticker_name not in stats['users'][user_id]['stickers']['by_name']:
-                    stats['users'][user_id]['stickers']['by_name'][sticker_name] = 0
-                
-                stats['users'][user_id]['stickers']['by_name'][sticker_name] += 1
-            
-            stats['users'][user_id]['username'] = username
-            save_stats()
-            
-            # Log solo cada 10 stickers
-            if stats['users'][user_id]['stickers']['total'] % 10 == 0:
-                logger.debug(f'🎨 Stats: {username} - {stats["users"][user_id]["stickers"]["total"]} stickers')
+                save_sticker_event(user_id, username, sticker.name)
         
         # Solo trackear mensajes si tiene contenido Y no es spam de links
         if message_length > 0 and not is_link_spam(message_content):
-            record_message_event(user_id, username, message_length)
+            save_message_event(user_id, username, message_length)
         
         # NO llamar process_commands() aquí - el bot lo hace automáticamente
         # cuando se usa @commands.Cog.listener() en lugar de @bot.event
@@ -301,40 +252,8 @@ class EventsCog(commands.Cog, name='Events'):
         else:
             emoji_name = str(reaction.emoji)  # Unicode emoji (👍, ❤️, etc)
         
-        # Inicializar estructura si no existe
-        if user_id not in stats['users']:
-            stats['users'][user_id] = {
-                'username': username,
-                'games': {},
-                'voice': {'count': 0},
-                'messages': {'count': 0, 'characters': 0},
-                'reactions': {'total': 0, 'by_emoji': {}},
-                'stickers': {'total': 0, 'by_name': {}},
-                'daily_connections': {
-                    'total': 0,
-                    'by_date': {},
-                    'personal_record': {'count': 0, 'date': None}
-                }
-            }
-        
-        # Asegurar que existe la estructura de reacciones
-        if 'reactions' not in stats['users'][user_id]:
-            stats['users'][user_id]['reactions'] = {'total': 0, 'by_emoji': {}}
-        
-        # Registrar reacción
-        stats['users'][user_id]['reactions']['total'] += 1
-        
-        if emoji_name not in stats['users'][user_id]['reactions']['by_emoji']:
-            stats['users'][user_id]['reactions']['by_emoji'][emoji_name] = 0
-        
-        stats['users'][user_id]['reactions']['by_emoji'][emoji_name] += 1
-        stats['users'][user_id]['username'] = username
-        
-        save_stats()
-        
-        # Log solo cada 20 reacciones para no spamear
-        if stats['users'][user_id]['reactions']['total'] % 20 == 0:
-            logger.debug(f'👍 Stats: {username} - {stats["users"][user_id]["reactions"]["total"]} reacciones')
+        # Guardar reacción usando DTO
+        save_reaction_event(user_id, username, emoji_name)
     
     @commands.Cog.listener()
     async def on_member_join(self, member):

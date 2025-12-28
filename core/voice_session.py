@@ -5,51 +5,36 @@ Maneja tracking, notificaciones y verificación de duración mínima
 
 import asyncio
 import logging
-from datetime import datetime
-from typing import Optional, Dict
+from typing import Dict
 import discord
 
-from core.persistence import stats, save_stats
-from core.tracking import start_voice_session, end_voice_session, record_voice_event
+from core.base_session import BaseSession, BaseSessionManager
+from core.session_dto import (
+    save_voice_time, increment_voice_count,
+    set_voice_session_start, clear_voice_session
+)
 from core.cooldown import check_cooldown
 from core.helpers import send_notification
 
 logger = logging.getLogger('dsbot')
 
 
-class VoiceSession:
+class VoiceSession(BaseSession):
     """Representa una sesión de voz activa"""
     
     def __init__(self, user_id: str, username: str, channel_id: int, channel_name: str, guild_id: int):
-        self.user_id = user_id
-        self.username = username
+        super().__init__(user_id, username, guild_id)
         self.channel_id = channel_id
         self.channel_name = channel_name
-        self.guild_id = guild_id
-        self.start_time = datetime.now()
-        self.notification_message: Optional[discord.Message] = None
-        self.verification_task: Optional[asyncio.Task] = None
-        self.is_confirmed = False  # True si pasó el threshold mínimo
-    
-    def duration_seconds(self) -> float:
-        """Retorna la duración de la sesión en segundos"""
-        return (datetime.now() - self.start_time).total_seconds()
-    
-    def is_short(self, threshold: int = 10) -> bool:
-        """Verifica si la sesión es corta (< threshold segundos)"""
-        return self.duration_seconds() < threshold
 
 
-class VoiceSessionManager:
+class VoiceSessionManager(BaseSessionManager):
     """Gestiona todas las sesiones de voz activas"""
     
     def __init__(self, bot):
-        self.bot = bot
-        # {user_id: VoiceSession}
-        self.active_sessions: Dict[str, VoiceSession] = {}
-        self.min_duration_seconds = 10  # Threshold mínimo para considerar sesión válida
+        super().__init__(bot, min_duration_seconds=10)
     
-    async def handle_voice_join(self, member: discord.Member, channel: discord.VoiceChannel, config: dict):
+    async def handle_start(self, member: discord.Member, channel: discord.VoiceChannel, config: dict):
         """
         Maneja la entrada de un usuario a un canal de voz
         
@@ -77,10 +62,10 @@ class VoiceSessionManager:
         
         # Iniciar task de verificación en background (no bloquea)
         session.verification_task = asyncio.create_task(
-            self._verify_session(session, member, channel, config)
+            self._verify_session(session, member, config)
         )
     
-    async def handle_voice_leave(self, member: discord.Member, channel: discord.VoiceChannel, config: dict):
+    async def handle_end(self, member: discord.Member, channel: discord.VoiceChannel, config: dict):
         """
         Maneja la salida de un usuario de un canal de voz
         
@@ -92,6 +77,8 @@ class VoiceSessionManager:
         user_id = str(member.id)
         
         if user_id not in self.active_sessions:
+            # Si no hay sesión en manager, finalizar tracking directamente (ej. bot reinició)
+            clear_voice_session(user_id)
             return
         
         session = self.active_sessions[user_id]
@@ -105,30 +92,41 @@ class VoiceSessionManager:
         if session.verification_task and not session.verification_task.done():
             session.verification_task.cancel()
         
+        # Calcular tiempo de sesión
+        duration_seconds = session.duration_seconds()
+        minutes = int(duration_seconds / 60)
+        
         # Si la sesión fue corta, borrar notificación
         if session.is_short(self.min_duration_seconds):
             if session.notification_message:
                 try:
                     await session.notification_message.delete()
                     logger.info(f'🗑️  Notificación borrada: {member.display_name} estuvo < {self.min_duration_seconds}s')
+                except discord.errors.NotFound:
+                    logger.debug(f'⚠️  Mensaje ya fue borrado: {member.display_name}')
                 except Exception as e:
                     logger.error(f'Error borrando notificación: {e}')
         else:
-            # Sesión válida: notificar salida si está habilitado
+            # Sesión válida: guardar tiempo y notificar salida si está habilitado
+            if minutes >= 1:  # Solo guardar si duró más de 1 minuto
+                save_voice_time(user_id, member.display_name, minutes, session.channel_name)
+            
+            # Notificar salida con cooldown
             if config.get('notify_voice_leave', False):
-                messages_config = config.get('messages', {})
-                message_template = messages_config.get('voice_leave', "🔇 **{user}** salió del canal de voz **{channel}**")
-                message = message_template.format(
-                    user=member.display_name,
-                    channel=channel.name
-                )
-                await send_notification(message, self.bot)
-        
-        # Finalizar tracking
-        end_voice_session(user_id, member.display_name)
+                if check_cooldown(user_id, 'voice_leave', cooldown_seconds=300):
+                    messages_config = config.get('messages', {})
+                    message_template = messages_config.get('voice_leave', "🔇 **{user}** salió del canal de voz **{channel}**")
+                    message = message_template.format(
+                        user=member.display_name,
+                        channel=channel.name
+                    )
+                    await send_notification(message, self.bot)
+                    logger.info(f'🔇 Notificación de salida enviada: {member.display_name} de {channel.name}')
         
         # Limpiar sesión
+        clear_voice_session(user_id)
         del self.active_sessions[user_id]
+        logger.debug(f'🗑️  Sesión de voz finalizada y limpiada para {member.display_name}')
     
     async def handle_voice_move(self, member: discord.Member, before: discord.VoiceChannel, after: discord.VoiceChannel, config: dict):
         """
@@ -143,108 +141,74 @@ class VoiceSessionManager:
         user_id = str(member.id)
         
         # Tratar como salida del canal anterior
-        await self.handle_voice_leave(member, before, config)
+        await self.handle_end(member, before, config)
         
         # Tratar como entrada al canal nuevo
-        await self.handle_voice_join(member, after, config)
-    
-    async def _verify_session(self, session: VoiceSession, member: discord.Member, channel: discord.VoiceChannel, config: dict):
-        """
-        Verifica la sesión en background después de un delay
+        await self.handle_start(member, after, config)
         
-        Fase 1 (3s): Verifica que sigue en el canal
-        Fase 2 (7s): Verifica nuevamente y confirma sesión
-        """
-        try:
-            # Fase 1: Delay inicial de 3s
-            await asyncio.sleep(3)
-            
-            # Verificar que sigue en el canal
-            guild = self.bot.get_guild(session.guild_id)
-            if not guild:
-                await self._cancel_session(session.user_id, reason="guild no encontrado")
-                return
-            
-            member_now = guild.get_member(member.id)
-            if not member_now or not member_now.voice or not member_now.voice.channel:
-                await self._cancel_session(session.user_id, reason="salió antes de 3s")
-                return
-            
-            if member_now.voice.channel.id != session.channel_id:
-                await self._cancel_session(session.user_id, reason="cambió de canal antes de 3s")
-                return
-            
-            # Usuario confirmado después de 3s → Iniciar tracking y notificar
-            start_voice_session(session.user_id, session.username, session.channel_name)
-            
-            if config.get('notify_voice', True):
-                if check_cooldown(session.user_id, 'voice'):
-                    record_voice_event(session.user_id, session.username)
-                    
-                    messages_config = config.get('messages', {})
-                    message_template = messages_config.get('voice_join', "🔊 **{user}** entró al canal de voz **{channel}**")
-                    message = message_template.format(
-                        user=session.username,
-                        channel=session.channel_name
-                    )
-                    session.notification_message = await send_notification(message, self.bot, return_message=True)
-                    logger.info(f'🔊 Notificación enviada: {session.username} en {session.channel_name}')
-            
-            # Fase 2: Verificación adicional de 7s (total 10s)
-            await asyncio.sleep(7)
-            
-            # Verificar una vez más
-            guild = self.bot.get_guild(session.guild_id)
-            if not guild:
-                return
-            
-            member_now = guild.get_member(member.id)
-            if member_now and member_now.voice and member_now.voice.channel:
-                if member_now.voice.channel.id == session.channel_id:
-                    # Sesión confirmada: Usuario sigue después de 10s
-                    session.is_confirmed = True
-                    logger.debug(f'✅ Sesión confirmada: {session.username} > {self.min_duration_seconds}s')
-                else:
-                    # Cambió de canal: borrar notificación
-                    if session.notification_message:
-                        try:
-                            await session.notification_message.delete()
-                            logger.info(f'🗑️  Notificación borrada: {session.username} cambió de canal')
-                        except Exception as e:
-                            logger.error(f'Error borrando notificación: {e}')
-            else:
-                # Salió: borrar notificación
-                if session.notification_message:
-                    try:
-                        await session.notification_message.delete()
-                        logger.info(f'🗑️  Notificación borrada: {session.username} salió antes de confirmar')
-                    except Exception as e:
-                        logger.error(f'Error borrando notificación: {e}')
-        
-        except asyncio.CancelledError:
-            # Task cancelada (usuario salió antes de completar verificación)
-            logger.debug(f'⏭️  Verificación cancelada: {session.username}')
-        except Exception as e:
-            logger.error(f'Error en verificación de sesión: {e}')
+        # Notificar cambio de canal con cooldown
+        if config.get('notify_voice_move', True):
+            if check_cooldown(user_id, 'voice_move', cooldown_seconds=300):
+                messages_config = config.get('messages', {})
+                message_template = messages_config.get('voice_move', "🔄 **{user}** cambió de **{old_channel}** a **{new_channel}**")
+                message = message_template.format(
+                    user=member.display_name,
+                    old_channel=before.name,
+                    new_channel=after.name
+                )
+                await send_notification(message, self.bot)
+                logger.info(f'🔄 Notificación de cambio de canal enviada: {member.display_name} de {before.name} a {after.name}')
     
-    async def _cancel_session(self, user_id: str, reason: str = ""):
-        """Cancela una sesión sin finalizar tracking"""
-        if user_id not in self.active_sessions:
+    # Métodos abstractos requeridos por BaseSessionManager
+    
+    async def _is_still_active(self, session: BaseSession, member: discord.Member) -> bool:
+        """Verifica si la sesión de voz sigue activa"""
+        if not isinstance(session, VoiceSession):
+            return False
+        
+        guild = self.bot.get_guild(session.guild_id)
+        if not guild:
+            return False
+        
+        member_now = guild.get_member(member.id)
+        if not member_now or not member_now.voice or not member_now.voice.channel:
+            return False
+        
+        return member_now.voice.channel.id == session.channel_id
+    
+    async def _on_session_confirmed_phase1(self, session: BaseSession, member: discord.Member, config: dict):
+        """Callback cuando la sesión es confirmada después de 3s"""
+        if not isinstance(session, VoiceSession):
             return
         
-        session = self.active_sessions[user_id]
+        # Iniciar tracking de sesión
+        set_voice_session_start(session.user_id, session.username, session.channel_name)
         
-        # Cancelar task de verificación
-        if session.verification_task and not session.verification_task.done():
-            session.verification_task.cancel()
-        
-        # Borrar notificación si existe
-        if session.notification_message:
-            try:
-                await session.notification_message.delete()
-            except Exception:
-                pass
-        
-        logger.debug(f'⏭️  Sesión cancelada: {session.username} ({reason})')
-        del self.active_sessions[user_id]
-
+        # Notificar entrada con cooldown
+        if config.get('notify_voice', True):
+            if check_cooldown(session.user_id, 'voice'):
+                increment_voice_count(session.user_id, session.username)
+                
+                messages_config = config.get('messages', {})
+                message_template = messages_config.get('voice_join', "🔊 **{user}** entró al canal de voz **{channel}**")
+                message = message_template.format(
+                    user=session.username,
+                    channel=session.channel_name
+                )
+                session.notification_message = await send_notification(message, self.bot, return_message=True)
+                logger.info(f'🔊 Notificación enviada: {session.username} en {session.channel_name}')
+    
+    async def _on_session_confirmed_phase2(self, session: BaseSession, member: discord.Member, config: dict):
+        """Callback cuando la sesión es confirmada después de 10s"""
+        # No hay acción adicional necesaria en fase 2 para voz
+        pass
+    
+    # Métodos de compatibilidad (mantener por si acaso)
+    
+    async def handle_voice_join(self, member: discord.Member, channel: discord.VoiceChannel, config: dict):
+        """Alias para handle_start (compatibilidad)"""
+        await self.handle_start(member, channel, config)
+    
+    async def handle_voice_leave(self, member: discord.Member, channel: discord.VoiceChannel, config: dict):
+        """Alias para handle_end (compatibilidad)"""
+        await self.handle_end(member, channel, config)

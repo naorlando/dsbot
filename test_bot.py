@@ -860,15 +860,19 @@ class TestConnectionTracking(unittest.TestCase):
         self.stats['users'] = self.stats_backup
     
     def test_record_connection_event_creates_structure(self):
-        """Verifica que record_connection_event crea la estructura correcta"""
-        from core.tracking import record_connection_event
+        """Verifica que save_connection_event crea la estructura correcta"""
+        from core.session_dto import save_connection_event
         from datetime import datetime
         
         user_id = 'test_user_123'
         username = 'TestUser'
         
+        # Limpiar usuario si existe
+        if user_id in self.stats['users']:
+            del self.stats['users'][user_id]
+        
         # Primera conexión
-        count, broke_record = record_connection_event(user_id, username)
+        count, broke_record = save_connection_event(user_id, username)
         
         # Verificar estructura
         self.assertIn(user_id, self.stats['users'])
@@ -890,7 +894,7 @@ class TestConnectionTracking(unittest.TestCase):
     
     def test_record_connection_event_increments_correctly(self):
         """Verifica que las conexiones se incrementan correctamente"""
-        from core.tracking import record_connection_event
+        from core.session_dto import save_connection_event
         from datetime import datetime
         
         user_id = 'test_user_increment_456'
@@ -903,7 +907,7 @@ class TestConnectionTracking(unittest.TestCase):
         
         # Simular 3 conexiones
         for i in range(3):
-            count, broke_record = record_connection_event(user_id, username)
+            count, broke_record = save_connection_event(user_id, username)
             self.assertEqual(count, i + 1, f"Conexión {i+1} debe tener count={i+1}")
             if i > 0:
                 self.assertTrue(broke_record, f"Conexión {i+1} debe romper récord")
@@ -948,9 +952,9 @@ class TestConnectionTracking(unittest.TestCase):
         self.assertIn('25', source, "Debe incluir milestone de 25 conexiones")
         self.assertIn('50', source, "Debe incluir milestone de 50 conexiones")
         
-        # Verificar que llama a record_connection_event
-        self.assertIn('record_connection_event', source, 
-                     "on_presence_update debe llamar record_connection_event")
+        # Verificar que llama a save_connection_event
+        self.assertIn('save_connection_event', source, 
+                     "on_presence_update debe llamar save_connection_event")
     
     def test_topconnections_command_exists(self):
         """Verifica que el comando !topconnections existe"""
@@ -1052,10 +1056,10 @@ class TestVoiceMessageTracking(unittest.TestCase):
         self.assertNotIn("await asyncio.sleep(7)", source,
                         "No debe bloquear el event handler con sleep")
         
-        # Verificar que delega al manager
-        self.assertIn("voice_manager.handle_voice_join", source,
+        # Verificar que delega al manager (ahora usa handle_start/handle_end)
+        self.assertIn("voice_manager.handle_start", source,
                      "Debe delegar entrada al voice_manager")
-        self.assertIn("voice_manager.handle_voice_leave", source,
+        self.assertIn("voice_manager.handle_end", source,
                      "Debe delegar salida al voice_manager")
         
         # Verificar que voice_session.py usa tasks en background

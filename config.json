@@ -1,12 +1,14 @@
 {
     "channel_id": null,
     "notify_games": true,
+    "notify_game_end": false,
     "notify_voice": true,
     "notify_voice_leave": false,
     "notify_voice_move": true,
     "notify_member_join": false,
     "notify_member_leave": false,
     "ignore_bots": true,
+    "game_min_duration_seconds": 10,
     "game_activity_types": [
         "playing",
         "streaming",
