@@ -31,6 +31,22 @@
         "initial_delay": 30,
         "max_delay": 300,
         "exponential_base": 2
+    },
+    "party_detection": {
+        "enabled": true,
+        "min_players": 2,
+        "notify_on_formed": true,
+        "notify_on_join": true,
+        "cooldown_minutes": 30,
+        "use_here_mention": true,
+        "blacklisted_games": [
+            "Spotify",
+            "YouTube",
+            "Chrome",
+            "Visual Studio Code"
+        ],
+        "message_template_formed": "🎮 {mention}¡Party de **{game}** formada! {players} están jugando juntos",
+        "message_template_join": "🎮 {mention}{players} {verb} a la party de **{game}** ({total} jugadores)"
     }
 }
 

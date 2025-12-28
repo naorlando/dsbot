@@ -7,6 +7,7 @@ from discord.ext import commands
 import logging
 
 from core.checks import stats_channel_only
+from core.party_detection import PartyDetector
 
 logger = logging.getLogger('dsbot')
 
@@ -16,6 +17,7 @@ class UtilityCog(commands.Cog, name='Utilidades'):
     
     def __init__(self, bot):
         self.bot = bot
+        self.party_detector = PartyDetector()
     
     @commands.command(name='bothelp', aliases=['help', 'ayuda', 'comandos'])
     @stats_channel_only()
@@ -314,6 +316,191 @@ class UtilityCog(commands.Cog, name='Utilidades'):
                 f'❌ Categoría `{categoria}` no encontrada.\n'
                 f'Usa: `!help` (general), `!help config`, `!help stats`, `!help voice`, o `!help all`'
             )
+    
+    @commands.command(name='party', aliases=['parties'])
+    @stats_channel_only()
+    async def show_parties(self, ctx, game: str = None):
+        """
+        Muestra las parties activas o jugadores de un juego específico
+        
+        Uso:
+        - !party - Muestra todas las parties activas
+        - !party Valorant - Muestra quién está jugando Valorant
+        """
+        active_parties = self.party_detector.get_active_parties()
+        
+        if not active_parties:
+            await ctx.send('🎮 No hay parties activas en este momento')
+            return
+        
+        # Si se especificó un juego, mostrar solo ese
+        if game:
+            game_lower = game.lower()
+            matching_game = None
+            
+            for game_name in active_parties.keys():
+                if game_lower in game_name.lower():
+                    matching_game = game_name
+                    break
+            
+            if not matching_game:
+                await ctx.send(f'🎮 No hay nadie jugando **{game}** en este momento')
+                return
+            
+            party = active_parties[matching_game]
+            players = ', '.join([f'**{name}**' for name in party['player_names']])
+            
+            embed = discord.Embed(
+                title=f'🎮 Party de {matching_game}',
+                description=f'{len(party["players"])} jugadores: {players}',
+                color=discord.Color.green()
+            )
+            
+            # Calcular duración
+            from datetime import datetime
+            start_time = datetime.fromisoformat(party['start'])
+            duration_minutes = int((datetime.now() - start_time).total_seconds() / 60)
+            
+            embed.add_field(name='⏱️ Duración', value=f'{duration_minutes} minutos', inline=True)
+            embed.add_field(name='👥 Máximo', value=f'{party["max_players"]} jugadores', inline=True)
+            
+            await ctx.send(embed=embed)
+            return
+        
+        # Mostrar todas las parties activas
+        embed = discord.Embed(
+            title='🎮 Parties Activas',
+            description=f'Hay {len(active_parties)} party(s) activa(s)',
+            color=discord.Color.blue()
+        )
+        
+        for game_name, party in active_parties.items():
+            players = ', '.join([f'**{name}**' for name in party['player_names']])
+            embed.add_field(
+                name=f'{game_name} ({len(party["players"])} jugadores)',
+                value=players,
+                inline=False
+            )
+        
+        await ctx.send(embed=embed)
+    
+    @commands.command(name='partyhistory', aliases=['partyhist'])
+    @stats_channel_only()
+    async def show_party_history(self, ctx, timeframe: str = 'today'):
+        """
+        Muestra el historial de parties
+        
+        Uso:
+        - !partyhistory [timeframe]
+        - Timeframes: today, week, month, all
+        """
+        if timeframe not in ['today', 'week', 'month', 'all']:
+            await ctx.send('⚠️ Timeframe inválido. Usa: today, week, month, all')
+            return
+        
+        history = self.party_detector.get_party_history(timeframe, limit=10)
+        
+        if not history:
+            await ctx.send(f'🎮 No hay historial de parties para **{timeframe}**')
+            return
+        
+        timeframe_labels = {
+            'today': 'Hoy',
+            'week': 'Última Semana',
+            'month': 'Último Mes',
+            'all': 'Histórico'
+        }
+        
+        embed = discord.Embed(
+            title=f'🎮 Historial de Parties - {timeframe_labels[timeframe]}',
+            description=f'Mostrando últimas {len(history)} parties',
+            color=discord.Color.purple()
+        )
+        
+        for party in history[:10]:
+            players = ', '.join([f'**{name}**' for name in party['player_names']])
+            duration = party['duration_minutes']
+            max_players = party.get('max_players', len(party['players']))
+            
+            embed.add_field(
+                name=f'{party["game"]} ({max_players} jugadores, {duration} min)',
+                value=players,
+                inline=False
+            )
+        
+        await ctx.send(embed=embed)
+    
+    @commands.command(name='partystats')
+    @stats_channel_only()
+    async def show_party_stats(self, ctx, game: str = None):
+        """
+        Muestra estadísticas de parties
+        
+        Uso:
+        - !partystats - Muestra stats de todos los juegos
+        - !partystats Valorant - Muestra stats de un juego específico
+        """
+        all_stats = self.party_detector.get_game_stats()
+        
+        if not all_stats:
+            await ctx.send('🎮 No hay estadísticas de parties disponibles')
+            return
+        
+        # Si se especificó un juego
+        if game:
+            game_lower = game.lower()
+            matching_game = None
+            
+            for game_name in all_stats.keys():
+                if game_lower in game_name.lower():
+                    matching_game = game_name
+                    break
+            
+            if not matching_game:
+                await ctx.send(f'🎮 No hay estadísticas de parties para **{game}**')
+                return
+            
+            stats = all_stats[matching_game]
+            avg_players = stats['total_players_sum'] / stats['total_parties'] if stats['total_parties'] > 0 else 0
+            
+            embed = discord.Embed(
+                title=f'🎮 Stats de Parties - {matching_game}',
+                color=discord.Color.gold()
+            )
+            
+            embed.add_field(name='🎯 Total Parties', value=str(stats['total_parties']), inline=True)
+            embed.add_field(name='⏱️ Tiempo Total', value=f'{stats["total_duration_minutes"]} min', inline=True)
+            embed.add_field(name='👥 Récord Jugadores', value=str(stats['max_players_record']), inline=True)
+            embed.add_field(name='📊 Promedio Jugadores', value=f'{avg_players:.1f}', inline=True)
+            
+            # Top duplas
+            if stats.get('most_frequent_pairs'):
+                top_pairs = sorted(stats['most_frequent_pairs'].items(), key=lambda x: x[1], reverse=True)[:5]
+                pairs_text = '\n'.join([f'{pair}: {count} veces' for pair, count in top_pairs])
+                embed.add_field(name='🤝 Duplas Más Frecuentes', value=pairs_text, inline=False)
+            
+            await ctx.send(embed=embed)
+            return
+        
+        # Mostrar stats generales
+        embed = discord.Embed(
+            title='🎮 Estadísticas de Parties',
+            description=f'Stats de {len(all_stats)} juego(s)',
+            color=discord.Color.gold()
+        )
+        
+        # Top juegos por número de parties
+        top_games = sorted(all_stats.items(), key=lambda x: x[1]['total_parties'], reverse=True)[:10]
+        
+        for game_name, stats in top_games:
+            avg_players = stats['total_players_sum'] / stats['total_parties'] if stats['total_parties'] > 0 else 0
+            embed.add_field(
+                name=f'{game_name}',
+                value=f'🎯 {stats["total_parties"]} parties | ⏱️ {stats["total_duration_minutes"]} min | 👥 Avg {avg_players:.1f}',
+                inline=False
+            )
+        
+        await ctx.send(embed=embed)
 
 
 async def setup(bot):

@@ -400,6 +400,7 @@ def run_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestCommandProcessing))
     suite.addTests(loader.loadTestsFromTestCase(TestConnectionTracking))
     suite.addTests(loader.loadTestsFromTestCase(TestVoiceLeaveNotificationLogic))
+    suite.addTests(loader.loadTestsFromTestCase(TestPartyDetection))
     
     # Ejecutar tests
     runner = unittest.TextTestRunner(verbosity=2)
@@ -1282,6 +1283,129 @@ class TestVoiceLeaveNotificationLogic(unittest.TestCase):
         # Verificar que ambos verifican entry_notification_sent
         self.assertIn('entry_notification_sent', game_source)
         self.assertIn('entry_notification_sent', voice_source)
+
+
+class TestPartyDetection(unittest.TestCase):
+    """Tests para el sistema de detección de parties"""
+    
+    def setUp(self):
+        """Setup para cada test"""
+        from core.persistence import stats
+        self.stats = stats
+        # Backup de parties
+        self.parties_backup = stats.get('parties', {}).copy() if 'parties' in stats else {}
+    
+    def tearDown(self):
+        """Cleanup después de cada test"""
+        if self.parties_backup:
+            self.stats['parties'] = self.parties_backup.copy()
+        elif 'parties' in self.stats:
+            del self.stats['parties']
+    
+    def test_party_detector_exists(self):
+        """Verifica que existe PartyDetector"""
+        from core.party_detection import PartyDetector
+        detector = PartyDetector()
+        self.assertIsNotNone(detector)
+    
+    def test_party_structure_created(self):
+        """Verifica que se crea la estructura de parties"""
+        from core.party_detection import PartyDetector
+        
+        # Limpiar parties si existe
+        if 'parties' in self.stats:
+            del self.stats['parties']
+        
+        detector = PartyDetector()
+        
+        # Verificar estructura
+        self.assertIn('parties', self.stats)
+        self.assertIn('active', self.stats['parties'])
+        self.assertIn('history', self.stats['parties'])
+        self.assertIn('stats_by_game', self.stats['parties'])
+    
+    def test_party_config_exists(self):
+        """Verifica que existe la configuración de parties"""
+        from core.persistence import config
+        
+        self.assertIn('party_detection', config)
+        party_config = config['party_detection']
+        
+        self.assertIn('enabled', party_config)
+        self.assertIn('min_players', party_config)
+        self.assertIn('notify_on_formed', party_config)
+        self.assertIn('notify_on_join', party_config)
+        self.assertIn('cooldown_minutes', party_config)
+        self.assertIn('use_here_mention', party_config)
+        self.assertIn('blacklisted_games', party_config)
+    
+    def test_party_commands_exist(self):
+        """Verifica que existen los comandos de party"""
+        import os
+        utility_file = Path(__file__).parent / 'cogs' / 'utility.py'
+        if not utility_file.exists():
+            self.skipTest("No se encontró cogs/utility.py")
+        
+        with open(utility_file, 'r', encoding='utf-8') as f:
+            source = f.read()
+        
+        # Verificar comandos
+        self.assertIn("@commands.command(name='party'", source)
+        self.assertIn("@commands.command(name='partyhistory'", source)
+        self.assertIn("@commands.command(name='partystats'", source)
+    
+    def test_party_detection_integrated(self):
+        """Verifica que la detección de parties está integrada en events.py"""
+        import os
+        events_file = Path(__file__).parent / 'cogs' / 'events.py'
+        if not events_file.exists():
+            self.skipTest("No se encontró cogs/events.py")
+        
+        with open(events_file, 'r', encoding='utf-8') as f:
+            source = f.read()
+        
+        # Verificar integración
+        self.assertIn('PartyDetector', source)
+        self.assertIn('party_detector', source)
+        self.assertIn('detect_party_changes', source)
+    
+    def test_get_active_parties(self):
+        """Verifica que get_active_parties retorna dict vacío inicialmente"""
+        from core.party_detection import PartyDetector
+        
+        detector = PartyDetector()
+        active = detector.get_active_parties()
+        
+        self.assertIsInstance(active, dict)
+    
+    def test_get_party_history(self):
+        """Verifica que get_party_history retorna lista"""
+        from core.party_detection import PartyDetector
+        
+        detector = PartyDetector()
+        history = detector.get_party_history('all')
+        
+        self.assertIsInstance(history, list)
+    
+    def test_get_game_stats(self):
+        """Verifica que get_game_stats retorna dict"""
+        from core.party_detection import PartyDetector
+        
+        detector = PartyDetector()
+        stats = detector.get_game_stats()
+        
+        self.assertIsInstance(stats, dict)
+    
+    def test_party_blacklist_config(self):
+        """Verifica que la blacklist de juegos está configurada"""
+        from core.persistence import config
+        
+        party_config = config.get('party_detection', {})
+        blacklist = party_config.get('blacklisted_games', [])
+        
+        self.assertIsInstance(blacklist, list)
+        # Verificar que incluye juegos comunes que no son juegos reales
+        self.assertIn('Spotify', blacklist)
 
 
 if __name__ == '__main__':
