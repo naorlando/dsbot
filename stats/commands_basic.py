@@ -7,7 +7,7 @@ import discord
 from discord.ext import commands
 from datetime import datetime
 from core.persistence import stats
-from core.checks import check_stats_channel
+from core.checks import stats_channel_only
 from stats_viz import format_time
 
 
@@ -19,6 +19,7 @@ async def setup_basic_commands(bot: commands.Bot):
         return
     
     @bot.command(name='stats', aliases=['mystats'])
+    @stats_channel_only()
     async def show_stats(ctx, member: discord.Member = None):
         """Muestra estadísticas de un usuario
         
@@ -26,9 +27,6 @@ async def setup_basic_commands(bot: commands.Bot):
         - !stats - Tus estadísticas
         - !stats @usuario - Estadísticas de otro usuario
         """
-        # Verificar canal de stats
-        if not await check_stats_channel(ctx, ctx.bot):
-            return
         
         if member is None:
             member = ctx.author
@@ -205,14 +203,12 @@ async def setup_basic_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
 
     @bot.command(name='topgames')
+    @stats_channel_only()
     async def top_games(ctx, limit: int = 5):
         """Muestra los juegos más jugados (ordenado por TIEMPO)
         
         Ejemplo: !topgames o !topgames 10
         """
-        # Verificar canal de stats
-        if not await check_stats_channel(ctx, ctx.bot):
-            return
         
         # Recopilar todos los juegos CON TIEMPO
         game_stats = {}
@@ -244,14 +240,12 @@ async def setup_basic_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
 
     @bot.command(name='topmessages')
+    @stats_channel_only()
     async def top_messages(ctx, limit: int = 5):
         """Muestra los usuarios más activos en mensajes
         
         Ejemplo: !topmessages o !topmessages 10
         """
-        # Verificar canal de stats
-        if not await check_stats_channel(ctx, ctx.bot):
-            return
         
         # Recopilar mensajes por usuario
         message_activity = []
@@ -293,14 +287,12 @@ async def setup_basic_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
 
     @bot.command(name='topreactions')
+    @stats_channel_only()
     async def top_reactions(ctx, limit: int = 5):
         """Muestra los usuarios que más reaccionan
         
         Ejemplo: !topreactions o !topreactions 10
         """
-        # Verificar canal de stats
-        if not await check_stats_channel(ctx, ctx.bot):
-            return
         
         # Recopilar reacciones por usuario
         reaction_activity = []
@@ -345,14 +337,12 @@ async def setup_basic_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
 
     @bot.command(name='topemojis')
+    @stats_channel_only()
     async def top_emojis(ctx, limit: int = 10):
         """Muestra los emojis más usados globalmente
         
         Ejemplo: !topemojis o !topemojis 15
         """
-        # Verificar canal de stats
-        if not await check_stats_channel(ctx, ctx.bot):
-            return
         
         # Recopilar todos los emojis de todos los usuarios
         emoji_counts = {}
@@ -395,14 +385,12 @@ async def setup_basic_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
 
     @bot.command(name='topstickers')
+    @stats_channel_only()
     async def top_stickers(ctx, limit: int = 10):
         """Muestra los stickers más usados
         
         Ejemplo: !topstickers o !topstickers 15
         """
-        # Verificar canal de stats
-        if not await check_stats_channel(ctx, ctx.bot):
-            return
         
         # Recopilar todos los stickers de todos los usuarios
         sticker_counts = {}
@@ -445,14 +433,12 @@ async def setup_basic_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
 
     @bot.command(name='topusers')
+    @stats_channel_only()
     async def top_users(ctx, limit: int = 5):
         """Muestra los usuarios más activos (ordenado por TIEMPO TOTAL)
         
         Ejemplo: !topusers o !topusers 10
         """
-        # Verificar canal de stats
-        if not await check_stats_channel(ctx, ctx.bot):
-            return
         
         # Calcular actividad total por usuario CON TIEMPO
         user_activity = []
@@ -499,6 +485,7 @@ async def setup_basic_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
     
     @bot.command(name='topconnections', aliases=['conexiones'])
+    @stats_channel_only()
     async def top_connections(ctx, timeframe: str = 'today', limit: int = 5):
         """Muestra el ranking de conexiones diarias
         
@@ -508,9 +495,6 @@ async def setup_basic_commands(bot: commands.Bot):
         - !topconnections all - Ranking histórico total
         - !topconnections today 10 - Top 10 de hoy
         """
-        # Verificar canal de stats
-        if not await check_stats_channel(ctx, ctx.bot):
-            return
         
         # Validar timeframe
         valid_timeframes = ['today', 'week', 'all']

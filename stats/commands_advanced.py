@@ -9,7 +9,7 @@ from datetime import datetime
 import json
 import os
 from core.persistence import stats, DATA_DIR
-from core.checks import check_stats_channel
+from core.checks import stats_channel_only
 from stats_viz import (
     filter_by_period, get_period_label, create_comparison_chart, 
     create_user_detail_view
@@ -32,15 +32,13 @@ async def setup_advanced_commands(bot: commands.Bot):
         return
     
     @bot.command(name='statsmenu', aliases=['statsinteractive'])
+    @stats_channel_only()
     async def stats_menu(ctx):
         """
         Abre el menú interactivo de estadísticas
         
         Ejemplo: !statsmenu
         """
-        # Verificar canal de stats
-        if not await check_stats_channel(ctx, ctx.bot):
-            return
         
         view = StatsView(period='all')
         filtered_stats = filter_by_period(stats, 'all')
@@ -50,6 +48,7 @@ async def setup_advanced_commands(bot: commands.Bot):
         view.message = message
 
     @bot.command(name='statsgames')
+    @stats_channel_only()
     async def stats_games_cmd(ctx, period: str = 'all'):
         """
         Muestra ranking de juegos con gráfico
@@ -60,9 +59,6 @@ async def setup_advanced_commands(bot: commands.Bot):
         - !statsgames week
         - !statsgames month
         """
-        # Verificar canal de stats
-        if not await check_stats_channel(ctx, ctx.bot):
-            return
         
         if period not in ['today', 'week', 'month', 'all']:
             await ctx.send('❌ Período inválido. Usa: `today`, `week`, `month`, `all`')
@@ -75,6 +71,7 @@ async def setup_advanced_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
 
     @bot.command(name='statsvoice')
+    @stats_channel_only()
     async def stats_voice_cmd(ctx, period: str = 'all'):
         """
         Muestra ranking de actividad de voz con gráfico
@@ -84,9 +81,6 @@ async def setup_advanced_commands(bot: commands.Bot):
         - !statsvoice today
         - !statsvoice week
         """
-        # Verificar canal de stats
-        if not await check_stats_channel(ctx, ctx.bot):
-            return
         
         if period not in ['today', 'week', 'month', 'all']:
             await ctx.send('❌ Período inválido. Usa: `today`, `week`, `month`, `all`')
@@ -99,6 +93,7 @@ async def setup_advanced_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
 
     @bot.command(name='timeline')
+    @stats_channel_only()
     async def timeline_cmd(ctx, days: int = 7):
         """
         Muestra línea de tiempo de actividad
@@ -107,9 +102,6 @@ async def setup_advanced_commands(bot: commands.Bot):
         - !timeline
         - !timeline 14
         """
-        # Verificar canal de stats
-        if not await check_stats_channel(ctx, ctx.bot):
-            return
         
         if days < 1 or days > 30:
             await ctx.send('❌ Días debe estar entre 1 y 30')
@@ -119,15 +111,13 @@ async def setup_advanced_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
 
     @bot.command(name='compare')
+    @stats_channel_only()
     async def compare_users_cmd(ctx, user1: discord.Member, user2: discord.Member):
         """
         Compara estadísticas entre dos usuarios
         
         Ejemplo: !compare @usuario1 @usuario2
         """
-        # Verificar canal de stats
-        if not await check_stats_channel(ctx, ctx.bot):
-            return
         
         user1_id = str(user1.id)
         user2_id = str(user2.id)
@@ -149,6 +139,7 @@ async def setup_advanced_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
 
     @bot.command(name='statsuser')
+    @stats_channel_only()
     async def stats_user_detail(ctx, member: discord.Member = None):
         """
         Muestra estadísticas detalladas de un usuario
@@ -157,9 +148,6 @@ async def setup_advanced_commands(bot: commands.Bot):
         - !statsuser
         - !statsuser @usuario
         """
-        # Verificar canal de stats
-        if not await check_stats_channel(ctx, ctx.bot):
-            return
         
         if member is None:
             member = ctx.author
@@ -175,6 +163,7 @@ async def setup_advanced_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
 
     @bot.command(name='export')
+    @stats_channel_only()
     async def export_stats(ctx, format: str = 'json'):
         """
         Exporta las estadísticas a un archivo
@@ -186,9 +175,6 @@ async def setup_advanced_commands(bot: commands.Bot):
         - !export json
         - !export csv
         """
-        # Verificar canal de stats
-        if not await check_stats_channel(ctx, ctx.bot):
-            return
         
         if format not in ['json', 'csv']:
             await ctx.send('❌ Formato inválido. Usa: `json` o `csv`')

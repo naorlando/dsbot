@@ -1006,6 +1006,60 @@ class TestConnectionTracking(unittest.TestCase):
                      "Debe tener sección de Conexiones en el embed")
 
 
+class TestVoiceMessageTracking(unittest.TestCase):
+    """Tests para el sistema de tracking de mensajes de voz pendientes"""
+    
+    def test_events_cog_has_pending_messages_dict(self):
+        """Verifica que EventsCog tiene el diccionario de mensajes pendientes"""
+        # Importar el cog
+        try:
+            from cogs.events import EventsCog
+            from unittest.mock import MagicMock
+            
+            # Crear instancia mock del bot
+            mock_bot = MagicMock()
+            
+            # Crear instancia del cog
+            cog = EventsCog(mock_bot)
+            
+            # Verificar que tiene el diccionario
+            self.assertIsInstance(cog.pending_voice_messages, dict,
+                                "EventsCog debe tener pending_voice_messages como dict")
+            self.assertEqual(len(cog.pending_voice_messages), 0,
+                           "pending_voice_messages debe estar vacío al inicio")
+            
+        except ImportError as e:
+            self.skipTest(f"No se pudo importar EventsCog: {e}")
+    
+    def test_voice_verification_uses_member_guild(self):
+        """Verifica que el código usa member.guild en lugar de after.channel.guild"""
+        # Leer el archivo de eventos
+        events_file = Path(__file__).parent / 'cogs' / 'events.py'
+        if not events_file.exists():
+            self.skipTest("No se encontró cogs/events.py")
+        
+        with open(events_file, 'r', encoding='utf-8') as f:
+            source = f.read()
+        
+        # Verificar que guarda guild antes del sleep
+        self.assertIn("guild = member.guild", source,
+                     "Debe guardar member.guild antes del sleep")
+        
+        # Verificar que usa guild guardado en lugar de after.channel.guild
+        self.assertIn("guild.get_member", source,
+                     "Debe usar guild guardado para get_member")
+        
+        # Verificar que NO usa after.channel.guild después del sleep
+        # (puede aparecer en comentarios, pero no en código activo después del sleep)
+        lines = source.split('\n')
+        after_sleep_found = False
+        for i, line in enumerate(lines):
+            if 'await asyncio.sleep(7)' in line:
+                after_sleep_found = True
+            if after_sleep_found and 'after.channel.guild' in line and not line.strip().startswith('#'):
+                self.fail("No debe usar after.channel.guild después del sleep (línea {})".format(i+1))
+
+
 if __name__ == '__main__':
     success = run_tests()
     sys.exit(0 if success else 1)

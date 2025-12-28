@@ -6,7 +6,7 @@ import discord
 from discord.ext import commands
 import logging
 
-from core.checks import check_stats_channel
+from core.checks import stats_channel_only
 
 logger = logging.getLogger('dsbot')
 
@@ -18,6 +18,7 @@ class UtilityCog(commands.Cog, name='Utilidades'):
         self.bot = bot
     
     @commands.command(name='bothelp', aliases=['help', 'ayuda', 'comandos'])
+    @stats_channel_only()
     async def show_help(self, ctx, categoria: str = None):
         """
         Muestra la lista de comandos disponibles (solo en canal de stats)
@@ -30,9 +31,6 @@ class UtilityCog(commands.Cog, name='Utilidades'):
         - !help stats
         - !help all
         """
-        # Verificar canal de stats
-        if not await check_stats_channel(ctx, self.bot):
-            return
         
         # Si no hay categoría o es 'all', mostrar todas
         if categoria is None:

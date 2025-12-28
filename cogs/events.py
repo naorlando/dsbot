@@ -26,6 +26,9 @@ class EventsCog(commands.Cog, name='Events'):
     
     def __init__(self, bot):
         self.bot = bot
+        # Diccionario para trackear mensajes de voz pendientes de borrar
+        # Formato: {user_id: {'message': Message, 'channel_id': int, 'guild_id': int}}
+        self.pending_voice_messages = {}
     
     @commands.Cog.listener()
     async def on_ready(self):
@@ -208,59 +211,96 @@ class EventsCog(commands.Cog, name='Events'):
         
         # Entrada a canal de voz
         if not before.channel and after.channel:
+            # ✅ GUARDAR REFERENCIAS ANTES DEL SLEEP (actuar sobre start, no end)
+            guild = member.guild  # Usar member.guild en lugar de after.channel.guild
+            channel = after.channel
+            channel_id = channel.id
+            user_id = str(member.id)
+            
             # ✅ VERIFICACIÓN EN 2 FASES (3s + 7s = 10s total)
             # Fase 1: Delay anti-spam de 3s para filtrar entradas/salidas rápidas
             await asyncio.sleep(3)
             
             # Verificar que el usuario SIGUE en el canal después de 3s
-            member_now = after.channel.guild.get_member(member.id)
-            if not member_now or not member_now.voice or member_now.voice.channel != after.channel:
-                logger.debug(f'⏭️  Entrada < 3s ignorada: {member.display_name} en {after.channel.name}')
+            # Usar guild guardado en lugar de after.channel.guild
+            member_now = guild.get_member(member.id)
+            if not member_now or not member_now.voice or member_now.voice.channel is None or member_now.voice.channel.id != channel_id:
+                logger.debug(f'⏭️  Entrada < 3s ignorada: {member.display_name} en {channel.name}')
                 return  # No trackear ni notificar
             
             # Fase 2: Usuario confirmado en canal por 3s → Iniciar tracking
-            start_voice_session(str(member.id), member.display_name, after.channel.name)
+            start_voice_session(user_id, member.display_name, channel.name)
             
             notification_message = None
             if config.get('notify_voice', True):
                 # Verificar cooldown
-                if check_cooldown(str(member.id), 'voice'):
-                    logger.info(f'🔊 Detectado: {member.display_name} entró al canal de voz {after.channel.name}')
+                if check_cooldown(user_id, 'voice'):
+                    logger.info(f'🔊 Detectado: {member.display_name} entró al canal de voz {channel.name}')
                     
                     # Registrar en estadísticas
-                    record_voice_event(str(member.id), member.display_name)
+                    record_voice_event(user_id, member.display_name)
                     
                     # Enviar notificación (con return_message para poder borrarla después)
                     message_template = messages_config.get('voice_join', "🔊 **{user}** entró al canal de voz **{channel}**")
                     message = message_template.format(
                         user=member.display_name,
-                        channel=after.channel.name
+                        channel=channel.name
                     )
                     notification_message = await send_notification(message, self.bot, return_message=True)
+                    
+                    # Guardar mensaje pendiente para poder borrarlo si sale rápido
+                    if notification_message:
+                        self.pending_voice_messages[user_id] = {
+                            'message': notification_message,
+                            'channel_id': channel_id,
+                            'guild_id': guild.id
+                        }
             
             # Fase 3: Monitoreo adicional de 7s (total 10s desde entrada)
             if notification_message:
                 await asyncio.sleep(7)
                 
                 # Verificar si el usuario TODAVÍA está en el canal
-                member_now = after.channel.guild.get_member(member.id)
-                if not member_now or not member_now.voice or member_now.voice.channel != after.channel:
+                # Usar guild y channel guardados
+                member_now = guild.get_member(member.id)
+                if not member_now or not member_now.voice or member_now.voice.channel is None or member_now.voice.channel.id != channel_id:
                     # Se fue en menos de 10s: Borrar notificación
                     try:
                         await notification_message.delete()
-                        logger.info(f'🗑️  Notificación borrada: {member.display_name} estuvo < 10s en {after.channel.name}')
+                        logger.info(f'🗑️  Notificación borrada: {member.display_name} estuvo < 10s en {channel.name}')
                     except discord.errors.NotFound:
                         logger.debug(f'⚠️  Mensaje ya fue borrado: {member.display_name}')
                     except Exception as e:
                         logger.error(f'❌ Error borrando notificación: {e}')
+                    finally:
+                        # Limpiar del diccionario
+                        self.pending_voice_messages.pop(user_id, None)
                 else:
                     # Sesión confirmada: Usuario sigue después de 10s
-                    logger.debug(f'✅ Sesión confirmada: {member.display_name} > 10s en {after.channel.name}')
+                    logger.debug(f'✅ Sesión confirmada: {member.display_name} > 10s en {channel.name}')
+                    # Limpiar del diccionario (ya no necesita borrarse)
+                    self.pending_voice_messages.pop(user_id, None)
         
         # Salida de canal de voz
         elif before.channel and not after.channel:
+            user_id = str(member.id)
+            
+            # ✅ Si hay un mensaje pendiente de entrada, borrarlo
+            if user_id in self.pending_voice_messages:
+                pending = self.pending_voice_messages[user_id]
+                try:
+                    await pending['message'].delete()
+                    logger.info(f'🗑️  Notificación de entrada borrada: {member.display_name} salió antes de 10s')
+                except discord.errors.NotFound:
+                    logger.debug(f'⚠️  Mensaje de entrada ya fue borrado: {member.display_name}')
+                except Exception as e:
+                    logger.error(f'❌ Error borrando mensaje pendiente: {e}')
+                finally:
+                    # Limpiar del diccionario
+                    self.pending_voice_messages.pop(user_id, None)
+            
             # Finalizar tracking de tiempo
-            end_voice_session(str(member.id), member.display_name)
+            end_voice_session(user_id, member.display_name)
             
             if config.get('notify_voice_leave', False):
                 logger.info(f'🔇 Detectado: {member.display_name} salió del canal de voz {before.channel.name}')
@@ -273,9 +313,28 @@ class EventsCog(commands.Cog, name='Events'):
         
         # Cambio de canal de voz
         elif before.channel and after.channel and before.channel != after.channel:
+            user_id = str(member.id)
+            
+            # ✅ Si hay un mensaje pendiente del canal anterior, borrarlo
+            # (porque técnicamente salió del canal original)
+            if user_id in self.pending_voice_messages:
+                pending = self.pending_voice_messages[user_id]
+                # Solo borrar si el mensaje es del canal que está dejando
+                if pending['channel_id'] == before.channel.id:
+                    try:
+                        await pending['message'].delete()
+                        logger.info(f'🗑️  Notificación de entrada borrada: {member.display_name} cambió de canal antes de 10s')
+                    except discord.errors.NotFound:
+                        logger.debug(f'⚠️  Mensaje de entrada ya fue borrado: {member.display_name}')
+                    except Exception as e:
+                        logger.error(f'❌ Error borrando mensaje pendiente: {e}')
+                    finally:
+                        # Limpiar del diccionario
+                        self.pending_voice_messages.pop(user_id, None)
+            
             if config.get('notify_voice_move', True):
                 # Verificar cooldown para evitar spam de cambios de canal
-                if check_cooldown(str(member.id), 'voice_move'):
+                if check_cooldown(user_id, 'voice_move'):
                     logger.info(f'🔄 Detectado: {member.display_name} cambió de {before.channel.name} a {after.channel.name}')
                     message_template = messages_config.get('voice_move', "🔄 **{user}** cambió de **{old_channel}** a **{new_channel}**")
                     message = message_template.format(

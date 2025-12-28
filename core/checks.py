@@ -5,6 +5,7 @@ Maneja verificaciones de permisos y canal
 
 import os
 import logging
+from discord.ext import commands
 from core.persistence import get_stats_channel_id
 
 logger = logging.getLogger('dsbot')
@@ -30,47 +31,74 @@ def is_owner(ctx):
     return str(ctx.author.id) in owner_ids
 
 
+def stats_channel_only():
+    """
+    Decorador que verifica que el comando se ejecute en el canal de stats.
+    Si no está en el canal correcto, muestra mensaje de redirección y aborta.
+    
+    Uso:
+        @bot.command(name='stats')
+        @stats_channel_only()
+        async def show_stats(ctx, ...):
+            ...
+    """
+    async def predicate(ctx):
+        stats_channel_id = get_stats_channel_id()
+        
+        # Si no hay canal configurado, permitir en cualquier canal
+        if not stats_channel_id:
+            return True
+        
+        # Si estamos en el canal correcto, continuar
+        if ctx.channel.id == stats_channel_id:
+            return True
+        
+        # Si no estamos en el canal correcto, mostrar mensaje y abortar
+        stats_channel = ctx.bot.get_channel(stats_channel_id)
+        
+        if stats_channel:
+            message = f'{ctx.author.mention} 📊 Los comandos de estadísticas solo funcionan en {stats_channel.mention}\n💡 Usa `!channels` para ver la configuración actual.'
+        else:
+            message = f'{ctx.author.mention} ⚠️ El canal de estadísticas configurado no existe (ID: {stats_channel_id})\n💡 Usa `!unsetstatschannel` para desconfigurar.'
+        
+        # Enviar mensaje que se autodestruye rápido (5s)
+        # Nota: En comandos de mensaje tradicionales no hay forma nativa de hacer mensajes
+        # "ephemeral" (solo visibles para el autor). Este mensaje es visible para todos pero
+        # se borra rápido para minimizar spam.
+        await ctx.send(message, delete_after=5)
+        
+        return False
+    
+    return commands.check(predicate)
+
+
 async def check_stats_channel(ctx, bot):
     """
-    Verifica si el comando de stats se ejecuta en el canal correcto.
+    Función helper para verificar canal de stats (mantenida para compatibilidad).
     Retorna True si puede continuar, False si debe abortar.
+    
+    DEPRECATED: Usar el decorador @stats_channel_only() en su lugar.
     """
     stats_channel_id = get_stats_channel_id()
     
-    # Si no hay canal de stats configurado, permitir en cualquier canal
     if not stats_channel_id:
         return True
     
-    # Si estamos en el canal correcto, continuar
     if ctx.channel.id == stats_channel_id:
         return True
     
-    # Si no estamos en el canal correcto, redirigir en thread (privado)
+    # Mostrar mensaje de redirección
     stats_channel = bot.get_channel(stats_channel_id)
-    
-    try:
-        # Crear thread del mensaje (solo visible para el usuario)
-        thread = await ctx.message.create_thread(
-            name=f"Redirección {ctx.author.display_name}",
-            auto_archive_duration=60
+    if stats_channel:
+        await ctx.send(
+            f'{ctx.author.mention} 📊 Los comandos de estadísticas solo funcionan en {stats_channel.mention}',
+            delete_after=5
         )
-        
-        if stats_channel:
-            await thread.send(
-                f'{ctx.author.mention} 📊 Los comandos de estadísticas solo funcionan en {stats_channel.mention}\n💡 Usa `!channels` para ver la configuración actual.',
-                delete_after=10
-            )
-        else:
-            await thread.send(
-                f'{ctx.author.mention} ⚠️ El canal de estadísticas configurado no existe (ID: {stats_channel_id})\n💡 Usa `!unsetstatschannel` para desconfigurar.',
-                delete_after=10
-            )
-    except:
-        # Fallback: mensaje que se autodestruye
-        if stats_channel:
-            await ctx.send(f'{ctx.author.mention} 📊 Los comandos de estadísticas solo funcionan en {stats_channel.mention}', delete_after=10)
-        else:
-            await ctx.send(f'{ctx.author.mention} ⚠️ Canal de stats no existe (ID: {stats_channel_id})', delete_after=10)
+    else:
+        await ctx.send(
+            f'{ctx.author.mention} ⚠️ Canal de stats no existe (ID: {stats_channel_id})',
+            delete_after=5
+        )
     
     return False
 

@@ -7,7 +7,7 @@ import discord
 from discord.ext import commands
 from datetime import datetime, timedelta
 from core.persistence import stats
-from core.checks import check_stats_channel
+from core.checks import stats_channel_only
 from stats_viz import create_bar_chart
 
 
@@ -19,6 +19,7 @@ async def setup_voice_commands(bot: commands.Bot):
         return
     
     @bot.command(name='voicetime')
+    @stats_channel_only()
     async def voice_time_cmd(ctx, member: discord.Member = None, period: str = 'all'):
         """
         Muestra el tiempo total en canales de voz
@@ -28,9 +29,6 @@ async def setup_voice_commands(bot: commands.Bot):
         - !voicetime @usuario
         - !voicetime @usuario week
         """
-        # Verificar canal de stats
-        if not await check_stats_channel(ctx, ctx.bot):
-            return
         
         if member is None:
             member = ctx.author
@@ -115,6 +113,7 @@ async def setup_voice_commands(bot: commands.Bot):
         await ctx.send(embed=embed)
 
     @bot.command(name='voicetop')
+    @stats_channel_only()
     async def voice_top_time_cmd(ctx, period: str = 'all'):
         """
         Ranking de usuarios por tiempo en voz
@@ -124,9 +123,6 @@ async def setup_voice_commands(bot: commands.Bot):
         - !voicetop week
         - !voicetop month
         """
-        # Verificar canal de stats
-        if not await check_stats_channel(ctx, ctx.bot):
-            return
         
         # Calcular tiempo por usuario según período
         user_times = []
