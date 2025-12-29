@@ -66,13 +66,12 @@ def setup_ranking_commands(bot):
         data_tuples = []
         
         for username, minutes, sessions, unique_games in top_10:
-            time_str = format_time(minutes)
             extra_info = f"{sessions} sesiones • {unique_games} juegos"
             data_tuples.append((username, minutes, extra_info))
         
         # Crear gráfico
         title = f"🎮 TOP GAMERS - {get_period_label(period).upper()}"
-        chart = create_ranking_visual(data_tuples, title, max_display=10)
+        chart = create_ranking_visual(data_tuples, title, max_display=10, value_formatter=format_time)
         
         # Enviar
         try:
@@ -125,13 +124,12 @@ def setup_ranking_commands(bot):
         data_tuples = []
         
         for username, minutes, count in top_10:
-            time_str = format_time(minutes)
             extra_info = f"{count} sesiones"
             data_tuples.append((username, minutes, extra_info))
         
         # Crear gráfico
         title = f"🔊 TOP VOZ - {get_period_label(period).upper()}"
-        chart = create_ranking_visual(data_tuples, title, max_display=10)
+        chart = create_ranking_visual(data_tuples, title, max_display=10, value_formatter=format_time)
         
         # Enviar
         try:
@@ -179,7 +177,9 @@ def setup_ranking_commands(bot):
         
         # Crear gráfico
         title = "💬 TOP CHAT - MENSAJES ENVIADOS"
-        chart = create_ranking_visual(data_tuples, title, max_display=10)
+        # Formatter para mensajes: agregar "msgs"
+        msg_formatter = lambda x: f"{x:,} msgs"
+        chart = create_ranking_visual(data_tuples, title, max_display=10, value_formatter=msg_formatter)
         
         # Enviar
         try:

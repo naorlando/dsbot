@@ -94,7 +94,7 @@ def setup_game_commands(bot):
             data_for_chart.append((game_name, value, extra))
         
         # Crear gráfico
-        chart = create_ranking_visual(data_for_chart, title, max_display=15)
+        chart = create_ranking_visual(data_for_chart, title, max_display=15, value_formatter=format_func)
         
         # Enviar
         try:
@@ -264,7 +264,7 @@ def setup_game_commands(bot):
         
         # Crear gráfico
         title = f"🎮 TUS JUEGOS - {ctx.author.display_name.upper()}"
-        chart = create_ranking_visual(data_for_chart, title, max_display=10)
+        chart = create_ranking_visual(data_for_chart, title, max_display=10, value_formatter=format_time)
         
         # Enviar
         try:

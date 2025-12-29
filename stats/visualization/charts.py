@@ -308,7 +308,8 @@ def create_comparison_bars(
 def create_ranking_visual(
     data: List[Tuple[str, int, str]], 
     title: str,
-    max_display: int = 10
+    max_display: int = 10,
+    value_formatter = None
 ) -> str:
     """
     Crea un ranking visual con barras y estadísticas
@@ -317,6 +318,7 @@ def create_ranking_visual(
         data: Lista de tuplas (name, value, extra_info)
         title: Título del ranking
         max_display: Máximo número de entradas a mostrar
+        value_formatter: Función opcional para formatear el valor (ej: format_time)
     
     Returns:
         String con el ranking formateado
@@ -341,10 +343,15 @@ def create_ranking_visual(
         bar_length = int((value / max_value) * 30) if max_value > 0 else 0
         bar = "█" * bar_length
         
+        # Formato del valor
+        if value_formatter:
+            value_display = value_formatter(value).rjust(12)
+        else:
+            value_display = f"{value:,}".rjust(8)
+        
         # Formato
         name_display = name[:20].ljust(20)
-        value_display = f"{value:,}".rjust(8)
-        extra_display = extra[:25].ljust(25)
+        extra_display = extra[:30].ljust(30) if extra else ""
         
         lines.append(f"{prefix} {name_display} {bar.ljust(30)} {value_display}")
         if extra:
