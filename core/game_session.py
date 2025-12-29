@@ -207,8 +207,13 @@ class GameSessionManager(BaseSessionManager):
         
         # Limpiar sesión
         clear_game_session(user_id, game_name)
-        del self.active_sessions[user_id]
-        logger.debug(f'🗑️  Sesión de juego finalizada y limpiada para {member.display_name}')
+        
+        # Eliminar sesión activa (verificación defensiva para evitar KeyError)
+        if user_id in self.active_sessions:
+            del self.active_sessions[user_id]
+            logger.debug(f'🗑️  Sesión de juego finalizada y limpiada para {member.display_name}')
+        else:
+            logger.debug(f'⚠️  Sesión ya fue eliminada (probablemente por _cancel_session): {member.display_name}')
     
     # Métodos abstractos requeridos por BaseSessionManager
     

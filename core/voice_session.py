@@ -179,8 +179,13 @@ class VoiceSessionManager(BaseSessionManager):
         
         # Limpiar sesión
         clear_voice_session(user_id)
-        del self.active_sessions[user_id]
-        logger.debug(f'🗑️  Sesión de voz finalizada y limpiada para {member.display_name}')
+        
+        # Eliminar sesión activa (verificación defensiva para evitar KeyError)
+        if user_id in self.active_sessions:
+            del self.active_sessions[user_id]
+            logger.debug(f'🗑️  Sesión de voz finalizada y limpiada para {member.display_name}')
+        else:
+            logger.debug(f'⚠️  Sesión ya fue eliminada (probablemente por _cancel_session): {member.display_name}')
     
     async def handle_voice_move(self, member: discord.Member, before: discord.VoiceChannel, after: discord.VoiceChannel, config: dict):
         """

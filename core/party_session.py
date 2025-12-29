@@ -163,8 +163,11 @@ class PartySessionManager(BaseSessionManager):
         else:
             logger.debug(f'🎮 Party cancelada: {game_name} (no confirmada)')
         
-        # Eliminar sesión activa
-        del self.active_sessions[game_name]
+        # Eliminar sesión activa (verificación defensiva para evitar KeyError)
+        if game_name in self.active_sessions:
+            del self.active_sessions[game_name]
+        else:
+            logger.debug(f'⚠️  Sesión de party ya fue eliminada: {game_name}')
     
     # Métodos abstractos requeridos por BaseSessionManager
     
