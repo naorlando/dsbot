@@ -7,6 +7,7 @@ import discord
 from discord.ext import commands
 import json
 
+from core.persistence import STATS_FILE
 from ..visualization import (
     create_bar_chart,
     create_ranking_visual,
@@ -47,7 +48,7 @@ def setup_game_commands(bot):
         
         # Cargar stats
         try:
-            with open('stats.json', 'r', encoding='utf-8') as f:
+            with open(STATS_FILE, 'r', encoding='utf-8') as f:
                 stats_data = json.load(f)
         except Exception as e:
             await ctx.send(f"❌ Error al cargar estadísticas: {e}")
@@ -132,7 +133,7 @@ def setup_game_commands(bot):
         
         # Cargar stats
         try:
-            with open('stats.json', 'r', encoding='utf-8') as f:
+            with open(STATS_FILE, 'r', encoding='utf-8') as f:
                 stats_data = json.load(f)
         except Exception as e:
             await ctx.send(f"❌ Error al cargar estadísticas: {e}")
@@ -229,7 +230,7 @@ def setup_game_commands(bot):
         
         # Cargar stats
         try:
-            with open('stats.json', 'r', encoding='utf-8') as f:
+            with open(STATS_FILE, 'r', encoding='utf-8') as f:
                 stats_data = json.load(f)
         except Exception as e:
             await ctx.send(f"❌ Error al cargar estadísticas: {e}")
