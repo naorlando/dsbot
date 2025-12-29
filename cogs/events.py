@@ -16,6 +16,7 @@ from core.session_dto import (
 from core.voice_session import VoiceSessionManager
 from core.game_session import GameSessionManager
 from core.party_session import PartySessionManager
+from core.health_check import SessionHealthCheck
 from core.cooldown import check_cooldown
 from core.helpers import is_link_spam, get_activity_verb, send_notification
 
@@ -31,6 +32,14 @@ class EventsCog(commands.Cog, name='Events'):
         self.voice_manager = VoiceSessionManager(bot)
         self.game_manager = GameSessionManager(bot)
         self.party_manager = PartySessionManager(bot)
+        
+        # Health check para validación periódica de sesiones
+        self.health_check = SessionHealthCheck(
+            bot=bot,
+            voice_manager=self.voice_manager,
+            game_manager=self.game_manager,
+            party_manager=self.party_manager
+        )
     
     @commands.Cog.listener()
     async def on_ready(self):
@@ -204,6 +213,10 @@ class EventsCog(commands.Cog, name='Events'):
             games_to_end = active_party_games - current_games
             for game_name in games_to_end:
                 await self.party_manager.handle_end(game_name, config)
+            
+            # Activar health check si hay actividad de parties
+            if players_by_game or games_to_end:
+                self.health_check.start_if_needed()
         except Exception as e:
             logger.error(f'Error en gestión de parties: {e}')
     
@@ -216,6 +229,8 @@ class EventsCog(commands.Cog, name='Events'):
         # Entrada a canal de voz
         if not before.channel and after.channel:
             await self.voice_manager.handle_start(member, after.channel, config)
+            # Activar health check si es necesario
+            self.health_check.start_if_needed()
         
         # Salida de canal de voz
         elif before.channel and not after.channel:
