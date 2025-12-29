@@ -33,7 +33,6 @@ def setup_user_commands(bot):
         """
         # Determinar el usuario
         target_user = user if user else ctx.author
-        await ctx.send(f"⏳ Cargando estadísticas de **{target_user.display_name}**...")
         
         # Cargar stats
         try:
@@ -192,8 +191,6 @@ def setup_user_commands(bot):
         if user.id == ctx.author.id:
             await ctx.send("❌ No puedes compararte contigo mismo!")
             return
-        
-        await ctx.send(f"⏳ Comparando **{ctx.author.display_name}** vs **{user.display_name}**...")
         
         # Cargar stats
         try:

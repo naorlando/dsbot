@@ -36,8 +36,6 @@ def setup_ranking_commands(bot):
         
         Ejemplo: !topgamers week
         """
-        await ctx.send("⏳ Calculando ranking de gamers...")
-        
         # Validar período
         valid_periods = ['today', 'week', 'month', 'all']
         if period not in valid_periods:
@@ -97,8 +95,6 @@ def setup_ranking_commands(bot):
         
         Ejemplo: !topvoice month
         """
-        await ctx.send("⏳ Calculando ranking de voz...")
-        
         # Validar período
         valid_periods = ['today', 'week', 'month', 'all']
         if period not in valid_periods:
@@ -157,8 +153,6 @@ def setup_ranking_commands(bot):
         
         Muestra los usuarios más activos en chat
         """
-        await ctx.send("⏳ Calculando ranking de chat...")
-        
         # Cargar stats
         try:
             with open(STATS_FILE, 'r', encoding='utf-8') as f:

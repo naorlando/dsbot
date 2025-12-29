@@ -24,8 +24,6 @@ def setup_social_commands(bot):
         
         Uso: !topreactions
         """
-        await ctx.send("⏳ Contando reacciones...")
-        
         # Cargar stats
         try:
             with open(STATS_FILE, 'r', encoding='utf-8') as f:
@@ -71,8 +69,6 @@ def setup_social_commands(bot):
         
         Uso: !topstickers
         """
-        await ctx.send("⏳ Contando stickers...")
-        
         # Cargar stats
         try:
             with open(STATS_FILE, 'r', encoding='utf-8') as f:

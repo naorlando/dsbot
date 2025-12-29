@@ -26,8 +26,6 @@ def setup_party_commands(bot):
         
         Muestra quién ha jugado más en party
         """
-        await ctx.send("⏳ Calculando party masters...")
-        
         # TODO: Implementar cuando tengamos stats de parties en JSON
         embed = discord.Embed(
             title="🚧 Próximamente",

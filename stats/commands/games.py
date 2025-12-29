@@ -38,8 +38,6 @@ def setup_game_commands(bot):
         
         Ejemplo: !topgames players
         """
-        await ctx.send("⏳ Calculando juegos más populares...")
-        
         # Validar sort_by
         valid_sorts = ['time', 'players', 'sessions']
         if sort_by not in valid_sorts:
@@ -128,8 +126,6 @@ def setup_game_commands(bot):
         if not game_name:
             await ctx.send("❌ Debes especificar el nombre del juego.\nEjemplo: `!topgame Hades`")
             return
-        
-        await ctx.send(f"⏳ Buscando estadísticas de **{game_name}**...")
         
         # Cargar stats
         try:
@@ -226,8 +222,6 @@ def setup_game_commands(bot):
         
         Muestra tu top 10 de juegos por tiempo jugado
         """
-        await ctx.send("⏳ Buscando tus juegos...")
-        
         # Cargar stats
         try:
             with open(STATS_FILE, 'r', encoding='utf-8') as f:
