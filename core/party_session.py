@@ -115,9 +115,17 @@ class PartySessionManager(BaseSessionManager):
                     # Obtener nombres de los nuevos jugadores
                     new_player_names = [p['username'] for p in current_players if p['user_id'] in new_players]
                     
-                    # Verificar cooldown por juego
+                    # Verificar cooldown POR JUGADOR (no por juego)
+                    # Cada jugador nuevo puede notificar una vez cada 10 min
                     cooldown_minutes = party_config.get('cooldown_minutes', 10)
-                    if check_cooldown(game_name, f'party_join_{game_name}', cooldown_seconds=cooldown_minutes * 60):
+                    for player_id in new_players:
+                        if not check_cooldown(game_name, f'party_join_{game_name}_{player_id}', cooldown_seconds=cooldown_minutes * 60):
+                            # Este jugador específico está en cooldown, removerlo de la lista
+                            new_players.discard(player_id)
+                            new_player_names = [p['username'] for p in current_players if p['user_id'] in new_players]
+                    
+                    # Notificar solo si quedan jugadores después del filtro de cooldown
+                    if new_player_names:
                         message = self._create_player_joined_message(game_name, new_player_names, current_player_names, party_config)
                         if message:
                             await send_notification(message, self.bot)
