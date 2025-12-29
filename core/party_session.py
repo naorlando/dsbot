@@ -304,12 +304,12 @@ class PartySessionManager(BaseSessionManager):
         # Crear registro en historial
         party_record = {
             'game': game_name,
-            'start': active_party['start'],
+            'start': active_party.get('start', datetime.now().isoformat()),
             'end': end_time.isoformat(),
             'duration_minutes': duration_minutes,
-            'players': active_party['players'],
-            'player_names': active_party['player_names'],
-            'max_players': active_party['max_players']
+            'players': active_party.get('players', list(session.player_ids)),
+            'player_names': active_party.get('player_names', session.player_names),
+            'max_players': active_party.get('max_players', session.max_players)
         }
         
         # Agregar a historial
@@ -339,17 +339,18 @@ class PartySessionManager(BaseSessionManager):
             }
         
         game_stats = stats['parties']['stats_by_game'][game_name]
-        game_stats['total_parties'] += 1
-        game_stats['total_duration_minutes'] += party_record['duration_minutes']
-        game_stats['max_players_ever'] = max(game_stats['max_players_ever'], party_record['max_players'])
+        game_stats['total_parties'] = game_stats.get('total_parties', 0) + 1
+        game_stats['total_duration_minutes'] = game_stats.get('total_duration_minutes', 0) + party_record['duration_minutes']
+        game_stats['max_players_ever'] = max(game_stats.get('max_players_ever', 0), party_record['max_players'])
         
         # Agregar jugadores únicos (convertir a set si no lo es)
-        if not isinstance(game_stats['total_unique_players'], set):
-            game_stats['total_unique_players'] = set(game_stats['total_unique_players'])
-        game_stats['total_unique_players'].update(party_record['players'])
+        current_unique = game_stats.get('total_unique_players', [])
+        if not isinstance(current_unique, set):
+            current_unique = set(current_unique) if current_unique else set()
+        current_unique.update(party_record['players'])
         
         # Convertir set a lista para serialización JSON
-        game_stats['total_unique_players'] = list(game_stats['total_unique_players'])
+        game_stats['total_unique_players'] = list(current_unique)
     
     # Métodos públicos para comandos
     
