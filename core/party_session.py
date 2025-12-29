@@ -12,7 +12,7 @@ import discord
 from core.base_session import BaseSession, BaseSessionManager
 from core.persistence import stats, save_stats
 from core.cooldown import check_cooldown
-from core.notifications import send_notification
+from core.helpers import send_notification
 
 logger = logging.getLogger('dsbot')
 
