@@ -1,45 +1,24 @@
 """
-Módulo de Estadísticas
-Organización modular de todas las funcionalidades de stats del bot
+Módulo de Estadísticas - Refactorizado
+Contiene todos los comandos y visualizaciones de estadísticas del bot
 """
 
-# Embeds
-from stats.embeds import (
-    create_overview_embed,
-    create_games_ranking_embed,
-    create_voice_ranking_embed,
-    create_users_ranking_embed,
-    create_messages_ranking_embed,
-    create_timeline_embed
-)
+# Importar setup functions de todos los comandos
+from .commands.rankings import setup_ranking_commands
+from .commands.games import setup_game_commands
+from .commands.parties import setup_party_commands
+from .commands.user import setup_user_commands
+from .commands.social import setup_social_commands
 
-# UI Components
-from stats.ui_components import (
-    StatsView,
-    StatsSelect,
-    PeriodSelect
-)
-
-# Commands Setup Functions
-from stats.commands_basic import setup_basic_commands
-from stats.commands_advanced import setup_advanced_commands
-from stats.commands_voice import setup_voice_commands
+# Importar funciones de visualización para uso externo
+from .visualization import *
+from .data import *
 
 __all__ = [
-    # Embeds
-    'create_overview_embed',
-    'create_games_ranking_embed',
-    'create_voice_ranking_embed',
-    'create_users_ranking_embed',
-    'create_messages_ranking_embed',
-    'create_timeline_embed',
-    # UI Components
-    'StatsView',
-    'StatsSelect',
-    'PeriodSelect',
-    # Setup Functions
-    'setup_basic_commands',
-    'setup_advanced_commands',
-    'setup_voice_commands',
+    # Setup functions para comandos
+    'setup_ranking_commands',
+    'setup_game_commands',
+    'setup_party_commands',
+    'setup_user_commands',
+    'setup_social_commands',
 ]
-

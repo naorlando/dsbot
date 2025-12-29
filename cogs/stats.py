@@ -1,14 +1,16 @@
 """
-Cog de Estadísticas
+Cog de Estadísticas - Refactorizado
 Carga todos los comandos relacionados con estadísticas del bot
 """
 
 from discord.ext import commands
 import logging
 from stats import (
-    setup_basic_commands,
-    setup_advanced_commands,
-    setup_voice_commands
+    setup_ranking_commands,
+    setup_game_commands,
+    setup_party_commands,
+    setup_user_commands,
+    setup_social_commands
 )
 
 logger = logging.getLogger('dsbot')
@@ -23,19 +25,27 @@ class StatsCog(commands.Cog, name='Estadísticas'):
     
     async def cog_load(self):
         """Se ejecuta cuando el cog se carga"""
-        logger.info("Cargando comandos de estadísticas...")
+        logger.info("🔄 Cargando comandos de estadísticas refactorizados...")
         
-        # Cargar comandos básicos
-        await setup_basic_commands(self.bot)
-        logger.info("✓ Comandos básicos cargados (stats, topgames, topmessages, etc.)")
+        # Cargar comandos de rankings
+        setup_ranking_commands(self.bot)
+        logger.info("✓ Rankings cargados (topgamers, topvoice, topchat)")
         
-        # Cargar comandos avanzados
-        await setup_advanced_commands(self.bot)
-        logger.info("✓ Comandos avanzados cargados (statsmenu, timeline, compare, export, etc.)")
+        # Cargar comandos de juegos
+        setup_game_commands(self.bot)
+        logger.info("✓ Juegos cargados (topgames, topgame, mygames)")
         
-        # Cargar comandos de voz
-        await setup_voice_commands(self.bot)
-        logger.info("✓ Comandos de voz cargados (voicetime, voicetop)")
+        # Cargar comandos de parties
+        setup_party_commands(self.bot)
+        logger.info("✓ Parties cargados (partymaster, partywith, partygames)")
+        
+        # Cargar comandos de usuario
+        setup_user_commands(self.bot)
+        logger.info("✓ Usuario cargados (stats, mystats, compare)")
+        
+        # Cargar comandos sociales
+        setup_social_commands(self.bot)
+        logger.info("✓ Sociales cargados (topreactions, topstickers)")
         
         logger.info("📊 Todos los comandos de estadísticas cargados exitosamente")
     
