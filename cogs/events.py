@@ -15,7 +15,7 @@ from core.session_dto import (
 )
 from core.voice_session import VoiceSessionManager
 from core.game_session import GameSessionManager
-from core.party_detection import PartyDetector
+from core.party_session import PartySessionManager
 from core.cooldown import check_cooldown
 from core.helpers import is_link_spam, get_activity_verb, send_notification
 
@@ -30,8 +30,7 @@ class EventsCog(commands.Cog, name='Events'):
         # Sistema centralizado de gestión de sesiones
         self.voice_manager = VoiceSessionManager(bot)
         self.game_manager = GameSessionManager(bot)
-        # Sistema de detección de parties
-        self.party_detector = PartyDetector(bot)
+        self.party_manager = PartySessionManager(bot)
     
     @commands.Cog.listener()
     async def on_ready(self):
@@ -188,25 +187,25 @@ class EventsCog(commands.Cog, name='Events'):
         for game_name in ended_games:
             await self.game_manager.handle_end(after, config, game_name=game_name)
         
-        # Detección de parties (después de procesar cambios de juegos)
+        # Detección de parties con sistema de sesiones (después de procesar cambios de juegos)
         try:
-            players_by_game = self.party_detector.get_active_players_by_game(after.guild)
+            # Obtener jugadores agrupados por juego
+            players_by_game = self.party_manager.get_active_players_by_game(after.guild)
             
+            # Obtener juegos con parties activas
+            active_party_games = set(self.party_manager.active_sessions.keys())
+            current_games = set(players_by_game.keys())
+            
+            # Procesar cada juego con suficientes jugadores
             for game_name, players in players_by_game.items():
-                party_formed_msg, player_joined_msg = self.party_detector.detect_party_changes(
-                    game_name, players, config
-                )
-                
-                # Enviar notificaciones si existen
-                if party_formed_msg:
-                    await send_notification(party_formed_msg, self.bot)
-                    logger.info(f'🎮 Notificación de party formada enviada: {game_name}')
-                
-                if player_joined_msg:
-                    await send_notification(player_joined_msg, self.bot)
-                    logger.info(f'🎮 Notificación de jugador unido a party enviada: {game_name}')
+                await self.party_manager.handle_start(game_name, players, after.guild.id, config)
+            
+            # Finalizar parties de juegos que ya no tienen suficientes jugadores
+            games_to_end = active_party_games - current_games
+            for game_name in games_to_end:
+                await self.party_manager.handle_end(game_name, config)
         except Exception as e:
-            logger.error(f'Error en detección de parties: {e}')
+            logger.error(f'Error en gestión de parties: {e}')
     
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):

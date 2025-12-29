@@ -194,14 +194,19 @@ class VoiceSessionManager(BaseSessionManager):
         """
         user_id = str(member.id)
         
+        # Capturar si la sesión anterior estaba confirmada ANTES de finalizarla
+        old_session = self.active_sessions.get(user_id)
+        was_confirmed = old_session.is_confirmed if old_session else False
+        
         # Tratar como salida del canal anterior
         await self.handle_end(member, before, config)
         
         # Tratar como entrada al canal nuevo
         await self.handle_start(member, after, config)
         
-        # Notificar cambio de canal con cooldown
-        if config.get('notify_voice_move', True):
+        # Notificar cambio de canal SOLO si la sesión anterior estaba confirmada
+        # Esto previene notificaciones de cambios en sesiones < 10s
+        if config.get('notify_voice_move', True) and was_confirmed:
             if check_cooldown(user_id, 'voice_move', cooldown_seconds=300):
                 messages_config = config.get('messages', {})
                 message_template = messages_config.get('voice_move', "🔄 **{user}** cambió de **{old_channel}** a **{new_channel}**")
@@ -212,6 +217,11 @@ class VoiceSessionManager(BaseSessionManager):
                 )
                 await send_notification(message, self.bot)
                 logger.info(f'🔄 Notificación de cambio de canal enviada: {member.display_name} de {before.name} a {after.name}')
+            else:
+                logger.debug(f'⏭️  Notificación de cambio de canal no enviada: {member.display_name} (cooldown activo)')
+        else:
+            if not was_confirmed:
+                logger.debug(f'⏭️  Notificación de cambio de canal no enviada: {member.display_name} (sesión anterior no confirmada)')
     
     # Métodos abstractos requeridos por BaseSessionManager
     

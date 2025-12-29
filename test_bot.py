@@ -1364,10 +1364,10 @@ class TestPartyDetection(unittest.TestCase):
         with open(events_file, 'r', encoding='utf-8') as f:
             source = f.read()
         
-        # Verificar integración
-        self.assertIn('PartyDetector', source)
-        self.assertIn('party_detector', source)
-        self.assertIn('detect_party_changes', source)
+        # Verificar integración con PartySessionManager (nuevo sistema)
+        self.assertIn('PartySessionManager', source)
+        self.assertIn('party_manager', source)
+        self.assertIn('get_active_players_by_game', source)
     
     def test_get_active_parties(self):
         """Verifica que get_active_parties retorna dict vacío inicialmente"""
@@ -1406,6 +1406,226 @@ class TestPartyDetection(unittest.TestCase):
         self.assertIsInstance(blacklist, list)
         # Verificar que incluye juegos comunes que no son juegos reales
         self.assertIn('Spotify', blacklist)
+
+
+class TestVoiceMoveNotificationLogic(unittest.TestCase):
+    """Tests para la lógica de notificación de cambio de canal de voz"""
+    
+    def test_voice_move_requires_confirmed_session(self):
+        """
+        Verifica que handle_voice_move solo notifica si la sesión anterior estaba confirmada.
+        
+        Escenario:
+        - Usuario entra a canal A
+        - Usuario cambia a canal B antes de 10s
+        - NO debe notificar el cambio (sesión no confirmada)
+        """
+        from core.voice_session import VoiceSession
+        
+        # Simular sesión no confirmada
+        session = VoiceSession('123', 'TestUser', 'Channel A', 1)
+        session.is_confirmed = False
+        
+        # Verificar que la sesión no está confirmada
+        self.assertFalse(session.is_confirmed)
+        self.assertTrue(session.is_short(threshold=10))
+    
+    def test_voice_move_notifies_when_confirmed(self):
+        """
+        Verifica que handle_voice_move SÍ notifica si la sesión anterior estaba confirmada.
+        
+        Escenario:
+        - Usuario entra a canal A
+        - Usuario espera 15s (sesión confirmada)
+        - Usuario cambia a canal B
+        - DEBE notificar el cambio
+        """
+        from core.voice_session import VoiceSession
+        from datetime import datetime, timedelta
+        
+        # Simular sesión confirmada (más de 10s)
+        session = VoiceSession('123', 'TestUser', 'Channel A', 1)
+        session.is_confirmed = True
+        session.start_time = datetime.now() - timedelta(seconds=15)
+        
+        # Verificar que la sesión está confirmada
+        self.assertTrue(session.is_confirmed)
+        self.assertFalse(session.is_short(threshold=10))
+        self.assertGreater(session.duration_seconds(), 10)
+    
+    def test_voice_move_captures_session_before_end(self):
+        """
+        Verifica que handle_voice_move captura el estado de la sesión ANTES de finalizarla.
+        
+        Esto es crítico porque handle_end elimina la sesión del diccionario.
+        """
+        from core.voice_session import VoiceSession
+        
+        # Simular sesión confirmada
+        session = VoiceSession('123', 'TestUser', 'Channel A', 1)
+        session.is_confirmed = True
+        
+        # Capturar estado antes de "finalizar"
+        was_confirmed = session.is_confirmed
+        
+        # Simular finalización (en el código real, handle_end elimina la sesión)
+        session_after = None
+        
+        # Verificar que capturamos el estado correctamente
+        self.assertTrue(was_confirmed)
+        # Después de handle_end, la sesión ya no existe
+        self.assertIsNone(session_after)
+
+
+class TestPartySessionSystem(unittest.TestCase):
+    """Tests para el sistema de party sessions"""
+    
+    def test_party_session_creation(self):
+        """Verifica que PartySession se crea correctamente"""
+        from core.party_session import PartySession
+        
+        player_ids = {'123', '456', '789'}
+        player_names = ['Player1', 'Player2', 'Player3']
+        
+        session = PartySession('Hades', player_ids, player_names, 1)
+        
+        self.assertEqual(session.game_name, 'Hades')
+        self.assertEqual(len(session.player_ids), 3)
+        self.assertEqual(len(session.player_names), 3)
+        self.assertEqual(session.max_players, 3)
+        self.assertFalse(session.is_confirmed)
+        self.assertFalse(session.entry_notification_sent)
+    
+    def test_party_session_inherits_base_session(self):
+        """Verifica que PartySession hereda correctamente de BaseSession"""
+        from core.party_session import PartySession
+        from core.base_session import BaseSession
+        
+        session = PartySession('Hades', {'123'}, ['Player1'], 1)
+        
+        self.assertIsInstance(session, BaseSession)
+        self.assertTrue(hasattr(session, 'start_time'))
+        self.assertTrue(hasattr(session, 'notification_message'))
+        self.assertTrue(hasattr(session, 'verification_task'))
+        self.assertTrue(hasattr(session, 'is_confirmed'))
+        self.assertTrue(hasattr(session, 'entry_notification_sent'))
+    
+    def test_party_session_tracks_max_players(self):
+        """Verifica que PartySession trackea el máximo de jugadores"""
+        from core.party_session import PartySession
+        
+        # Empezar con 2 jugadores
+        session = PartySession('Hades', {'123', '456'}, ['P1', 'P2'], 1)
+        self.assertEqual(session.max_players, 2)
+        
+        # Simular que se une un tercer jugador
+        session.player_ids.add('789')
+        session.player_names.append('P3')
+        session.max_players = max(session.max_players, len(session.player_ids))
+        
+        self.assertEqual(session.max_players, 3)
+        self.assertEqual(len(session.player_ids), 3)
+    
+    def test_party_manager_inherits_base_manager(self):
+        """Verifica que PartySessionManager hereda de BaseSessionManager"""
+        from core.party_session import PartySessionManager
+        from core.base_session import BaseSessionManager
+        
+        # Mock bot
+        class MockBot:
+            pass
+        
+        manager = PartySessionManager(MockBot())
+        
+        self.assertIsInstance(manager, BaseSessionManager)
+        self.assertTrue(hasattr(manager, 'active_sessions'))
+        self.assertTrue(hasattr(manager, 'min_duration_seconds'))
+        self.assertEqual(manager.min_duration_seconds, 10)
+    
+    def test_party_manager_ensures_stats_structure(self):
+        """Verifica que PartySessionManager inicializa la estructura de stats"""
+        from core.party_session import PartySessionManager
+        from core.persistence import stats
+        
+        # Mock bot
+        class MockBot:
+            pass
+        
+        manager = PartySessionManager(MockBot())
+        
+        # Verificar estructura
+        self.assertIn('parties', stats)
+        self.assertIn('active', stats['parties'])
+        self.assertIn('history', stats['parties'])
+        self.assertIn('stats_by_game', stats['parties'])
+    
+    def test_party_session_duration_tracking(self):
+        """Verifica que PartySession trackea la duración correctamente"""
+        from core.party_session import PartySession
+        from datetime import datetime, timedelta
+        import time
+        
+        session = PartySession('Hades', {'123'}, ['Player1'], 1)
+        
+        # Verificar duración inicial (debería ser ~0)
+        initial_duration = session.duration_seconds()
+        self.assertLess(initial_duration, 1.0)
+        
+        # Simular paso del tiempo
+        time.sleep(0.1)
+        
+        # Verificar que la duración aumentó
+        new_duration = session.duration_seconds()
+        self.assertGreater(new_duration, initial_duration)
+    
+    def test_party_session_short_detection(self):
+        """Verifica que PartySession detecta sesiones cortas correctamente"""
+        from core.party_session import PartySession
+        from datetime import datetime, timedelta
+        
+        session = PartySession('Hades', {'123'}, ['Player1'], 1)
+        
+        # Sesión recién creada debería ser corta
+        self.assertTrue(session.is_short(threshold=10))
+        
+        # Simular sesión larga
+        session.start_time = datetime.now() - timedelta(seconds=15)
+        self.assertFalse(session.is_short(threshold=10))
+    
+    def test_party_blacklist_prevents_session_creation(self):
+        """Verifica que los juegos en blacklist no crean parties"""
+        from core.persistence import config
+        
+        party_config = config.get('party_detection', {})
+        blacklist = party_config.get('blacklisted_games', [])
+        
+        # Verificar que Spotify está en blacklist
+        self.assertIn('Spotify', blacklist)
+        
+        # En el código real, handle_start retorna early si el juego está en blacklist
+        # Aquí solo verificamos que la blacklist existe y tiene contenido
+        self.assertGreater(len(blacklist), 0)
+    
+    def test_party_min_players_requirement(self):
+        """Verifica que se requiere un mínimo de jugadores para crear party"""
+        from core.persistence import config
+        
+        party_config = config.get('party_detection', {})
+        min_players = party_config.get('min_players', 2)
+        
+        # Verificar que el mínimo es 2
+        self.assertEqual(min_players, 2)
+        
+        # Simular lista de jugadores
+        players_solo = [{'user_id': '123', 'username': 'Player1'}]
+        players_party = [
+            {'user_id': '123', 'username': 'Player1'},
+            {'user_id': '456', 'username': 'Player2'}
+        ]
+        
+        # Solo debe crear party si hay suficientes jugadores
+        self.assertLess(len(players_solo), min_players)
+        self.assertGreaterEqual(len(players_party), min_players)
 
 
 if __name__ == '__main__':

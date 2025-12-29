@@ -7,7 +7,7 @@ from discord.ext import commands
 import logging
 
 from core.checks import stats_channel_only
-from core.party_detection import PartyDetector
+from core.party_session import PartySessionManager
 
 logger = logging.getLogger('dsbot')
 
@@ -17,7 +17,7 @@ class UtilityCog(commands.Cog, name='Utilidades'):
     
     def __init__(self, bot):
         self.bot = bot
-        self.party_detector = PartyDetector(bot)
+        self.party_manager = PartySessionManager(bot)
     
     @commands.command(name='bothelp', aliases=['help', 'ayuda', 'comandos'])
     @stats_channel_only()
@@ -327,7 +327,7 @@ class UtilityCog(commands.Cog, name='Utilidades'):
         - !party - Muestra todas las parties activas
         - !party Valorant - Muestra quién está jugando Valorant
         """
-        active_parties = self.party_detector.get_active_parties()
+        active_parties = self.party_manager.get_active_parties()
         
         if not active_parties:
             await ctx.send('🎮 No hay parties activas en este momento')
@@ -398,7 +398,7 @@ class UtilityCog(commands.Cog, name='Utilidades'):
             await ctx.send('⚠️ Timeframe inválido. Usa: today, week, month, all')
             return
         
-        history = self.party_detector.get_party_history(timeframe, limit=10)
+        history = self.party_manager.get_party_history(timeframe, limit=10)
         
         if not history:
             await ctx.send(f'🎮 No hay historial de parties para **{timeframe}**')
@@ -440,7 +440,7 @@ class UtilityCog(commands.Cog, name='Utilidades'):
         - !partystats - Muestra stats de todos los juegos
         - !partystats Valorant - Muestra stats de un juego específico
         """
-        all_stats = self.party_detector.get_game_stats()
+        all_stats = self.party_manager.get_game_stats()
         
         if not all_stats:
             await ctx.send('🎮 No hay estadísticas de parties disponibles')
