@@ -1,11 +1,19 @@
 """
 Health Check System para Sesiones
 Validación periódica y auto-reparación de sesiones activas
+Recuperación de notificaciones perdidas en reinicios
 """
 
 import logging
 from discord.ext import tasks
 from typing import Dict, Set
+from core.pending_notifications import (
+    get_pending_voice_notifications,
+    get_pending_game_notifications,
+    remove_voice_notification,
+    remove_game_notification
+)
+from core.helpers import send_notification
 
 logger = logging.getLogger('dsbot')
 
@@ -34,8 +42,9 @@ class SessionHealthCheck:
         self.game_manager = game_manager
         self.party_manager = party_manager
         self._task_running = False
+        self._initial_recovery_done = False
         
-        logger.info('🏥 Health check inicializado (modo: dinámico sin persistencia)')
+        logger.info('🏥 Health check inicializado (modo: dinámico con recuperación)')
     
     def _has_active_sessions(self) -> bool:
         """Verifica si hay sesiones activas en cualquier manager"""
@@ -72,6 +81,11 @@ class SessionHealthCheck:
         try:
             logger.info('🏥 Iniciando health check de sesiones...')
             
+            # Primera ejecución después de reinicio: recuperar notificaciones perdidas
+            if not self._initial_recovery_done:
+                await self._recover_lost_notifications()
+                self._initial_recovery_done = True
+            
             fixed_voice = await self._check_voice_sessions()
             fixed_games = await self._check_game_sessions()
             fixed_parties = await self._check_party_sessions()
@@ -97,6 +111,86 @@ class SessionHealthCheck:
         """Espera a que el bot esté listo antes de iniciar"""
         await self.bot.wait_until_ready()
         logger.debug('🏥 Health check task listo para ejecutarse')
+    
+    async def _recover_lost_notifications(self):
+        """
+        Recupera notificaciones perdidas durante reinicio del bot.
+        
+        Compara pending_notifications.json con el estado actual de Discord.
+        Si hay notificaciones de entrada pendientes pero el usuario ya no está
+        en voz/juego, envía la notificación de salida retroactiva.
+        """
+        try:
+            logger.info('🔄 Recuperando notificaciones perdidas...')
+            
+            recovered_voice = 0
+            recovered_games = 0
+            
+            # Recuperar notificaciones de voz
+            pending_voice = get_pending_voice_notifications()
+            for user_id, data in pending_voice.items():
+                try:
+                    # Verificar si el usuario sigue en voz
+                    is_in_voice = False
+                    
+                    for guild in self.bot.guilds:
+                        member = guild.get_member(int(user_id))
+                        if member and member.voice:
+                            is_in_voice = True
+                            break
+                    
+                    # Si NO está en voz, enviar notificación de salida retroactiva
+                    if not is_in_voice:
+                        message = f"🔇 **{data['username']}** salió del canal de voz **{data['channel_name']}** (durante reinicio)"
+                        await send_notification(message, self.bot)
+                        remove_voice_notification(user_id)
+                        recovered_voice += 1
+                        logger.info(f'🔔 Notificación recuperada: {data["username"]} salió de voz')
+                
+                except Exception as e:
+                    logger.error(f'Error recuperando notificación de voz {user_id}: {e}')
+            
+            # Recuperar notificaciones de juegos
+            pending_games = get_pending_game_notifications()
+            for key, data in pending_games.items():
+                try:
+                    user_id = data['user_id']
+                    game_name = data['game_name']
+                    
+                    # Verificar si el usuario sigue jugando
+                    is_playing = False
+                    
+                    for guild in self.bot.guilds:
+                        member = guild.get_member(int(user_id))
+                        if member:
+                            for activity in member.activities:
+                                if hasattr(activity, 'name') and activity.name == game_name:
+                                    is_playing = True
+                                    break
+                        if is_playing:
+                            break
+                    
+                    # Si NO está jugando, enviar notificación de salida retroactiva
+                    if not is_playing:
+                        message = f"⏹️ **{data['username']}** dejó de jugar **{game_name}** (durante reinicio)"
+                        await send_notification(message, self.bot)
+                        remove_game_notification(user_id, game_name)
+                        recovered_games += 1
+                        logger.info(f'🔔 Notificación recuperada: {data["username"]} dejó de jugar {game_name}')
+                
+                except Exception as e:
+                    logger.error(f'Error recuperando notificación de juego {key}: {e}')
+            
+            if recovered_voice > 0 or recovered_games > 0:
+                logger.info(
+                    f'✅ Notificaciones recuperadas: '
+                    f'{recovered_voice} voice, {recovered_games} games'
+                )
+            else:
+                logger.info('✅ No hay notificaciones pendientes para recuperar')
+        
+        except Exception as e:
+            logger.error(f'❌ Error en recuperación de notificaciones: {e}', exc_info=True)
     
     async def _check_voice_sessions(self) -> int:
         """

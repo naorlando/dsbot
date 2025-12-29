@@ -15,6 +15,7 @@ from core.session_dto import (
 )
 from core.cooldown import check_cooldown, is_cooldown_passed
 from core.helpers import send_notification
+from core.pending_notifications import save_voice_notification, remove_voice_notification
 
 logger = logging.getLogger('dsbot')
 
@@ -149,6 +150,10 @@ class VoiceSessionManager(BaseSessionManager):
                             channel=channel.name
                         )
                         await send_notification(message, self.bot)
+                        
+                        # Eliminar pending notification (salida completada)
+                        remove_voice_notification(user_id)
+                        
                         logger.info(f'🔇 Notificación de salida enviada: {member.display_name} de {channel.name}')
                     else:
                         logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} (cooldown activo)')
@@ -166,6 +171,10 @@ class VoiceSessionManager(BaseSessionManager):
                                 channel=channel.name
                             )
                             await send_notification(message, self.bot)
+                            
+                            # Eliminar pending notification (salida completada)
+                            remove_voice_notification(user_id)
+                            
                             logger.info(f'🔇 Notificación de salida enviada: {member.display_name} de {channel.name} (sin entrada previa, cooldown de entrada pasó)')
                         else:
                             logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} (cooldown de salida activo)')
@@ -266,6 +275,10 @@ class VoiceSessionManager(BaseSessionManager):
                 )
                 session.notification_message = await send_notification(message, self.bot, return_message=True)
                 session.entry_notification_sent = True  # Marcar que se envió notificación de entrada
+                
+                # Guardar pending notification para recuperación en reinicio
+                save_voice_notification(session.user_id, session.username, session.channel_name)
+                
                 logger.info(f'🔊 Notificación enviada: {session.username} en {session.channel_name}')
             else:
                 logger.debug(f'⏭️  Notificación de entrada no enviada: {session.username} - {session.channel_name} (cooldown activo)')
