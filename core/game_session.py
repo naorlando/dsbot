@@ -6,6 +6,7 @@ Maneja tracking, notificaciones y verificación de duración mínima
 import asyncio
 import logging
 from typing import Optional, Dict
+from datetime import datetime
 import discord
 
 from core.base_session import BaseSession, BaseSessionManager
@@ -76,7 +77,13 @@ class GameSessionManager(BaseSessionManager):
         game_name = game_activity.name
         app_id = getattr(game_activity, 'application_id', None)
         
-        # Si ya hay una sesión activa para este juego, cancelarla primero
+        # Si ya hay una sesión activa para este juego, actualizar last_activity_update
+        if user_id in self.active_sessions and self.active_sessions[user_id].game_name == game_name:
+            self.active_sessions[user_id].last_activity_update = datetime.now()
+            logger.debug(f'🔄 Actividad actualizada: {member.display_name} - {game_name}')
+            return
+        
+        # Si ya hay una sesión activa para OTRO juego, cancelarla primero
         if user_id in self.active_sessions:
             existing_session = self.active_sessions[user_id]
             if isinstance(existing_session, GameSession) and existing_session.game_name == game_name:
@@ -124,6 +131,15 @@ class GameSessionManager(BaseSessionManager):
         # Verificar que es el juego correcto
         if not isinstance(session, GameSession) or session.game_name != game_name:
             logger.debug(f'⚠️  Sesión de {member.display_name} no coincide con juego terminado')
+            return
+        
+        # GRACIA DE DESCONEXIÓN: Verificar si Discord dejó de reportar hace poco
+        # Si la última actividad fue hace menos de 5 minutos, NO finalizar (puede ser lag de Discord)
+        time_since_last_activity = (datetime.now() - session.last_activity_update).total_seconds()
+        grace_period_seconds = 300  # 5 minutos
+        
+        if time_since_last_activity < grace_period_seconds:
+            logger.info(f'⏳ Sesión en gracia: {member.display_name} - {game_name} - Última actividad hace {time_since_last_activity:.0f}s (gracia: {grace_period_seconds}s)')
             return
         
         # Cancelar task de verificación si aún está corriendo

@@ -21,6 +21,7 @@ class BaseSession:
         self.username = username
         self.guild_id = guild_id
         self.start_time = datetime.now()
+        self.last_activity_update = datetime.now()  # Última vez que Discord reportó actividad
         self.notification_message: Optional[discord.Message] = None
         self.verification_task: Optional[asyncio.Task] = None
         self.is_confirmed = False  # True si pasó el threshold mínimo
