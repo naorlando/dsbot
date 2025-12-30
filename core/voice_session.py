@@ -135,56 +135,15 @@ class VoiceSessionManager(BaseSessionManager):
             # Notificar salida SOLO si:
             # 1. La sesión fue CONFIRMADA (pasó los 10s completos)
             # 2. Está habilitado en config
-            # 3. Si hubo notificación de entrada: verificar cooldown de salida normalmente
-            # 4. Si NO hubo notificación de entrada: solo notificar si el cooldown de entrada ya pasó (10 min)
-            if config.get('notify_voice_leave', False) and session_is_confirmed:
-                # Si hubo notificación de entrada, verificar cooldown de salida normalmente
-                if session.entry_notification_sent:
-                    cooldown_passed = check_cooldown(user_id, 'voice_leave', cooldown_seconds=1200)
-                    logger.debug(f'🔇 Cooldown voice_leave para {member.display_name}: {"✅ Pasó" if cooldown_passed else "❌ Activo"}')
-                    if cooldown_passed:
-                        messages_config = config.get('messages', {})
-                        message_template = messages_config.get('voice_leave', "🔇 **{user}** salió del canal de voz **{channel}**")
-                        message = message_template.format(
-                            user=member.display_name,
-                            channel=channel.name
-                        )
-                        await send_notification(message, self.bot)
-                        
-                        # Eliminar pending notification (salida completada)
-                        remove_voice_notification(user_id)
-                        
-                        logger.info(f'🔇 Notificación de salida enviada: {member.display_name} de {channel.name}')
-                    else:
-                        logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} (cooldown activo)')
-                else:
-                    # No hubo notificación de entrada: solo notificar si el cooldown de entrada ya pasó (20 min)
-                    entry_cooldown_passed = is_cooldown_passed(user_id, 'voice', cooldown_seconds=1200)
-                    if entry_cooldown_passed:
-                        cooldown_passed = check_cooldown(user_id, 'voice_leave', cooldown_seconds=1200)
-                        logger.debug(f'🔇 Cooldown voice_leave para {member.display_name} (sin entrada previa): {"✅ Pasó" if cooldown_passed else "❌ Activo"}')
-                        if cooldown_passed:
-                            messages_config = config.get('messages', {})
-                            message_template = messages_config.get('voice_leave', "🔇 **{user}** salió del canal de voz **{channel}**")
-                            message = message_template.format(
-                                user=member.display_name,
-                                channel=channel.name
-                            )
-                            await send_notification(message, self.bot)
-                            
-                            # Eliminar pending notification (salida completada)
-                            remove_voice_notification(user_id)
-                            
-                            logger.info(f'🔇 Notificación de salida enviada: {member.display_name} de {channel.name} (sin entrada previa, cooldown de entrada pasó)')
-                        else:
-                            logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} (cooldown de salida activo)')
-                    else:
-                        logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} (no hubo entrada y cooldown de entrada aún activo)')
-            else:
-                if not config.get('notify_voice_leave', False):
-                    logger.debug(f'⏭️  Notificación de salida deshabilitada en config')
-                elif not session_is_confirmed:
-                    logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} (sesión no confirmada)')
+            # SIMPLIFICADO: notify_voice_leave usa mismo cooldown que entrada (deshabilitado por default)
+            if config.get('notify_voice_leave', False) and session_is_confirmed and session.entry_notification_sent:
+                if check_cooldown(user_id, 'voice', cooldown_seconds=1200):
+                    messages_config = config.get('messages', {})
+                    message_template = messages_config.get('voice_leave', "🔇 **{user}** salió del canal de voz **{channel}**")
+                    message = message_template.format(user=member.display_name, channel=channel.name)
+                    await send_notification(message, self.bot)
+                    remove_voice_notification(user_id)
+                    logger.info(f'🔇 Notificación de salida enviada: {member.display_name} de {channel.name}')
         
         # Limpiar sesión
         clear_voice_session(user_id)
@@ -218,24 +177,14 @@ class VoiceSessionManager(BaseSessionManager):
         # Tratar como entrada al canal nuevo
         await self.handle_start(member, after, config)
         
-        # Notificar cambio de canal SOLO si la sesión anterior estaba confirmada
-        # Esto previene notificaciones de cambios en sesiones < 10s
+        # SIMPLIFICADO: Notificar cambio de canal usando mismo cooldown unificado 'voice'
         if config.get('notify_voice_move', True) and was_confirmed:
-            if check_cooldown(user_id, 'voice_move', cooldown_seconds=1200):
+            if check_cooldown(user_id, 'voice', cooldown_seconds=1200):
                 messages_config = config.get('messages', {})
                 message_template = messages_config.get('voice_move', "🔄 **{user}** cambió de **{old_channel}** a **{new_channel}**")
-                message = message_template.format(
-                    user=member.display_name,
-                    old_channel=before.name,
-                    new_channel=after.name
-                )
+                message = message_template.format(user=member.display_name, old_channel=before.name, new_channel=after.name)
                 await send_notification(message, self.bot)
-                logger.info(f'🔄 Notificación de cambio de canal enviada: {member.display_name} de {before.name} a {after.name}')
-            else:
-                logger.debug(f'⏭️  Notificación de cambio de canal no enviada: {member.display_name} (cooldown activo)')
-        else:
-            if not was_confirmed:
-                logger.debug(f'⏭️  Notificación de cambio de canal no enviada: {member.display_name} (sesión anterior no confirmada)')
+                logger.info(f'🔄 Notificación de cambio enviada: {member.display_name} de {before.name} a {after.name}')
     
     # Métodos abstractos requeridos por BaseSessionManager
     
