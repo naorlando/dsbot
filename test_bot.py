@@ -1168,7 +1168,7 @@ class TestVoiceLeaveNotificationLogic(unittest.TestCase):
         self.assertNotEqual(new_time, old_time)
     
     def test_voice_leave_logic_with_entry_notification(self):
-        """Verifica lógica de salida cuando hubo notificación de entrada"""
+        """Verifica lógica de salida cuando hubo notificación de entrada (SIMPLIFICADO)"""
         import os
         voice_session_file = Path(__file__).parent / 'core' / 'voice_session.py'
         if not voice_session_file.exists():
@@ -1177,12 +1177,12 @@ class TestVoiceLeaveNotificationLogic(unittest.TestCase):
         with open(voice_session_file, 'r', encoding='utf-8') as f:
             source = f.read()
         
-        # Verificar que si entry_notification_sent es True, verifica cooldown de salida
-        self.assertIn('if session.entry_notification_sent:', source)
-        self.assertIn('check_cooldown(user_id, \'voice_leave\'', source)
+        # SIMPLIFICADO: Ahora usa cooldown unificado 'voice' y verifica session.entry_notification_sent
+        self.assertIn('session.entry_notification_sent', source)
+        self.assertIn('check_cooldown(user_id, \'voice\'', source)
     
     def test_voice_leave_logic_without_entry_notification(self):
-        """Verifica lógica de salida cuando NO hubo notificación de entrada"""
+        """Verifica lógica de salida cuando NO hubo notificación de entrada (SIMPLIFICADO)"""
         import os
         voice_session_file = Path(__file__).parent / 'core' / 'voice_session.py'
         if not voice_session_file.exists():
@@ -1191,10 +1191,10 @@ class TestVoiceLeaveNotificationLogic(unittest.TestCase):
         with open(voice_session_file, 'r', encoding='utf-8') as f:
             source = f.read()
         
-        # Verificar que si entry_notification_sent es False, verifica cooldown de entrada primero
-        self.assertIn('else:', source)  # Debe tener else para cuando no hay entrada
-        self.assertIn('is_cooldown_passed(user_id, \'voice\'', source)
-        self.assertIn('cooldown_seconds=600', source)  # 10 minutos para entrada
+        # SIMPLIFICADO: Ahora solo verifica session.entry_notification_sent y usa cooldown unificado
+        # Ya no hay lógica compleja de else con is_cooldown_passed
+        self.assertIn('session.entry_notification_sent', source)
+        self.assertIn('notify_voice_leave', source)
     
     def test_tracking_independent_of_notifications(self):
         """Verifica que el tracking NO se ve afectado por las notificaciones"""
