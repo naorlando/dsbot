@@ -223,8 +223,8 @@ class SessionHealthCheck:
                         
                         self.game_manager.active_sessions[user_id] = session
                         
-                        # Activar cooldown para evitar re-notificar (30 minutos por juego)
-                        check_cooldown(user_id, f'game:{game_name}', cooldown_seconds=1800)
+                        # Activar cooldown para evitar re-notificar (1 hora por juego)
+                        check_cooldown(user_id, f'game:{game_name}', cooldown_seconds=3600)
                         
                         restored_games += 1
                         logger.info(f'♻️  Sesión de juego restaurada: {data["username"]} jugando {game_name}')

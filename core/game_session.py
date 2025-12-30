@@ -203,9 +203,9 @@ class GameSessionManager(BaseSessionManager):
                     else:
                         logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} - {game_name} (cooldown activo)')
                 else:
-                    # No hubo notificación de entrada: solo notificar si el cooldown de entrada ya pasó (30 min)
+                    # No hubo notificación de entrada: solo notificar si el cooldown de entrada ya pasó (1 hora)
                     cooldown_key = f'game:{game_name}'
-                    entry_cooldown_passed = is_cooldown_passed(user_id, cooldown_key, cooldown_seconds=1800)
+                    entry_cooldown_passed = is_cooldown_passed(user_id, cooldown_key, cooldown_seconds=3600)
                     if entry_cooldown_passed:
                         if check_cooldown(user_id, f'game_end:{game_name}', cooldown_seconds=300):
                             messages_config = config.get('messages', {})
@@ -283,10 +283,10 @@ class GameSessionManager(BaseSessionManager):
         # Iniciar tracking de sesión
         set_game_session_start(session.user_id, session.username, session.game_name)
         
-        # Notificar entrada con cooldown (30 minutos por juego)
+        # Notificar entrada con cooldown (1 hora por juego)
         if config.get('notify_games', True):
             cooldown_key = f'game:{session.game_name}'
-            if check_cooldown(session.user_id, cooldown_key, cooldown_seconds=1800):
+            if check_cooldown(session.user_id, cooldown_key, cooldown_seconds=3600):
                 increment_game_count(session.user_id, session.username, session.game_name)
                 
                 messages_config = config.get('messages', {})
