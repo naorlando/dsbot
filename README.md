@@ -218,6 +218,18 @@ dsbot/
 - **Export:** JSON y CSV para análisis externos
 - **Persistencia:** Railway Volume mantiene datos entre deploys
 
+## 📚 Documentación
+
+La documentación del proyecto está organizada en carpetas temáticas:
+
+- **[docs/analisis/](docs/analisis/)** - Análisis técnicos y estudios de mejoras
+- **[docs/propuestas/](docs/propuestas/)** - Propuestas de nuevas features
+- **[docs/refactors/](docs/refactors/)** - Documentación de refactors completados
+- **[ARQUITECTURA.md](ARQUITECTURA.md)** - Arquitectura del sistema y diseño
+- **[BUENAS_PRACTICAS.md](BUENAS_PRACTICAS.md)** - Guía de buenas prácticas
+
+---
+
 ## 📝 Licencia
 
 MIT - Uso libre personal y comercial
