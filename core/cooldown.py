@@ -14,6 +14,10 @@ def check_cooldown(user_id, event_key, cooldown_seconds=600):
     """
     Verifica si pasó el tiempo de cooldown desde el último evento similar.
     
+    IMPORTANTE: El cooldown se REINICIA en CADA intento (exitoso o no).
+    Esto previene spam: si un usuario intenta constantemente, debe esperar
+    cooldown_seconds SIN actividad para que notifique de nuevo.
+    
     Args:
         user_id: ID del usuario
         event_key: Clave del evento (ej: 'game:Fortnite', 'voice', 'daily_connection')
@@ -23,18 +27,24 @@ def check_cooldown(user_id, event_key, cooldown_seconds=600):
     """
     cooldown_key = f"{user_id}:{event_key}"
     last_time_str = stats['cooldowns'].get(cooldown_key)
+    now = datetime.now()
     
     if last_time_str:
         try:
             last_time = datetime.fromisoformat(last_time_str)
-            if datetime.now() - last_time < timedelta(seconds=cooldown_seconds):
-                logger.debug(f'Cooldown activo para {cooldown_key} ({cooldown_seconds}s)')
+            time_since_last = (now - last_time).total_seconds()
+            
+            if time_since_last < cooldown_seconds:
+                # Cooldown activo: REINICIAR contador para prevenir spam
+                stats['cooldowns'][cooldown_key] = now.isoformat()
+                save_stats()
+                logger.debug(f'🔄 Cooldown reiniciado: {cooldown_key} ({int(time_since_last)}s desde último intento < {cooldown_seconds}s)')
                 return False
         except ValueError:
             pass
     
-    # Actualizar cooldown
-    stats['cooldowns'][cooldown_key] = datetime.now().isoformat()
+    # Cooldown pasó o no existía: Actualizar y permitir notificación
+    stats['cooldowns'][cooldown_key] = now.isoformat()
     save_stats()
     return True
 

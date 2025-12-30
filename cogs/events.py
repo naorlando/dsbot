@@ -74,8 +74,8 @@ class EventsCog(commands.Cog, name='Events'):
             user_id = str(after.id)
             username = after.display_name
             
-            # Cooldown de 5 minutos para evitar contar reconexiones rápidas
-            if check_cooldown(user_id, 'daily_connection', cooldown_seconds=300):
+            # Cooldown de 10 minutos para evitar contar reconexiones rápidas
+            if check_cooldown(user_id, 'daily_connection', cooldown_seconds=600):
                 count_today, broke_record = save_connection_event(user_id, username)
                 
                 # NOTIFICACIONES DE MILESTONES (suficiente para tracking de conexiones)
