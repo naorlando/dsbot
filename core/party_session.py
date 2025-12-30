@@ -149,6 +149,11 @@ class PartySessionManager(BaseSessionManager):
         
         session = self.active_sessions[game_name]
         
+        # Buffer de gracia: Verificar si realmente terminó o es pausa temporal (lobby)
+        if self._is_in_grace_period(session):
+            logger.info(f'⏳ Party en gracia: {game_name}')
+            return
+        
         # Cancelar tarea de verificación si existe
         if session.verification_task and not session.verification_task.done():
             session.verification_task.cancel()
@@ -207,7 +212,13 @@ class PartySessionManager(BaseSessionManager):
                         break
         
         # Verificar si hay suficientes jugadores (mínimo 2)
-        return current_count >= 2
+        is_active = current_count >= 2
+        
+        # Si está activo, actualizar timestamp de actividad
+        if is_active:
+            self._update_activity(session)
+        
+        return is_active
     
     async def _on_session_confirmed_phase1(self, session: PartySession, member: discord.Member, config: dict):
         """

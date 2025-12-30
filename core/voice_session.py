@@ -89,6 +89,11 @@ class VoiceSessionManager(BaseSessionManager):
             logger.debug(f'⚠️  Sesión de {member.display_name} no coincide con canal de salida')
             return
         
+        # Buffer de gracia: Verificar si realmente salió o es desconexión temporal
+        if self._is_in_grace_period(session):
+            logger.info(f'⏳ Sesión de voz en gracia: {member.display_name} - {channel.name}')
+            return
+        
         # Cancelar task de verificación si aún está corriendo
         # Esto hará que la task lance CancelledError y se limpie automáticamente
         if session.verification_task and not session.verification_task.done():
@@ -201,7 +206,13 @@ class VoiceSessionManager(BaseSessionManager):
         if not member_now or not member_now.voice or not member_now.voice.channel:
             return False
         
-        return member_now.voice.channel.id == session.channel_id
+        is_active = member_now.voice.channel.id == session.channel_id
+        
+        # Si está activo, actualizar timestamp de actividad
+        if is_active:
+            self._update_activity(session)
+        
+        return is_active
     
     async def _on_session_confirmed_phase1(self, session: BaseSession, member: discord.Member, config: dict):
         """Callback cuando la sesión es confirmada después de 3s"""

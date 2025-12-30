@@ -39,9 +39,10 @@ class BaseSession:
 class BaseSessionManager(ABC):
     """Template para gestionar sesiones de cualquier tipo"""
     
-    def __init__(self, bot, min_duration_seconds: int = 10):
+    def __init__(self, bot, min_duration_seconds: int = 10, grace_period_seconds: int = 300):
         self.bot = bot
         self.min_duration_seconds = min_duration_seconds
+        self.grace_period_seconds = grace_period_seconds  # Buffer de gracia (default 5 min)
         self.active_sessions: Dict[str, BaseSession] = {}
     
     @abstractmethod
@@ -114,9 +115,45 @@ class BaseSessionManager(ABC):
                     del self.active_sessions[session.user_id]
                     logger.debug(f'🗑️  Sesión limpiada (no confirmada) para {session.username}')
     
+    def _update_activity(self, session: BaseSession):
+        """
+        Actualiza el timestamp de última actividad de una sesión.
+        Llamar cada vez que se detecta actividad del usuario.
+        """
+        session.last_activity_update = datetime.now()
+        logger.debug(f'🔄 Actividad actualizada: {session.username}')
+    
+    def _is_in_grace_period(self, session: BaseSession) -> bool:
+        """
+        Verifica si la sesión está dentro del período de gracia.
+        
+        Returns:
+            True si la última actividad fue hace menos del grace_period_seconds
+            False si ya pasó el período de gracia (debe cerrarse)
+        """
+        time_since_last_activity = (datetime.now() - session.last_activity_update).total_seconds()
+        in_grace = time_since_last_activity < self.grace_period_seconds
+        
+        if not in_grace:
+            logger.debug(
+                f'⏱️  Gracia expirada: {session.username} - '
+                f'Última actividad hace {int(time_since_last_activity)}s (límite: {self.grace_period_seconds}s)'
+            )
+        else:
+            logger.debug(
+                f'⏳ En gracia: {session.username} - '
+                f'Última actividad hace {int(time_since_last_activity)}s (límite: {self.grace_period_seconds}s)'
+            )
+        
+        return in_grace
+    
     @abstractmethod
     async def _is_still_active(self, session: BaseSession, member: discord.Member) -> bool:
-        """Verifica si la sesión sigue activa. Debe ser implementado por subclases."""
+        """
+        Verifica si la sesión sigue activa. Debe ser implementado por subclases.
+        
+        IMPORTANTE: Si está activo, DEBE llamar a self._update_activity(session)
+        """
         pass
     
     @abstractmethod

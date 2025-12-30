@@ -76,10 +76,9 @@ class GameSessionManager(BaseSessionManager):
         game_name = game_activity.name
         app_id = getattr(game_activity, 'application_id', None)
         
-        # Si ya hay una sesión activa para este juego, actualizar last_activity_update
+        # Si ya hay una sesión activa para este juego, actualizar actividad
         if user_id in self.active_sessions and self.active_sessions[user_id].game_name == game_name:
-            self.active_sessions[user_id].last_activity_update = datetime.now()
-            logger.debug(f'🔄 Actividad actualizada: {member.display_name} - {game_name}')
+            self._update_activity(self.active_sessions[user_id])
             return
         
         # Si ya hay una sesión activa para OTRO juego, cancelarla primero
@@ -132,13 +131,9 @@ class GameSessionManager(BaseSessionManager):
             logger.debug(f'⚠️  Sesión de {member.display_name} no coincide con juego terminado')
             return
         
-        # GRACIA DE DESCONEXIÓN: Verificar si Discord dejó de reportar hace poco
-        # Si la última actividad fue hace menos de 5 minutos, NO finalizar (puede ser lag de Discord)
-        time_since_last_activity = (datetime.now() - session.last_activity_update).total_seconds()
-        grace_period_seconds = 300  # 5 minutos
-        
-        if time_since_last_activity < grace_period_seconds:
-            logger.info(f'⏳ Sesión en gracia: {member.display_name} - {game_name} - Última actividad hace {time_since_last_activity:.0f}s (gracia: {grace_period_seconds}s)')
+        # Buffer de gracia: Verificar si Discord dejó de reportar hace poco
+        if self._is_in_grace_period(session):
+            logger.info(f'⏳ Sesión de juego en gracia: {member.display_name} - {game_name}')
             return
         
         # Cancelar task de verificación si aún está corriendo
@@ -262,7 +257,13 @@ class GameSessionManager(BaseSessionManager):
                     discord.ActivityType.listening: 'listening',
                 }
                 current_type = activity_type_map.get(activity.type, 'playing')
-                return current_type == session.activity_type
+                is_active = current_type == session.activity_type
+                
+                # Si está activo, actualizar timestamp de actividad
+                if is_active:
+                    self._update_activity(session)
+                
+                return is_active
         
         return False
     
