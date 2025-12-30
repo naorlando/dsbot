@@ -16,7 +16,6 @@ from core.session_dto import (
 )
 from core.cooldown import check_cooldown, is_cooldown_passed
 from core.helpers import send_notification, get_activity_verb
-from core.pending_notifications import save_game_notification, remove_game_notification
 
 logger = logging.getLogger('dsbot')
 
@@ -195,10 +194,6 @@ class GameSessionManager(BaseSessionManager):
                             game=game_name
                         )
                         await send_notification(message, self.bot)
-                        
-                        # Eliminar pending notification (salida completada)
-                        remove_game_notification(user_id, game_name)
-                        
                         logger.info(f'🎮 Notificación de salida enviada: {member.display_name} dejó {game_name}')
                     else:
                         logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} - {game_name} (cooldown activo)')
@@ -215,10 +210,6 @@ class GameSessionManager(BaseSessionManager):
                                 game=game_name
                             )
                             await send_notification(message, self.bot)
-                            
-                            # Eliminar pending notification (salida completada)
-                            remove_game_notification(user_id, game_name)
-                            
                             logger.info(f'🎮 Notificación de salida enviada: {member.display_name} dejó {game_name} (sin entrada previa, cooldown de entrada pasó)')
                         else:
                             logger.debug(f'⏭️  Notificación de salida no enviada: {member.display_name} - {game_name} (cooldown de salida activo)')
@@ -299,10 +290,6 @@ class GameSessionManager(BaseSessionManager):
                 )
                 session.notification_message = await send_notification(message, self.bot, return_message=True)
                 session.entry_notification_sent = True  # Marcar que se envió notificación de entrada
-                
-                # Guardar pending notification para recuperación en reinicio
-                save_game_notification(session.user_id, session.username, session.game_name)
-                
                 logger.info(f'🎮 Notificación enviada: {session.username} está {verb} {session.game_name}')
             else:
                 logger.debug(f'⏭️  Notificación de entrada no enviada: {session.username} - {session.game_name} (cooldown activo)')

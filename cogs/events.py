@@ -33,12 +33,10 @@ class EventsCog(commands.Cog, name='Events'):
         self.game_manager = GameSessionManager(bot)
         self.party_manager = PartySessionManager(bot)
         
-        # Health check para validación periódica de sesiones
+        # Recovery de sesiones después de reinicio (solo voice)
         self.health_check = SessionHealthCheck(
             bot=bot,
-            voice_manager=self.voice_manager,
-            game_manager=self.game_manager,
-            party_manager=self.party_manager
+            voice_manager=self.voice_manager
         )
     
     @commands.Cog.listener()
@@ -46,6 +44,9 @@ class EventsCog(commands.Cog, name='Events'):
         """Evento cuando el bot se conecta"""
         logger.info(f'{self.bot.user} se ha conectado a Discord!')
         logger.info(f'Bot ID: {self.bot.user.id}')
+        
+        # Recovery de sesiones de voice después de reinicio
+        await self.health_check.recover_on_startup()
         
         # Verificar que el canal de notificaciones esté configurado
         channel_id = get_channel_id()
@@ -209,9 +210,7 @@ class EventsCog(commands.Cog, name='Events'):
             for game_name in games_to_end:
                 await self.party_manager.handle_end(game_name, config)
             
-            # Activar health check si hay actividad de parties
-            if players_by_game or games_to_end:
-                self.health_check.start_if_needed()
+            # Health check simplificado: no necesita activación manual
         except Exception as e:
             logger.error(f'Error en gestión de parties: {e}')
     
@@ -224,8 +223,6 @@ class EventsCog(commands.Cog, name='Events'):
         # Entrada a canal de voz
         if not before.channel and after.channel:
             await self.voice_manager.handle_start(member, after.channel, config)
-            # Activar health check si es necesario
-            self.health_check.start_if_needed()
         
         # Salida de canal de voz
         elif before.channel and not after.channel:
