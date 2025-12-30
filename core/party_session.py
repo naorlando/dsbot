@@ -320,21 +320,36 @@ class PartySessionManager(BaseSessionManager):
             'max_players': active_party.get('max_players', session.max_players)
         }
         
-        # Agregar a historial
-        stats['parties']['history'].insert(0, party_record)
+        # Buscar si ya existe una entrada con el mismo start time y game
+        # (para evitar duplicados cuando handle_end se llama múltiples veces)
+        existing_entry = None
+        for i, entry in enumerate(stats['parties']['history']):
+            if entry.get('game') == game_name and entry.get('start') == party_record['start']:
+                existing_entry = i
+                break
         
-        # Limitar historial a 1000 parties
-        if len(stats['parties']['history']) > 1000:
-            stats['parties']['history'] = stats['parties']['history'][:1000]
+        if existing_entry is not None:
+            # Actualizar entrada existente
+            old_duration = stats['parties']['history'][existing_entry]['duration_minutes']
+            stats['parties']['history'][existing_entry] = party_record
+            logger.debug(f'🔄 Party actualizada en historial: {game_name} ({old_duration}→{duration_minutes} min)')
+        else:
+            # Agregar nueva entrada al inicio
+            stats['parties']['history'].insert(0, party_record)
+            logger.debug(f'💾 Party guardada en historial: {game_name} ({duration_minutes} min)')
+            
+            # Limitar historial a 1000 parties (solo si agregamos nueva)
+            if len(stats['parties']['history']) > 1000:
+                stats['parties']['history'] = stats['parties']['history'][:1000]
         
-        # Actualizar estadísticas por juego
-        self._update_game_stats(game_name, party_record)
+        # Actualizar estadísticas por juego (solo si es nueva o si la duración cambió significativamente)
+        if existing_entry is None:
+            self._update_game_stats(game_name, party_record)
         
         # Eliminar de parties activas
         del stats['parties']['active'][game_name]
         
         save_stats()
-        logger.debug(f'💾 Party guardada en historial: {game_name} ({duration_minutes} min)')
     
     def _update_game_stats(self, game_name: str, party_record: Dict):
         """Actualiza estadísticas de un juego"""
