@@ -13,7 +13,7 @@ from pathlib import Path
 from io import StringIO
 
 from core.persistence import stats, STATS_FILE, DATA_DIR
-from stats.decorators import stats_channel_only
+from core.checks import stats_channel_only
 
 logger = logging.getLogger('dsbot')
 
