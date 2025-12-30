@@ -24,7 +24,7 @@ class SessionHealthCheck:
     
     Características:
     - Se activa solo cuando hay sesiones activas (0% overhead sin usuarios)
-    - Validación cada 10 minutos
+    - Validación cada 30 minutos
     - Detecta y corrige sesiones huérfanas
     - No requiere persistencia en disco
     """
@@ -72,10 +72,10 @@ class SessionHealthCheck:
             self._task_running = False
             logger.info('🏥 Health check desactivado (no hay sesiones activas)')
     
-    @tasks.loop(minutes=10)
+    @tasks.loop(minutes=30)
     async def health_check_task(self):
         """
-        Ejecuta validación cada 10 minutos.
+        Ejecuta validación cada 30 minutos.
         Solo corre cuando hay sesiones activas.
         """
         try:
