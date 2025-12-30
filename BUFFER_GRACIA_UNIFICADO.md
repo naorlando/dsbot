@@ -2,13 +2,13 @@
 
 ## 📋 **Resumen**
 
-Unificación del buffer de gracia de 5 minutos para **todas las sesiones** (Voice, Games, Parties).
+Unificación del buffer de gracia de **15 minutos** para **todas las sesiones** (Voice, Games, Parties).
 
 ---
 
 ## 🎯 **¿Qué es el Buffer de Gracia?**
 
-Un **período de tolerancia de 5 minutos** que previene el cierre prematuro de sesiones cuando:
+Un **período de tolerancia de 15 minutos** que previene el cierre prematuro de sesiones cuando:
 - Discord deja de reportar actividad temporalmente (lag/inconsistencias)
 - El usuario está en un lobby de juego (ej. LoL, Valorant)
 - Hay una desconexión breve de voz
@@ -16,7 +16,7 @@ Un **período de tolerancia de 5 minutos** que previene el cierre prematuro de s
 ### **Comportamiento:**
 
 ```
-Usuario activo → Discord deja de reportar → Buffer 5 min → ¿Sigue activo?
+Usuario activo → Discord deja de reportar → Buffer 15 min → ¿Sigue activo?
                                                 │
                                                 ├─ SÍ → Sesión continúa ✅
                                                 └─ NO → Sesión se cierra ❌
@@ -30,7 +30,7 @@ Usuario activo → Discord deja de reportar → Buffer 5 min → ¿Sigue activo?
 ```python
 # En GameSessionManager
 time_since_last = (datetime.now() - session.last_activity_update).total_seconds()
-if time_since_last < 300:  # 5 min
+if time_since_last < 300:  # 5 min (valor viejo)
     return
 
 # En VoiceSessionManager (sin buffer)
@@ -57,8 +57,8 @@ if self._is_in_grace_period(session):
 
 #### **Constructor:**
 ```python
-def __init__(self, bot, min_duration_seconds: int = 10, grace_period_seconds: int = 300):
-    self.grace_period_seconds = grace_period_seconds  # 5 minutos
+def __init__(self, bot, min_duration_seconds: int = 10, grace_period_seconds: int = 900):
+    self.grace_period_seconds = grace_period_seconds  # 15 minutos
 ```
 
 #### **Métodos Nuevos:**
@@ -226,7 +226,7 @@ on_presence_update → _is_still_active → _update_activity(session)
                                                ↓
                          handle_end → _is_in_grace_period
                                                ↓
-                         (NOW - last_activity) < 5 min?
+                         (NOW - last_activity) < 15 min?
                                      ↓              ↓
                                    SÍ             NO
                                    ↓              ↓

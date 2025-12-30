@@ -32,12 +32,12 @@ class TestBufferGraciLogic(unittest.TestCase):
         self.assertLess(time_diff, 1.0)
     
     def test_verificar_gracia_dentro_del_limite(self):
-        """Verifica lógica de gracia dentro del límite (< 5 min)"""
+        """Verifica lógica de gracia dentro del límite (< 15 min)"""
         session = MockBaseSession('123', 'TestUser', 1)
-        grace_period_seconds = 300  # 5 minutos
+        grace_period_seconds = 900  # 15 minutos
         
-        # Simular última actividad hace 2 minutos
-        session.last_activity_update = datetime.now() - timedelta(minutes=2)
+        # Simular última actividad hace 10 minutos
+        session.last_activity_update = datetime.now() - timedelta(minutes=10)
         
         # Calcular tiempo desde última actividad
         time_since_last = (datetime.now() - session.last_activity_update).total_seconds()
@@ -50,12 +50,12 @@ class TestBufferGraciLogic(unittest.TestCase):
         self.assertFalse(should_close, "No debe cerrar sesión si está en gracia")
     
     def test_verificar_gracia_fuera_del_limite(self):
-        """Verifica lógica de gracia fuera del límite (> 5 min)"""
+        """Verifica lógica de gracia fuera del límite (> 15 min)"""
         session = MockBaseSession('123', 'TestUser', 1)
-        grace_period_seconds = 300  # 5 minutos
+        grace_period_seconds = 900  # 15 minutos
         
-        # Simular última actividad hace 6 minutos
-        session.last_activity_update = datetime.now() - timedelta(minutes=6)
+        # Simular última actividad hace 20 minutos
+        session.last_activity_update = datetime.now() - timedelta(minutes=20)
         
         # Calcular tiempo desde última actividad
         time_since_last = (datetime.now() - session.last_activity_update).total_seconds()
@@ -90,11 +90,11 @@ class TestBufferGraciLogic(unittest.TestCase):
         14:15 → Lobby (3 min, Discord no reporta)
         14:18 → Nueva partida
         
-        Con buffer 5 min: Sesión continúa ✅
+        Con buffer 15 min: Sesión continúa ✅
         Sin buffer: Sesión se cierra en 14:15 ❌
         """
         session = MockBaseSession('123', 'TestUser', 1)
-        grace_period_seconds = 300  # 5 minutos
+        grace_period_seconds = 900  # 15 minutos
         
         # 14:00 - Jugando partida
         session.last_activity_update = datetime.now()
@@ -106,7 +106,7 @@ class TestBufferGraciLogic(unittest.TestCase):
         # En el minuto 3 del lobby, verificamos gracia
         time_since_last = (lobby_time - session.last_activity_update).total_seconds()
         
-        # 3 minutos < 5 minutos → En gracia
+        # 3 minutos < 15 minutos → En gracia
         self.assertLess(time_since_last, grace_period_seconds)
         should_close = time_since_last >= grace_period_seconds
         self.assertFalse(should_close, "No debe cerrar durante lobby de 3 min")
