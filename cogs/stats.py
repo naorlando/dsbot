@@ -10,7 +10,8 @@ from stats import (
     setup_game_commands,
     setup_party_commands,
     setup_user_commands,
-    setup_social_commands
+    setup_social_commands,
+    setup_utils_commands
 )
 
 logger = logging.getLogger('dsbot')
@@ -46,6 +47,10 @@ class StatsCog(commands.Cog, name='Estadísticas'):
         # Cargar comandos sociales
         setup_social_commands(self.bot)
         logger.info("✓ Sociales cargados (topreactions, topstickers)")
+        
+        # Cargar comandos de utilidades
+        setup_utils_commands(self.bot)
+        logger.info("✓ Utilidades cargadas (export, checkstats)")
         
         logger.info("📊 Todos los comandos de estadísticas cargados exitosamente")
     

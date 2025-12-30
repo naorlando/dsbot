@@ -9,6 +9,7 @@ from .commands.games import setup_game_commands
 from .commands.parties import setup_party_commands
 from .commands.user import setup_user_commands
 from .commands.social import setup_social_commands
+from .commands.utils import setup_utils_commands
 
 # Importar funciones de visualización para uso externo
 from .visualization import *
@@ -21,4 +22,5 @@ __all__ = [
     'setup_party_commands',
     'setup_user_commands',
     'setup_social_commands',
+    'setup_utils_commands',
 ]
