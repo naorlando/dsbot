@@ -37,7 +37,7 @@
         "min_players": 2,
         "notify_on_formed": true,
         "notify_on_join": true,
-        "cooldown_minutes": 20,
+        "cooldown_minutes": 60,
         "use_here_mention": true,
         "blacklisted_games": [
             "Spotify",
