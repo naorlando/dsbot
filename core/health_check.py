@@ -133,9 +133,16 @@ class SessionHealthCheck:
         """
         Valida sesiones cada 30 minutos.
         Finaliza sesiones con grace period expirado (sesiones "colgadas").
+        
+        NOTA: Se ejecuta inmediatamente al iniciar para detectar sesiones
+        colgadas que sobrevivieron a un reinicio rápido.
         """
         try:
-            logger.info('🏥 Iniciando health check periódico...')
+            # Contar sesiones activas
+            game_sessions = len(self.game_manager.active_sessions)
+            party_sessions = len([s for s in self.party_manager.active_sessions.values() if s.state == 'active'])
+            
+            logger.info(f'🏥 Health check iniciado (games: {game_sessions}, parties: {party_sessions})')
             
             finalized = 0
             
@@ -146,12 +153,17 @@ class SessionHealthCheck:
             finalized += await self._check_party_sessions()
             
             if finalized > 0:
-                logger.info(f'✅ Health check completado: {finalized} sesiones finalizadas')
+                logger.info(f'✅ Health check: {finalized} sesiones finalizadas')
             else:
-                logger.debug('✅ Health check completado: Todo OK')
+                logger.info('✅ Health check: Todo OK')
         
         except Exception as e:
             logger.error(f'❌ Error en health check periódico: {e}', exc_info=True)
+    
+    @periodic_check.before_loop
+    async def before_periodic_check(self):
+        """Esperar a que el bot esté listo antes de iniciar el health check"""
+        await self.bot.wait_until_ready()
     
     async def _check_game_sessions(self) -> int:
         """

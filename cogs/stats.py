@@ -11,7 +11,8 @@ from stats import (
     setup_party_commands,
     setup_user_commands,
     setup_social_commands,
-    setup_utils_commands
+    setup_utils_commands,
+    setup_wrapped_commands
 )
 
 logger = logging.getLogger('dsbot')
@@ -51,6 +52,10 @@ class StatsCog(commands.Cog, name='Estadísticas'):
         # Cargar comandos de utilidades
         setup_utils_commands(self.bot)
         logger.info("✓ Utilidades cargadas (export, checkstats)")
+        
+        # Cargar comando de wrapped
+        setup_wrapped_commands(self.bot)
+        logger.info("✓ Wrapped cargado (!wrapped)")
         
         logger.info("📊 Todos los comandos de estadísticas cargados exitosamente")
     
