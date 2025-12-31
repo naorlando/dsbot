@@ -28,6 +28,11 @@ class PartySession(BaseSession):
         self.player_names = player_names.copy()
         self.max_players = len(player_ids)
         self.initial_players = player_ids.copy()  # Para detectar quién se unió después
+        
+        # ✨ Soft Close: Estados para reactivación
+        self.state = 'active'  # active, inactive, closed
+        self.inactive_since = None  # Timestamp cuando pasó a inactive
+        self.reactivation_window = 30 * 60  # 30 minutos por defecto (se actualiza de config)
 
 
 class PartySessionManager(BaseSessionManager):
@@ -49,7 +54,9 @@ class PartySessionManager(BaseSessionManager):
     
     async def handle_start(self, game_name: str, current_players: List[Dict], guild_id: int, config: dict):
         """
-        Maneja el inicio o actualización de una party.
+        Maneja el inicio o actualización de una party (Soft Close).
+        
+        Puede crear nueva party o REACTIVAR una inactiva dentro de la ventana.
         
         Args:
             game_name: Nombre del juego
@@ -57,6 +64,9 @@ class PartySessionManager(BaseSessionManager):
             guild_id: ID del servidor
             config: Configuración del bot
         """
+        # ✨ SOFT CLOSE: Limpiar sesiones inactivas expiradas al inicio
+        self._cleanup_expired_inactive_sessions()
+        
         party_config = config.get('party_detection', {})
         
         # Verificar si está habilitado
@@ -82,9 +92,12 @@ class PartySessionManager(BaseSessionManager):
         current_player_ids = {p['user_id'] for p in current_players}
         current_player_names = [p['username'] for p in current_players]
         
-        # Caso 1: No hay sesión activa → crear nueva party
+        # Caso 1: No hay sesión → crear nueva party
         if game_name not in self.active_sessions:
             session = PartySession(game_name, current_player_ids, current_player_names, guild_id)
+            # Leer ventana de reactivación del config
+            reactivation_minutes = party_config.get('reactivation_window_minutes', 30)
+            session.reactivation_window = reactivation_minutes * 60
             self.active_sessions[game_name] = session
             
             # Iniciar verificación en background
@@ -95,7 +108,31 @@ class PartySessionManager(BaseSessionManager):
             logger.info(f'🎮 Nueva party iniciada: {game_name} con {len(current_players)} jugadores')
             logger.debug(f'   Jugadores: {", ".join(current_player_names)}')
         
-        # Caso 2: Sesión existente → actualizar jugadores
+        # ✨ SOFT CLOSE: Caso 2: Sesión INACTIVA → REACTIVAR
+        elif self.active_sessions[game_name].state == 'inactive':
+            session = self.active_sessions[game_name]
+            
+            # Reactivar sesión
+            session.state = 'active'
+            session.inactive_since = None
+            self._update_activity(session)  # Actualizar timestamp de actividad
+            
+            # Actualizar jugadores
+            session.player_ids = current_player_ids.copy()
+            session.player_names = current_player_names.copy()
+            
+            # Actualizar máximo si es necesario
+            if len(current_player_ids) > session.max_players:
+                session.max_players = len(current_player_ids)
+            
+            # Actualizar en stats si ya estaba confirmada
+            if session.is_confirmed:
+                self._update_active_party_in_stats(game_name, session)
+            
+            logger.info(f'🔄 Party reactivada: {game_name} con {len(current_players)} jugadores')
+            # ❌ NO notificar (es la misma sesión continua)
+        
+        # Caso 3: Sesión ACTIVA → actualizar jugadores (lógica existente)
         else:
             session = self.active_sessions[game_name]
             
@@ -116,8 +153,7 @@ class PartySessionManager(BaseSessionManager):
                     new_player_names = [p['username'] for p in current_players if p['user_id'] in new_players]
                     
                     # Verificar cooldown POR JUGADOR (no por juego)
-                    # Cada jugador nuevo puede notificar una vez cada 10 min
-                    cooldown_minutes = party_config.get('cooldown_minutes', 10)
+                    cooldown_minutes = party_config.get('cooldown_minutes', 60)
                     for player_id in new_players:
                         if not check_cooldown(game_name, f'party_join_{game_name}_{player_id}', cooldown_seconds=cooldown_minutes * 60):
                             # Este jugador específico está en cooldown, removerlo de la lista
@@ -138,7 +174,10 @@ class PartySessionManager(BaseSessionManager):
     
     async def handle_end(self, game_name: str, config: dict):
         """
-        Finaliza una party cuando ya no cumple los requisitos.
+        Maneja el fin de una party (Soft Close).
+        
+        En vez de cerrar inmediatamente, marca como 'inactive' con ventana de reactivación.
+        Solo cierra definitivamente cuando la ventana expira.
         
         Args:
             game_name: Nombre del juego
@@ -149,10 +188,36 @@ class PartySessionManager(BaseSessionManager):
         
         session = self.active_sessions[game_name]
         
-        # Buffer de gracia: Verificar si realmente terminó o es pausa temporal (lobby)
+        # Buffer de gracia: Verificar si realmente terminó o es lag de Discord
         if self._is_in_grace_period(session):
             logger.info(f'⏳ Party en gracia: {game_name}')
             return
+        
+        # ✨ SOFT CLOSE: Marcar como inactive en vez de cerrar inmediatamente
+        if session.state == 'active':
+            session.state = 'inactive'
+            session.inactive_since = datetime.now()
+            
+            # Leer ventana de reactivación del config
+            party_config = config.get('party_detection', {})
+            reactivation_minutes = party_config.get('reactivation_window_minutes', 30)
+            session.reactivation_window = reactivation_minutes * 60
+            
+            logger.info(f'⏸️  Party inactiva: {game_name} (ventana: {reactivation_minutes} min)')
+            return  # ❌ NO finalizar todavía, puede reactivarse
+        
+        # ✨ SOFT CLOSE: Si ya estaba inactive, verificar ventana de reactivación
+        if session.state == 'inactive':
+            time_inactive = (datetime.now() - session.inactive_since).total_seconds()
+            if time_inactive < session.reactivation_window:
+                logger.info(f'⏳ Party en ventana de reactivación: {game_name} ({int(time_inactive/60)} min)')
+                return  # Todavía puede reactivarse
+            
+            # Ventana expirada → cerrar definitivamente
+            logger.info(f'⌛ Ventana expirada: {game_name}, cerrando definitivamente')
+        
+        # ✅ CERRAR DEFINITIVAMENTE (lógica existente)
+        session.state = 'closed'
         
         # Cancelar tarea de verificación si existe
         if session.verification_task and not session.verification_task.done():
@@ -181,6 +246,29 @@ class PartySessionManager(BaseSessionManager):
             del self.active_sessions[game_name]
         else:
             logger.debug(f'⚠️  Sesión de party ya fue eliminada: {game_name}')
+    
+    def _cleanup_expired_inactive_sessions(self):
+        """
+        Limpia sesiones inactivas cuya ventana de reactivación expiró.
+        Se llama al inicio de handle_start para mantener memoria limpia.
+        """
+        to_remove = []
+        for game_name, session in self.active_sessions.items():
+            if session.state == 'inactive' and session.inactive_since:
+                time_inactive = (datetime.now() - session.inactive_since).total_seconds()
+                if time_inactive >= session.reactivation_window:
+                    to_remove.append(game_name)
+        
+        for game_name in to_remove:
+            session = self.active_sessions[game_name]
+            logger.info(f'🧹 Limpiando party inactiva expirada: {game_name}')
+            
+            # Finalizar si estaba confirmada
+            if session.is_confirmed:
+                self._finalize_party_in_stats(game_name, session)
+            
+            # Eliminar de memoria
+            del self.active_sessions[game_name]
     
     # Métodos abstractos requeridos por BaseSessionManager
     

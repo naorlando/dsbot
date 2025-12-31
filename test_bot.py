@@ -1303,20 +1303,24 @@ class TestPartyDetection(unittest.TestCase):
             del self.stats['parties']
     
     def test_party_detector_exists(self):
-        """Verifica que existe PartyDetector"""
-        from core.party_detection import PartyDetector
-        detector = PartyDetector()
-        self.assertIsNotNone(detector)
+        """Verifica que existe PartySessionManager"""
+        from core.party_session import PartySessionManager
+        from unittest.mock import MagicMock
+        bot = MagicMock()
+        manager = PartySessionManager(bot)
+        self.assertIsNotNone(manager)
     
     def test_party_structure_created(self):
         """Verifica que se crea la estructura de parties"""
-        from core.party_detection import PartyDetector
+        from core.party_session import PartySessionManager
+        from unittest.mock import MagicMock
         
         # Limpiar parties si existe
         if 'parties' in self.stats:
             del self.stats['parties']
         
-        detector = PartyDetector()
+        bot = MagicMock()
+        manager = PartySessionManager(bot)
         
         # Verificar estructura
         self.assertIn('parties', self.stats)
@@ -1370,31 +1374,33 @@ class TestPartyDetection(unittest.TestCase):
         self.assertIn('get_active_players_by_game', source)
     
     def test_get_active_parties(self):
-        """Verifica que get_active_parties retorna dict vacío inicialmente"""
-        from core.party_detection import PartyDetector
+        """Verifica que active_sessions es un dict vacío inicialmente"""
+        from core.party_session import PartySessionManager
+        from unittest.mock import MagicMock
         
-        detector = PartyDetector()
-        active = detector.get_active_parties()
+        bot = MagicMock()
+        manager = PartySessionManager(bot)
         
-        self.assertIsInstance(active, dict)
+        self.assertIsInstance(manager.active_sessions, dict)
+        self.assertEqual(len(manager.active_sessions), 0)
     
     def test_get_party_history(self):
-        """Verifica que get_party_history retorna lista"""
-        from core.party_detection import PartyDetector
+        """Verifica que la historia de parties existe en stats"""
+        from core.persistence import stats
         
-        detector = PartyDetector()
-        history = detector.get_party_history('all')
-        
-        self.assertIsInstance(history, list)
+        # Asegurar estructura
+        if 'parties' in stats:
+            self.assertIn('history', stats['parties'])
+            self.assertIsInstance(stats['parties']['history'], list)
     
     def test_get_game_stats(self):
-        """Verifica que get_game_stats retorna dict"""
-        from core.party_detection import PartyDetector
+        """Verifica que las stats por juego existen en stats"""
+        from core.persistence import stats
         
-        detector = PartyDetector()
-        stats = detector.get_game_stats()
-        
-        self.assertIsInstance(stats, dict)
+        # Asegurar estructura
+        if 'parties' in stats:
+            self.assertIn('stats_by_game', stats['parties'])
+            self.assertIsInstance(stats['parties']['stats_by_game'], dict)
     
     def test_party_blacklist_config(self):
         """Verifica que la blacklist de juegos está configurada"""

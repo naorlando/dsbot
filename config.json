@@ -38,6 +38,7 @@
         "notify_on_formed": true,
         "notify_on_join": true,
         "cooldown_minutes": 60,
+        "reactivation_window_minutes": 30,
         "use_here_mention": true,
         "blacklisted_games": [
             "Spotify",
