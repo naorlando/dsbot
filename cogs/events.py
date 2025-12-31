@@ -33,10 +33,13 @@ class EventsCog(commands.Cog, name='Events'):
         self.game_manager = GameSessionManager(bot)
         self.party_manager = PartySessionManager(bot)
         
-        # Recovery de sesiones después de reinicio (solo voice)
+        # Recovery de sesiones + Health check periódico
         self.health_check = SessionHealthCheck(
             bot=bot,
-            voice_manager=self.voice_manager
+            voice_manager=self.voice_manager,
+            game_manager=self.game_manager,
+            party_manager=self.party_manager,
+            config=config
         )
     
     @commands.Cog.listener()
@@ -47,6 +50,9 @@ class EventsCog(commands.Cog, name='Events'):
         
         # Recovery de sesiones de voice después de reinicio
         await self.health_check.recover_on_startup()
+        
+        # Iniciar health check periódico (cada 30 min)
+        self.health_check.start()
         
         # Verificar que el canal de notificaciones esté configurado
         channel_id = get_channel_id()
