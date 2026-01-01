@@ -119,8 +119,11 @@ class GameSessionManager(BaseSessionManager):
         """
         user_id = str(member.id)
         
+        logger.debug(f'🔍 handle_game_end llamado: {member.display_name} - {game_name}')
+        
         if user_id not in self.active_sessions:
             # Si no hay sesión en manager, limpiar tracking directamente (ej. bot reinició)
+            logger.debug(f'⚠️  No hay sesión activa para {member.display_name} - {game_name}')
             clear_game_session(user_id, game_name)
             return
         
@@ -128,13 +131,26 @@ class GameSessionManager(BaseSessionManager):
         
         # Verificar que es el juego correcto
         if not isinstance(session, GameSession) or session.game_name != game_name:
-            logger.debug(f'⚠️  Sesión de {member.display_name} no coincide con juego terminado')
+            logger.debug(f'⚠️  Sesión de {member.display_name} no coincide con juego terminado (esperado: {session.game_name}, recibido: {game_name})')
             return
+        
+        # Log de estado de sesión antes de procesarla
+        time_since_start = (datetime.now() - session.start_time).total_seconds()
+        time_since_activity = (datetime.now() - session.last_activity_update).total_seconds()
+        logger.debug(f'📊 Estado sesión: {member.display_name} - {game_name} | Inicio: {int(time_since_start)}s atrás | Última actividad: {int(time_since_activity)}s atrás | Confirmada: {session.is_confirmed}')
         
         # Buffer de gracia: Verificar si Discord dejó de reportar hace poco
         if self._is_in_grace_period(session):
-            logger.info(f'⏳ Sesión de juego en gracia: {member.display_name} - {game_name}')
-            return
+            logger.info(f'⏳ Sesión de juego en gracia: {member.display_name} - {game_name} (última actividad hace {int((datetime.now() - session.last_activity_update).total_seconds())}s)')
+            
+            # IMPORTANTE: Si la sesión lleva MÁS de 5 minutos en gracia y NO se confirmó,
+            # finalizarla silenciosamente (Discord dejó de enviar eventos)
+            time_in_grace = (datetime.now() - session.last_activity_update).total_seconds()
+            if time_in_grace > 300 and not session.is_confirmed:  # 5 minutos
+                logger.warning(f'⚠️  Sesión en gracia demasiado tiempo ({int(time_in_grace)}s): Finalizando {member.display_name} - {game_name}')
+                # NO retornar, continuar con finalización
+            else:
+                return
         
         # Cancelar task de verificación si aún está corriendo
         if session.verification_task and not session.verification_task.done():
@@ -156,6 +172,7 @@ class GameSessionManager(BaseSessionManager):
         
         # Si la sesión NO fue válida, borrar notificación y no guardar/notificar
         if not session_is_valid_for_time:
+            logger.info(f'⏭️  Sesión NO válida para guardar: {member.display_name} - {game_name} ({duration_seconds:.1f}s) - Confirmada: {session.is_confirmed}')
             if session.notification_message:
                 try:
                     await session.notification_message.delete()
