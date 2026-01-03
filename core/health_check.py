@@ -146,7 +146,7 @@ class SessionHealthCheck:
     async def _recover_game_sessions(self):
         """
         Recupera sesiones de juegos desde stats.json.
-        Solo recupera sesiones <1h para evitar colgadas.
+        Validación: Discord debe SEGUIR reportando la actividad (sin límite de tiempo).
         """
         try:
             restored = 0
@@ -159,13 +159,8 @@ class SessionHealthCheck:
                         continue
                     
                     try:
-                        # Calcular antigüedad
+                        # Leer start_time ORIGINAL
                         start_time = datetime.fromisoformat(current_session['start'])
-                        age_minutes = (datetime.now() - start_time).total_seconds() / 60
-                        
-                        # Solo recuperar sesiones recientes (<1h)
-                        if age_minutes > 60:
-                            continue
                         
                         # Buscar usuario en guilds
                         member = None
@@ -224,20 +219,15 @@ class SessionHealthCheck:
     async def _recover_party_sessions(self):
         """
         Recupera party sessions desde stats.json.
-        Solo recupera parties recientes (<1h).
+        Validación: ≥2 jugadores deben SEGUIR jugando (sin límite de tiempo).
         """
         try:
             restored = 0
             
             for game_name, party_data in stats.get('parties', {}).get('active', {}).items():
                 try:
-                    # Calcular antigüedad
+                    # Leer start_time ORIGINAL
                     start_time = datetime.fromisoformat(party_data['start'])
-                    age_minutes = (datetime.now() - start_time).total_seconds() / 60
-                    
-                    # Solo recuperar parties recientes (<1h)
-                    if age_minutes > 60:
-                        continue
                     
                     # Verificar cuántos jugadores SIGUEN jugando
                     current_players = []
