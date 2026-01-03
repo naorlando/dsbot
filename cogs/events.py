@@ -188,37 +188,7 @@ class EventsCog(commands.Cog, name='Events'):
             if activity_class == 'Spotify':
                 logger.info(f'✅ Actividad verificada: "{game_name}" (tipo: Spotify, usuario: {after.display_name})')
             else:
-                # Logging normal
                 logger.info(f'✅ Actividad verificada: "{game_name}" (app_id: {app_id}, clase: {activity_class}, type: {activity_type_name}, usuario: {after.display_name})')
-                
-                # 🔍 DUMP COMPLETO del objeto (TODOS los atributos)
-                try:
-                    import json
-                    # Obtener TODOS los atributos del objeto usando dir() y getattr()
-                    activity_dump = {}
-                    
-                    for attr in dir(game_activity):
-                        # Ignorar atributos privados y métodos
-                        if not attr.startswith('_'):
-                            try:
-                                value = getattr(game_activity, attr)
-                                # Solo incluir si no es callable (no es método)
-                                if not callable(value):
-                                    activity_dump[attr] = value
-                            except Exception:
-                                pass  # Ignorar atributos que no se pueden obtener
-                    
-                    # Agregar clase y tipo para contexto
-                    activity_dump['__class__'] = activity_class
-                    activity_dump['__type__'] = activity_type_name
-                    
-                    # Serializar a JSON (convertir objetos no serializables a string)
-                    activity_json = json.dumps(activity_dump, default=str, ensure_ascii=False, indent=2)
-                    logger.info(f'📋 DUMP COMPLETO [{game_name}] usuario [{after.display_name}]:\n{activity_json}')
-                except Exception as e:
-                    logger.warning(f'⚠️  No se pudo dumpear objeto completo: {e}')
-                    # Fallback: loguear el objeto tal cual
-                    logger.info(f'📋 REPR del objeto: {repr(game_activity)}')
             
             if activity_type_name in config.get('game_activity_types', ['playing', 'streaming', 'watching', 'listening']):
                 # Usar GameSessionManager para manejar inicio de juego

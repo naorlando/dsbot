@@ -174,7 +174,7 @@ class SessionHealthCheck:
         """
         finalized = 0
         now = datetime.now()
-        grace_period_seconds = 900  # 15 minutos
+        grace_period_seconds = 1200  # 20 minutos
         
         # Copiar lista para evitar modificación durante iteración
         sessions_to_check = list(self.game_manager.active_sessions.items())
@@ -214,7 +214,7 @@ class SessionHealthCheck:
         """
         finalized = 0
         now = datetime.now()
-        grace_period_seconds = 900  # 15 minutos
+        grace_period_seconds = 1200  # 20 minutos
         
         # Copiar lista para evitar modificación durante iteración
         sessions_to_check = list(self.party_manager.active_sessions.items())

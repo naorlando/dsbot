@@ -39,10 +39,10 @@ class BaseSession:
 class BaseSessionManager(ABC):
     """Template para gestionar sesiones de cualquier tipo"""
     
-    def __init__(self, bot, min_duration_seconds: int = 10, grace_period_seconds: int = 900):
+    def __init__(self, bot, min_duration_seconds: int = 10, grace_period_seconds: int = 1200):
         self.bot = bot
         self.min_duration_seconds = min_duration_seconds
-        self.grace_period_seconds = grace_period_seconds  # Buffer de gracia (default 15 min)
+        self.grace_period_seconds = grace_period_seconds  # Buffer de gracia (default 20 min)
         self.active_sessions: Dict[str, BaseSession] = {}
     
     @abstractmethod

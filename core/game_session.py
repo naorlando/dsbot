@@ -1,7 +1,7 @@
 """
 Sistema de gestión de sesiones de juegos
 Maneja tracking, notificaciones y verificación de duración mínima
-Incluye supresión de notificaciones cuando hay party activa y tracking de app_ids
+Incluye supresión de notificaciones cuando hay party activa
 """
 
 import asyncio
@@ -17,7 +17,6 @@ from core.session_dto import (
 )
 from core.cooldown import check_cooldown, is_cooldown_passed
 from core.helpers import send_notification, get_activity_verb
-from core.app_id_tracker import track_app_id, is_app_id_fake, get_fake_game_name
 
 if TYPE_CHECKING:
     from core.party_session import PartySessionManager
@@ -299,29 +298,7 @@ class GameSessionManager(BaseSessionManager):
         if not isinstance(session, GameSession):
             return
         
-        # 🚫 Verificar si el app_id es FAKE
-        if is_app_id_fake(session.game_name, session.app_id):
-            fake_name = get_fake_game_name(session.game_name)
-            logger.warning(f'🚫 App ID FAKE detectado: {session.username} - {session.game_name} (app_id: {session.app_id})')
-            
-            # Trackear como juego fake (agrupado)
-            set_game_session_start(session.user_id, session.username, fake_name)
-            
-            # NO notificar juegos fake
-            session.entry_notification_sent = False
-            return
-        
-        # 📊 Trackear app_id real
-        was_tracked = track_app_id(session.game_name, session.app_id)
-        if not was_tracked:
-            # Era fake pero no lo detectamos antes
-            fake_name = get_fake_game_name(session.game_name)
-            logger.warning(f'🚫 App ID FAKE detectado al trackear: {session.username} - {session.game_name}')
-            set_game_session_start(session.user_id, session.username, fake_name)
-            session.entry_notification_sent = False
-            return
-        
-        # Iniciar tracking de sesión (juego real)
+        # Iniciar tracking de sesión
         set_game_session_start(session.user_id, session.username, session.game_name)
         
         # 🎮 Verificar si hay party activa para este juego
