@@ -1,18 +1,21 @@
 """
 Gestión de sesiones de parties (grupos de jugadores en el mismo juego)
 Implementa verificación de 3s+7s y tracking automático
+Incluye detección de outliers para rechazar app_ids sospechosos
 """
 
 import asyncio
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Set, Tuple
+from collections import Counter
 import discord
 
 from core.base_session import BaseSession, BaseSessionManager
 from core.persistence import stats, save_stats
 from core.cooldown import check_cooldown
 from core.helpers import send_notification
+from core.app_id_tracker import track_app_id, is_app_id_fake, get_fake_game_name
 
 logger = logging.getLogger('dsbot')
 
@@ -57,6 +60,7 @@ class PartySessionManager(BaseSessionManager):
         Maneja el inicio o actualización de una party (Soft Close).
         
         Puede crear nueva party o REACTIVAR una inactiva dentro de la ventana.
+        Incluye detección de outliers para rechazar app_ids sospechosos.
         
         Args:
             game_name: Nombre del juego
@@ -89,8 +93,18 @@ class PartySessionManager(BaseSessionManager):
                 await self.handle_end(game_name, config)
             return
         
-        current_player_ids = {p['user_id'] for p in current_players}
-        current_player_names = [p['username'] for p in current_players]
+        # 🛡️ OUTLIER DETECTION: Filtrar jugadores con app_id sospechoso
+        filtered_players = self._filter_players_by_app_id(game_name, current_players, party_config)
+        
+        # Si después del filtro no hay suficientes jugadores, cancelar
+        if len(filtered_players) < min_players:
+            logger.info(f'🚫 Party cancelada: {game_name} - Insuficientes jugadores después de filtrar outliers ({len(filtered_players)}/{min_players})')
+            if game_name in self.active_sessions:
+                await self.handle_end(game_name, config)
+            return
+        
+        current_player_ids = {p['user_id'] for p in filtered_players}
+        current_player_names = [p['username'] for p in filtered_players]
         
         # Caso 1: No hay sesión → crear nueva party
         if game_name not in self.active_sessions:
@@ -269,6 +283,52 @@ class PartySessionManager(BaseSessionManager):
             
             # Eliminar de memoria
             del self.active_sessions[game_name]
+    
+    def _filter_players_by_app_id(self, game_name: str, players: List[Dict], party_config: dict) -> List[Dict]:
+        """
+        Filtra jugadores con app_ids FAKE.
+        
+        Estrategia SIMPLIFICADA:
+        1. Verificar cada jugador contra tracker
+        2. Si es FAKE → rechazar
+        3. Si NO es fake → aceptar y trackear
+        
+        Args:
+            game_name: Nombre del juego
+            players: Lista de jugadores [{user_id, username, activity}]
+            party_config: Configuración de parties
+        
+        Returns:
+            Lista filtrada de jugadores válidos (sin fakes)
+        """
+        if not players:
+            return []
+        
+        filtered = []
+        
+        for player in players:
+            activity = player.get('activity')
+            if not activity:
+                logger.warning(f'🚫 Jugador sin actividad rechazado: {player.get("username", "Unknown")}')
+                continue
+            
+            app_id = getattr(activity, 'application_id', None)
+            username = player.get('username', 'Unknown')
+            
+            # Verificar si es FAKE
+            if is_app_id_fake(game_name, app_id):
+                logger.warning(f'🚫 Jugador rechazado (app_id FAKE): {username} - {game_name} (app_id: {app_id})')
+                continue
+            
+            # No es fake → aceptar y trackear
+            was_tracked = track_app_id(game_name, app_id)
+            if was_tracked:
+                filtered.append(player)
+            else:
+                # track_app_id retornó False → era fake después de todo
+                logger.warning(f'🚫 Jugador rechazado (app_id fake detectado al trackear): {username} - {game_name}')
+        
+        return filtered
     
     # Métodos abstractos requeridos por BaseSessionManager
     
@@ -475,6 +535,22 @@ class PartySessionManager(BaseSessionManager):
         game_stats['total_unique_players'] = list(current_unique)
     
     # Métodos públicos para comandos
+    
+    def has_active_party(self, game_name: str) -> bool:
+        """
+        Verifica si hay una party activa para un juego.
+        
+        Args:
+            game_name: Nombre del juego
+        
+        Returns:
+            True si hay una party activa y confirmada para ese juego
+        """
+        if game_name not in self.active_sessions:
+            return False
+        
+        session = self.active_sessions[game_name]
+        return session.is_confirmed and session.state == 'active'
     
     def get_active_parties(self) -> Dict[str, Dict]:
         """Retorna todas las parties activas desde sesiones"""

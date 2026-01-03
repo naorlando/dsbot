@@ -30,8 +30,8 @@ class EventsCog(commands.Cog, name='Events'):
         self.bot = bot
         # Sistema centralizado de gestión de sesiones
         self.voice_manager = VoiceSessionManager(bot)
-        self.game_manager = GameSessionManager(bot)
         self.party_manager = PartySessionManager(bot)
+        self.game_manager = GameSessionManager(bot, party_manager=self.party_manager)
         
         # Recovery de sesiones + Health check periódico
         self.health_check = SessionHealthCheck(
@@ -188,7 +188,30 @@ class EventsCog(commands.Cog, name='Events'):
             if activity_class == 'Spotify':
                 logger.info(f'✅ Actividad verificada: "{game_name}" (tipo: Spotify, usuario: {after.display_name})')
             else:
+                # Logging normal
                 logger.info(f'✅ Actividad verificada: "{game_name}" (app_id: {app_id}, clase: {activity_class}, type: {activity_type_name}, usuario: {after.display_name})')
+                
+                # 🔍 DUMP COMPLETO del objeto (TODOS los atributos)
+                try:
+                    import json
+                    # Intentar obtener __dict__ primero (más completo)
+                    if hasattr(game_activity, '__dict__'):
+                        activity_dump = game_activity.__dict__.copy()
+                    else:
+                        # Fallback: usar vars()
+                        activity_dump = vars(game_activity).copy()
+                    
+                    # Agregar clase y tipo para contexto
+                    activity_dump['__class__'] = activity_class
+                    activity_dump['__type__'] = activity_type_name
+                    
+                    # Serializar a JSON (convertir objetos no serializables a string)
+                    activity_json = json.dumps(activity_dump, default=str, ensure_ascii=False, indent=2)
+                    logger.info(f'📋 DUMP COMPLETO [{game_name}] usuario [{after.display_name}]:\n{activity_json}')
+                except Exception as e:
+                    logger.warning(f'⚠️  No se pudo dumpear objeto completo: {e}')
+                    # Fallback: loguear el objeto tal cual
+                    logger.info(f'📋 REPR del objeto: {repr(game_activity)}')
             
             if activity_type_name in config.get('game_activity_types', ['playing', 'streaming', 'watching', 'listening']):
                 # Usar GameSessionManager para manejar inicio de juego

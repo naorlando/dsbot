@@ -1,11 +1,12 @@
 """
 Sistema de gestión de sesiones de juegos
 Maneja tracking, notificaciones y verificación de duración mínima
+Incluye supresión de notificaciones cuando hay party activa y tracking de app_ids
 """
 
 import asyncio
 import logging
-from typing import Optional, Dict
+from typing import Optional, Dict, TYPE_CHECKING
 from datetime import datetime
 import discord
 
@@ -16,6 +17,10 @@ from core.session_dto import (
 )
 from core.cooldown import check_cooldown, is_cooldown_passed
 from core.helpers import send_notification, get_activity_verb
+from core.app_id_tracker import track_app_id, is_app_id_fake, get_fake_game_name
+
+if TYPE_CHECKING:
+    from core.party_session import PartySessionManager
 
 logger = logging.getLogger('dsbot')
 
@@ -34,8 +39,13 @@ class GameSession(BaseSession):
 class GameSessionManager(BaseSessionManager):
     """Gestiona todas las sesiones de juego activas"""
     
-    def __init__(self, bot):
+    def __init__(self, bot, party_manager: Optional['PartySessionManager'] = None):
         super().__init__(bot, min_duration_seconds=10)
+        self.party_manager = party_manager
+    
+    def set_party_manager(self, party_manager: 'PartySessionManager'):
+        """Establece referencia al PartySessionManager (llamado después de inicialización)"""
+        self.party_manager = party_manager
     
     # Métodos abstractos requeridos por BaseSessionManager
     async def handle_start(self, member: discord.Member, config: dict, *args, **kwargs):
@@ -289,8 +299,36 @@ class GameSessionManager(BaseSessionManager):
         if not isinstance(session, GameSession):
             return
         
-        # Iniciar tracking de sesión
+        # 🚫 Verificar si el app_id es FAKE
+        if is_app_id_fake(session.game_name, session.app_id):
+            fake_name = get_fake_game_name(session.game_name)
+            logger.warning(f'🚫 App ID FAKE detectado: {session.username} - {session.game_name} (app_id: {session.app_id})')
+            
+            # Trackear como juego fake (agrupado)
+            set_game_session_start(session.user_id, session.username, fake_name)
+            
+            # NO notificar juegos fake
+            session.entry_notification_sent = False
+            return
+        
+        # 📊 Trackear app_id real
+        was_tracked = track_app_id(session.game_name, session.app_id)
+        if not was_tracked:
+            # Era fake pero no lo detectamos antes
+            fake_name = get_fake_game_name(session.game_name)
+            logger.warning(f'🚫 App ID FAKE detectado al trackear: {session.username} - {session.game_name}')
+            set_game_session_start(session.user_id, session.username, fake_name)
+            session.entry_notification_sent = False
+            return
+        
+        # Iniciar tracking de sesión (juego real)
         set_game_session_start(session.user_id, session.username, session.game_name)
+        
+        # 🎮 Verificar si hay party activa para este juego
+        if self.party_manager and self.party_manager.has_active_party(session.game_name):
+            logger.debug(f'⏭️  Notificación de game suprimida: {session.username} - {session.game_name} (party activa)')
+            session.entry_notification_sent = False  # No notificar, pero sí trackear tiempo
+            return
         
         # Notificar entrada con cooldown (30 minutos por juego)
         if config.get('notify_games', True):
