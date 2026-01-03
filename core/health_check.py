@@ -49,17 +49,31 @@ class SessionHealthCheck:
     async def recover_on_startup(self):
         """
         Ejecuta recovery UNA VEZ cuando el bot inicia.
-        Solo para voice (games no necesita recovery).
+        Recupera sesiones de TODOS los tipos: voice, games, parties.
         """
         if self._recovery_done:
             logger.debug('Recovery ya ejecutado, omitiendo')
             return
         
         try:
-            logger.info('🔄 Recuperando sesiones de voice después de reinicio...')
-            await self._recover_voice_sessions()
+            logger.info('🔄 Recuperando sesiones después de reinicio...')
+            
+            # Recuperar voice (desde pending_notifications.json)
+            voice_restored = await self._recover_voice_sessions()
+            
+            # Recuperar games (desde stats.json)
+            game_restored = await self._recover_game_sessions()
+            
+            # Recuperar parties (desde stats.json)
+            party_restored = await self._recover_party_sessions()
+            
             self._recovery_done = True
-            logger.info('✅ Recovery completado')
+            
+            total = voice_restored + game_restored + party_restored
+            if total > 0:
+                logger.info(f'✅ Recovery completado: {voice_restored} voice, {game_restored} games, {party_restored} parties')
+            else:
+                logger.info('✅ No hay sesiones pendientes para restaurar')
         except Exception as e:
             logger.error(f'❌ Error en recovery: {e}', exc_info=True)
     
@@ -122,11 +136,160 @@ class SessionHealthCheck:
             
             if restored > 0:
                 logger.info(f'♻️  {restored} sesiones de voz restauradas (limpiadas: {cleaned})')
-            else:
-                logger.info('✅ No hay sesiones pendientes para restaurar')
+            
+            return restored
         
         except Exception as e:
             logger.error(f'❌ Error en recuperación de voice: {e}', exc_info=True)
+            return 0
+    
+    async def _recover_game_sessions(self):
+        """
+        Recupera sesiones de juegos desde stats.json.
+        Solo recupera sesiones <1h para evitar colgadas.
+        """
+        try:
+            restored = 0
+            
+            for user_id, user_data in stats.get('users', {}).items():
+                for game_name, game_data in user_data.get('games', {}).items():
+                    current_session = game_data.get('current_session')
+                    
+                    if not current_session:
+                        continue
+                    
+                    try:
+                        # Calcular antigüedad
+                        start_time = datetime.fromisoformat(current_session['start'])
+                        age_minutes = (datetime.now() - start_time).total_seconds() / 60
+                        
+                        # Solo recuperar sesiones recientes (<1h)
+                        if age_minutes > 60:
+                            continue
+                        
+                        # Buscar usuario en guilds
+                        member = None
+                        for guild in self.bot.guilds:
+                            member = guild.get_member(int(user_id))
+                            if member:
+                                break
+                        
+                        if not member:
+                            continue
+                        
+                        # Verificar si Discord SIGUE reportando este juego
+                        game_activity = None
+                        for activity in member.activities:
+                            if activity.name == game_name:
+                                game_activity = activity
+                                break
+                        
+                        if not game_activity:
+                            continue
+                        
+                        # Usuario SIGUE jugando → recrear sesión
+                        from core.game_session import GameSession
+                        
+                        session = GameSession(
+                            user_id=user_id,
+                            username=user_data.get('username', member.display_name),
+                            game_name=game_name,
+                            app_id=getattr(game_activity, 'application_id', None),
+                            activity_type=game_activity.type.name.lower(),
+                            guild_id=member.guild.id
+                        )
+                        
+                        # Usar start_time ORIGINAL del disco
+                        session.start_time = start_time
+                        session.is_confirmed = True
+                        session.entry_notification_sent = True
+                        
+                        self.game_manager.active_sessions[user_id] = session
+                        
+                        # Activar cooldown para evitar re-notificar
+                        check_cooldown(game_name, f'{user_id}:game:{game_name}', cooldown_seconds=1800)
+                        
+                        restored += 1
+                        logger.info(f'♻️  Game session restaurada: {session.username} - {game_name} (inicio: {start_time.strftime("%H:%M")})')
+                    
+                    except Exception as e:
+                        logger.error(f'Error recuperando game session {game_name} de {user_id}: {e}')
+            
+            return restored
+        
+        except Exception as e:
+            logger.error(f'❌ Error en recuperación de games: {e}', exc_info=True)
+            return 0
+    
+    async def _recover_party_sessions(self):
+        """
+        Recupera party sessions desde stats.json.
+        Solo recupera parties recientes (<1h).
+        """
+        try:
+            restored = 0
+            
+            for game_name, party_data in stats.get('parties', {}).get('active', {}).items():
+                try:
+                    # Calcular antigüedad
+                    start_time = datetime.fromisoformat(party_data['start'])
+                    age_minutes = (datetime.now() - start_time).total_seconds() / 60
+                    
+                    # Solo recuperar parties recientes (<1h)
+                    if age_minutes > 60:
+                        continue
+                    
+                    # Verificar cuántos jugadores SIGUEN jugando
+                    current_players = []
+                    guild_id = None
+                    
+                    for guild in self.bot.guilds:
+                        for member in guild.members:
+                            if member.bot:
+                                continue
+                            
+                            for activity in member.activities:
+                                if activity.name == game_name:
+                                    current_players.append({
+                                        'user_id': str(member.id),
+                                        'username': member.display_name,
+                                        'activity': activity
+                                    })
+                                    guild_id = guild.id
+                                    break
+                    
+                    # Si hay ≥2 jugadores, recrear party
+                    if len(current_players) >= 2 and guild_id:
+                        from core.party_session import PartySession
+                        
+                        player_ids = {p['user_id'] for p in current_players}
+                        player_names = [p['username'] for p in current_players]
+                        
+                        session = PartySession(
+                            game_name=game_name,
+                            player_ids=player_ids,
+                            player_names=player_names,
+                            guild_id=guild_id
+                        )
+                        
+                        # Usar start_time ORIGINAL del disco
+                        session.start_time = start_time
+                        session.is_confirmed = True
+                        session.notification_message = None
+                        
+                        self.party_manager.active_sessions[game_name] = session
+                        
+                        restored += 1
+                        logger.info(f'♻️  Party restaurada: {game_name} con {len(current_players)} jugadores (inicio: {start_time.strftime("%H:%M")})')
+                
+                except Exception as e:
+                    logger.error(f'Error recuperando party {game_name}: {e}')
+            
+            return restored
+        
+        except Exception as e:
+            logger.error(f'❌ Error en recuperación de parties: {e}', exc_info=True)
+            return 0
     
     # ==================== HEALTH CHECK PERIÓDICO ====================
     
