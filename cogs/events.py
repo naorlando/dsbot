@@ -194,12 +194,19 @@ class EventsCog(commands.Cog, name='Events'):
                 # 🔍 DUMP COMPLETO del objeto (TODOS los atributos)
                 try:
                     import json
-                    # Intentar obtener __dict__ primero (más completo)
-                    if hasattr(game_activity, '__dict__'):
-                        activity_dump = game_activity.__dict__.copy()
-                    else:
-                        # Fallback: usar vars()
-                        activity_dump = vars(game_activity).copy()
+                    # Obtener TODOS los atributos del objeto usando dir() y getattr()
+                    activity_dump = {}
+                    
+                    for attr in dir(game_activity):
+                        # Ignorar atributos privados y métodos
+                        if not attr.startswith('_'):
+                            try:
+                                value = getattr(game_activity, attr)
+                                # Solo incluir si no es callable (no es método)
+                                if not callable(value):
+                                    activity_dump[attr] = value
+                            except Exception:
+                                pass  # Ignorar atributos que no se pueden obtener
                     
                     # Agregar clase y tipo para contexto
                     activity_dump['__class__'] = activity_class
