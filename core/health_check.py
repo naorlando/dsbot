@@ -2,6 +2,7 @@
 Session Recovery System + Periodic Health Check
 Recuperación de sesiones de voice después de reinicio del bot
 + Validación periódica de sesiones con grace period expirado
++ Limpieza de sesiones huérfanas en stats.json
 """
 
 import logging
@@ -13,6 +14,7 @@ from core.pending_notifications import (
     remove_voice_notification
 )
 from core.cooldown import check_cooldown
+from core.persistence import stats, save_stats
 
 logger = logging.getLogger('dsbot')
 
@@ -140,20 +142,23 @@ class SessionHealthCheck:
         try:
             # Contar sesiones activas
             game_sessions = len(self.game_manager.active_sessions)
-            party_sessions = len([s for s in self.party_manager.active_sessions.values() if s.state == 'active'])
+            party_sessions = len(self.party_manager.active_sessions)
             
             logger.info(f'🏥 Health check iniciado (games: {game_sessions}, parties: {party_sessions})')
             
             finalized = 0
             
-            # Revisar game sessions
+            # Revisar game sessions en memoria
             finalized += await self._check_game_sessions()
             
-            # Revisar party sessions
+            # Revisar party sessions en memoria
             finalized += await self._check_party_sessions()
             
-            if finalized > 0:
-                logger.info(f'✅ Health check: {finalized} sesiones finalizadas')
+            # Limpiar sesiones colgadas en stats.json (huérfanas del disco)
+            cleaned = await self._cleanup_orphaned_sessions_in_stats()
+            
+            if finalized > 0 or cleaned > 0:
+                logger.info(f'✅ Health check: {finalized} sesiones finalizadas, {cleaned} sesiones colgadas limpiadas')
             else:
                 logger.info('✅ Health check: Todo OK')
         
@@ -261,6 +266,86 @@ class SessionHealthCheck:
         except Exception as e:
             logger.error(f'Error obteniendo member {user_id}: {e}')
             return None
+    
+    async def _cleanup_orphaned_sessions_in_stats(self) -> int:
+        """
+        Limpia sesiones huérfanas en stats.json (sin active_sessions en memoria).
+        
+        Sesiones huérfanas son aquellas que:
+        1. Tienen current_session != null en stats.json
+        2. NO existen en active_sessions (memoria)
+        3. Tienen >12h de antigüedad
+        
+        Esto pasa cuando:
+        - Bot reinicia y no recupera game/party sessions
+        - Sesión queda colgada en disco
+        
+        Returns:
+            Número de sesiones limpiadas
+        """
+        cleaned = 0
+        now = datetime.now()
+        max_age_hours = 12
+        
+        try:
+            # Limpiar game sessions huérfanas
+            for user_id, user_data in stats.get('users', {}).items():
+                for game_name, game_data in user_data.get('games', {}).items():
+                    current_session = game_data.get('current_session')
+                    
+                    if not current_session:
+                        continue
+                    
+                    # Verificar si está en memoria
+                    if user_id in self.game_manager.active_sessions:
+                        continue  # Está activa en memoria, OK
+                    
+                    # Calcular antigüedad
+                    try:
+                        start_time = datetime.fromisoformat(current_session['start'])
+                        age_hours = (now - start_time).total_seconds() / 3600
+                        
+                        if age_hours > max_age_hours:
+                            # Sesión huérfana antigua, limpiar
+                            game_data['current_session'] = None
+                            username = user_data.get('username', 'Unknown')
+                            logger.warning(f'🧹 Sesión colgada limpiada: {username} - {game_name} ({age_hours:.1f}h)')
+                            cleaned += 1
+                    except Exception as e:
+                        logger.error(f'Error procesando current_session de {game_name}: {e}')
+            
+            # Limpiar party sessions huérfanas
+            parties_to_remove = []
+            for game_name, party_data in stats.get('parties', {}).get('active', {}).items():
+                # Verificar si está en memoria
+                if game_name in self.party_manager.active_sessions:
+                    continue  # Está activa en memoria, OK
+                
+                # Calcular antigüedad
+                try:
+                    start_time = datetime.fromisoformat(party_data['start'])
+                    age_hours = (now - start_time).total_seconds() / 3600
+                    
+                    if age_hours > max_age_hours:
+                        # Party huérfana antigua, marcar para eliminar
+                        parties_to_remove.append(game_name)
+                        logger.warning(f'🧹 Party colgada limpiada: {game_name} ({age_hours:.1f}h)')
+                        cleaned += 1
+                except Exception as e:
+                    logger.error(f'Error procesando party activa de {game_name}: {e}')
+            
+            # Eliminar parties marcadas
+            for game_name in parties_to_remove:
+                del stats['parties']['active'][game_name]
+            
+            # Guardar cambios si hubo limpieza
+            if cleaned > 0:
+                save_stats()
+        
+        except Exception as e:
+            logger.error(f'Error en limpieza de sesiones huérfanas: {e}', exc_info=True)
+        
+        return cleaned
     
     def start(self):
         """Inicia el health check periódico"""
