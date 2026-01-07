@@ -146,7 +146,8 @@ class SessionHealthCheck:
     async def _recover_game_sessions(self):
         """
         Recupera sesiones de juegos desde stats.json.
-        Validación: Discord debe SEGUIR reportando la actividad (sin límite de tiempo).
+        Recovery agresivo: Recupera si <2h, sin verificar Discord.
+        Si terminó, el grace period (20 min) lo cerrará.
         """
         try:
             restored = 0
@@ -162,36 +163,43 @@ class SessionHealthCheck:
                         # Leer start_time ORIGINAL
                         start_time = datetime.fromisoformat(current_session['start'])
                         
+                        # Solo recuperar sesiones recientes (<2h)
+                        age_hours = (datetime.now() - start_time).total_seconds() / 3600
+                        if age_hours > 2:
+                            continue
+                        
                         # Buscar usuario en guilds
                         member = None
+                        guild_id = None
                         for guild in self.bot.guilds:
                             member = guild.get_member(int(user_id))
                             if member:
+                                guild_id = guild.id
                                 break
                         
-                        if not member:
+                        if not member or not guild_id:
                             continue
                         
-                        # Verificar si Discord SIGUE reportando este juego
-                        game_activity = None
+                        # Recrear sesión (sin verificar Discord)
+                        from core.game_session import GameSession
+                        
+                        # Obtener app_id y activity_type si Discord reporta, sino usar defaults
+                        app_id = None
+                        activity_type = 'playing'
+                        
                         for activity in member.activities:
                             if activity.name == game_name:
-                                game_activity = activity
+                                app_id = getattr(activity, 'application_id', None)
+                                activity_type = activity.type.name.lower()
                                 break
-                        
-                        if not game_activity:
-                            continue
-                        
-                        # Usuario SIGUE jugando → recrear sesión
-                        from core.game_session import GameSession
                         
                         session = GameSession(
                             user_id=user_id,
                             username=user_data.get('username', member.display_name),
                             game_name=game_name,
-                            app_id=getattr(game_activity, 'application_id', None),
-                            activity_type=game_activity.type.name.lower(),
-                            guild_id=member.guild.id
+                            app_id=app_id,
+                            activity_type=activity_type,
+                            guild_id=guild_id
                         )
                         
                         # Usar start_time ORIGINAL del disco
@@ -219,7 +227,8 @@ class SessionHealthCheck:
     async def _recover_party_sessions(self):
         """
         Recupera party sessions desde stats.json.
-        Validación: ≥2 jugadores deben SEGUIR jugando (sin límite de tiempo).
+        Recovery agresivo: Recupera si <2h, sin verificar jugadores.
+        Si <2 jugadores, el grace period (20 min) la cerrará.
         """
         try:
             restored = 0
@@ -229,27 +238,25 @@ class SessionHealthCheck:
                     # Leer start_time ORIGINAL
                     start_time = datetime.fromisoformat(party_data['start'])
                     
-                    # Verificar cuántos jugadores SIGUEN jugando
-                    current_players = []
+                    # Solo recuperar parties recientes (<2h)
+                    age_hours = (datetime.now() - start_time).total_seconds() / 3600
+                    if age_hours > 2:
+                        continue
+                    
+                    # Recrear party con datos del disco (sin verificar jugadores actuales)
                     guild_id = None
-                    
                     for guild in self.bot.guilds:
-                        for member in guild.members:
-                            if member.bot:
-                                continue
-                            
-                            for activity in member.activities:
-                                if activity.name == game_name:
-                                    current_players.append({
-                                        'user_id': str(member.id),
-                                        'username': member.display_name,
-                                        'activity': activity
-                                    })
-                                    guild_id = guild.id
-                                    break
+                        guild_id = guild.id
+                        break
                     
-                    # Si hay ≥2 jugadores, recrear party
-                    if len(current_players) >= 2 and guild_id:
+                    if not guild_id:
+                        continue
+                    
+                    # Usar datos del disco
+                    player_ids = set(party_data.get('players', []))
+                    player_names = party_data.get('player_names', [])
+                    
+                    if len(player_ids) >= 2:
                         from core.party_session import PartySession
                         
                         player_ids = {p['user_id'] for p in current_players}
