@@ -379,10 +379,6 @@ class SessionHealthCheck:
         
         for game_name, session in sessions_to_check:
             try:
-                # Solo revisar parties activas (no las inactivas)
-                if session.state != 'active':
-                    continue
-                
                 # Calcular tiempo desde última actividad
                 time_since_activity = (now - session.last_activity_update).total_seconds()
                 

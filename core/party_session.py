@@ -326,7 +326,7 @@ class PartySessionManager(BaseSessionManager):
         
         # 💾 Guardar tiempo individual para cada jugador
         for user_id, username in zip(session.player_ids, session.player_names):
-            save_game_time(user_id, username, game_name, duration_seconds)
+            save_game_time(user_id, username, game_name, duration_minutes)
             logger.info(f'💾 Tiempo guardado: {username} jugó {game_name} por {duration_minutes} min ({duration_seconds:.1f}s)')
         
         # Crear registro en historial
