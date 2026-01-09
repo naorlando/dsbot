@@ -53,11 +53,15 @@ class EventsCog(commands.Cog, name='Events'):
         
         # 🧹 LIMPIEZA DE DATOS (ejecutar solo una vez con variable de entorno)
         import os
+        from core.persistence import DATA_DIR
+        
+        stats_path = os.path.join(DATA_DIR, 'stats.json')
+        
         if os.getenv('RUN_CLEANUP_PARTIES', 'false').lower() == 'true':
             logger.warning('🧹 EJECUTANDO LIMPIEZA DE PARTIES DUPLICADAS...')
             try:
                 from scripts.cleanup_duplicate_parties import cleanup_duplicate_parties
-                removed = cleanup_duplicate_parties('data/stats.json')
+                removed = cleanup_duplicate_parties(stats_path)
                 logger.info(f'✅ Limpieza completada! Duplicados removidos: {removed}')
                 logger.warning('⚠️  IMPORTANTE: Remover variable RUN_CLEANUP_PARTIES de Railway!')
             except Exception as e:
@@ -66,9 +70,9 @@ class EventsCog(commands.Cog, name='Events'):
         if os.getenv('RUN_FIX_SECONDS', 'false').lower() == 'true':
             logger.warning('🧹 EJECUTANDO CORRECCIÓN DE MINUTOS/SEGUNDOS...')
             try:
-                from scripts.fix_seconds_as_minutes import analyze_and_fix_seconds_as_minutes
-                fixed = analyze_and_fix_seconds_as_minutes('data/stats.json', dry_run=False)
-                logger.info(f'✅ Corrección completada! Entradas corregidas: {fixed}')
+                from scripts.fix_seconds_as_minutes import fix_seconds_as_minutes
+                corrections = fix_seconds_as_minutes(stats_path, threshold=3000, dry_run=False)
+                logger.info(f'✅ Corrección completada! Entradas corregidas: {len(corrections)}')
                 logger.warning('⚠️  IMPORTANTE: Remover variable RUN_FIX_SECONDS de Railway!')
             except Exception as e:
                 logger.error(f'❌ Error en corrección de datos: {e}')
