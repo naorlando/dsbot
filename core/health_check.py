@@ -332,12 +332,19 @@ class SessionHealthCheck:
     
     async def _check_game_sessions(self) -> int:
         """
-        Revisa sesiones de juego con grace period expirado.
+        Revisa sesiones de juego con validación REAL de estado en Discord.
+        
+        Flujo:
+        1. Verificar si excedió grace period
+        2. Verificar estado REAL en Discord
+        3. Si sigue activo: Actualizar timestamp y continuar
+        4. Si no está activo: Finalizar sesión
         
         Returns:
             Número de sesiones finalizadas
         """
         finalized = 0
+        recovered = 0
         now = datetime.now()
         grace_period_seconds = 1200  # 20 minutos
         
@@ -349,35 +356,71 @@ class SessionHealthCheck:
                 # Calcular tiempo desde última actividad
                 time_since_activity = (now - session.last_activity_update).total_seconds()
                 
-                # Si excedió el grace period, finalizar
-                if time_since_activity > grace_period_seconds:
-                    logger.info(f'🔄 Finalizando sesión expirada: {session.username} - {session.game_name} ({int(time_since_activity/60)} min sin actividad)')
+                # Si NO excedió grace period, continuar
+                if time_since_activity <= grace_period_seconds:
+                    continue
+                
+                logger.debug(
+                    f'🔍 Validando sesión expirada: {session.username} - {session.game_name} '
+                    f'({int(time_since_activity/60)} min sin actividad)'
+                )
+                
+                # Obtener member object
+                member = await self._get_member(int(user_id), session.guild_id)
+                
+                if member:
+                    # Verificar estado REAL en Discord
+                    is_still_active = await self.game_manager._is_still_active(session, member)
                     
-                    # Obtener member object
-                    member = await self._get_member(int(user_id), session.guild_id)
-                    if member:
-                        await self.game_manager.handle_game_end(member, session.game_name, self.config)
-                        finalized += 1
-                    else:
-                        # Si no encontramos el member, limpiar directamente
-                        logger.warning(f'⚠️  No se pudo obtener member para {user_id}, limpiando sesión')
-                        if user_id in self.game_manager.active_sessions:
-                            del self.game_manager.active_sessions[user_id]
-                        finalized += 1
+                    if is_still_active:
+                        # ¡Usuario SIGUE jugando! Recuperar sesión
+                        self.game_manager._update_activity(session)
+                        recovered += 1
+                        logger.info(
+                            f'♻️  Sesión recuperada: {session.username} - {session.game_name} '
+                            f'(seguía jugando después de {int(time_since_activity/60)} min)'
+                        )
+                        continue
+                
+                # Solo finalizar si realmente no está activo
+                logger.info(
+                    f'🔄 Finalizando sesión expirada: {session.username} - {session.game_name} '
+                    f'({int(time_since_activity/60)} min sin actividad, no está jugando)'
+                )
+                
+                if member:
+                    await self.game_manager.handle_game_end(member, session.game_name, self.config)
+                else:
+                    # Si no encontramos el member, limpiar directamente
+                    logger.warning(f'⚠️  No se pudo obtener member para {user_id}, limpiando sesión')
+                    if user_id in self.game_manager.active_sessions:
+                        del self.game_manager.active_sessions[user_id]
+                
+                finalized += 1
             
             except Exception as e:
                 logger.error(f'Error revisando sesión de juego {user_id}: {e}')
+        
+        if recovered > 0:
+            logger.info(f'♻️  {recovered} sesiones recuperadas (seguían activas)')
         
         return finalized
     
     async def _check_party_sessions(self) -> int:
         """
-        Revisa sesiones de party con grace period expirado.
+        Revisa sesiones de party con validación de estado REAL y grace periods individuales.
+        
+        Flujo:
+        1. Verificar grace periods de jugadores individuales (guardar tiempo de los que salieron)
+        2. Verificar si la party sigue activa (≥2 jugadores)
+        3. Validar estado REAL en Discord
+        4. Finalizar party si realmente terminó
         
         Returns:
             Número de sesiones finalizadas
         """
         finalized = 0
+        recovered = 0
         now = datetime.now()
         grace_period_seconds = 1200  # 20 minutos
         
@@ -386,17 +429,53 @@ class SessionHealthCheck:
         
         for game_name, session in sessions_to_check:
             try:
-                # Calcular tiempo desde última actividad
+                # 1. Verificar grace periods INDIVIDUALES de jugadores
+                players_removed = self.party_manager.check_player_grace_periods(game_name)
+                if players_removed > 0:
+                    logger.debug(f'♻️  {players_removed} jugadores salieron definitivamente de party: {game_name}')
+                
+                # Verificar si aún existe la sesión (puede haberse cerrado en check_player_grace_periods)
+                if game_name not in self.party_manager.active_sessions:
+                    continue
+                
+                # Calcular tiempo desde última actividad de la party
                 time_since_activity = (now - session.last_activity_update).total_seconds()
                 
-                # Si excedió el grace period, marcar como inactiva
-                if time_since_activity > grace_period_seconds:
-                    logger.info(f'🔄 Marcando party como inactiva: {game_name} ({int(time_since_activity/60)} min sin actividad)')
-                    await self.party_manager.handle_end(game_name, self.config)
-                    finalized += 1
+                # 2. Si NO excedió grace period de la party, continuar
+                if time_since_activity <= grace_period_seconds:
+                    continue
+                
+                logger.debug(
+                    f'🔍 Validando party expirada: {game_name} '
+                    f'({int(time_since_activity/60)} min sin actividad)'
+                )
+                
+                # 3. Verificar estado REAL en Discord
+                is_still_active = await self.party_manager._is_still_active(session, None)
+                
+                if is_still_active:
+                    # Party SIGUE activa! Recuperar
+                    self.party_manager._update_activity(session)
+                    recovered += 1
+                    logger.info(
+                        f'♻️  Party recuperada: {game_name} '
+                        f'(seguía activa después de {int(time_since_activity/60)} min)'
+                    )
+                    continue
+                
+                # 4. Solo finalizar si realmente no está activa
+                logger.info(
+                    f'🔄 Finalizando party expirada: {game_name} '
+                    f'({int(time_since_activity/60)} min sin actividad, <2 jugadores)'
+                )
+                await self.party_manager.handle_end(game_name, self.config)
+                finalized += 1
             
             except Exception as e:
                 logger.error(f'Error revisando party {game_name}: {e}')
+        
+        if recovered > 0:
+            logger.info(f'♻️  {recovered} parties recuperadas (seguían activas)')
         
         return finalized
     

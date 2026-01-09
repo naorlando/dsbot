@@ -193,9 +193,16 @@ class GameSessionManager(BaseSessionManager):
             # No guardar tiempo ni notificar salida si la sesión no fue válida
         else:
             # Sesión válida: guardar tiempo si duró al menos 1 minuto
+            # 🚨 IMPORTANTE: NO guardar si el jugador está en una party activa de este juego
+            # (el tiempo se guardará cuando la party termine para evitar duplicados)
+            is_in_party = self.party_manager and self.party_manager.has_active_party(game_name, user_id)
+            
             if minutes >= 1:
-                save_game_time(user_id, member.display_name, game_name, minutes)
-                logger.info(f'💾 Tiempo guardado: {member.display_name} jugó {game_name} por {minutes} min ({duration_seconds:.1f}s)')
+                if is_in_party:
+                    logger.debug(f'⏭️  Tiempo NO guardado: {member.display_name} está en party de {game_name} (se guardará al finalizar party)')
+                else:
+                    save_game_time(user_id, member.display_name, game_name, minutes)
+                    logger.info(f'💾 Tiempo guardado: {member.display_name} jugó {game_name} por {minutes} min ({duration_seconds:.1f}s)')
             else:
                 logger.debug(f'⏭️  Tiempo no guardado: {member.display_name} jugó {game_name} por {duration_seconds:.1f}s (< 1 minuto)')
             
@@ -301,9 +308,10 @@ class GameSessionManager(BaseSessionManager):
         # Iniciar tracking de sesión
         set_game_session_start(session.user_id, session.username, session.game_name)
         
-        # 🎮 Verificar si hay party activa para este juego
-        if self.party_manager and self.party_manager.has_active_party(session.game_name):
-            logger.debug(f'⏭️  Notificación de game suprimida: {session.username} - {session.game_name} (party activa)')
+        # 🎮 Verificar si el usuario está EN una party activa/formándose de este juego
+        # (suprime notificación individual si ya hay party)
+        if self.party_manager and self.party_manager.has_active_party(session.game_name, session.user_id):
+            logger.debug(f'⏭️  Notificación de game suprimida: {session.username} - {session.game_name} (en party)')
             session.entry_notification_sent = False  # No notificar, pero sí trackear tiempo
             return
         

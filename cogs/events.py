@@ -51,6 +51,28 @@ class EventsCog(commands.Cog, name='Events'):
         # Recovery de sesiones de voice después de reinicio
         await self.health_check.recover_on_startup()
         
+        # 🧹 LIMPIEZA DE DATOS (ejecutar solo una vez con variable de entorno)
+        import os
+        if os.getenv('RUN_CLEANUP_PARTIES', 'false').lower() == 'true':
+            logger.warning('🧹 EJECUTANDO LIMPIEZA DE PARTIES DUPLICADAS...')
+            try:
+                from scripts.cleanup_duplicate_parties import cleanup_duplicate_parties
+                removed = cleanup_duplicate_parties('data/stats.json')
+                logger.info(f'✅ Limpieza completada! Duplicados removidos: {removed}')
+                logger.warning('⚠️  IMPORTANTE: Remover variable RUN_CLEANUP_PARTIES de Railway!')
+            except Exception as e:
+                logger.error(f'❌ Error en limpieza de datos: {e}')
+        
+        if os.getenv('RUN_FIX_SECONDS', 'false').lower() == 'true':
+            logger.warning('🧹 EJECUTANDO CORRECCIÓN DE MINUTOS/SEGUNDOS...')
+            try:
+                from scripts.fix_seconds_as_minutes import analyze_and_fix_seconds_as_minutes
+                fixed = analyze_and_fix_seconds_as_minutes('data/stats.json', dry_run=False)
+                logger.info(f'✅ Corrección completada! Entradas corregidas: {fixed}')
+                logger.warning('⚠️  IMPORTANTE: Remover variable RUN_FIX_SECONDS de Railway!')
+            except Exception as e:
+                logger.error(f'❌ Error en corrección de datos: {e}')
+        
         # Iniciar health check periódico (cada 30 min)
         self.health_check.start()
         
@@ -203,7 +225,7 @@ class EventsCog(commands.Cog, name='Events'):
             # Obtener jugadores agrupados por juego
             players_by_game = self.party_manager.get_active_players_by_game(after.guild)
             
-            # Obtener juegos con parties activas
+            # Obtener juegos con parties activas (COPIAR para evitar "Set changed size")
             active_party_games = set(self.party_manager.active_sessions.keys())
             current_games = set(players_by_game.keys())
             
@@ -212,7 +234,8 @@ class EventsCog(commands.Cog, name='Events'):
                 await self.party_manager.handle_start(game_name, players, after.guild.id, config)
             
             # Finalizar parties de juegos que ya no tienen suficientes jugadores
-            games_to_end = active_party_games - current_games
+            # 🚨 FIX: Convertir a lista para evitar "Set changed size during iteration"
+            games_to_end = list(active_party_games - current_games)
             for game_name in games_to_end:
                 await self.party_manager.handle_end(game_name, config)
             
