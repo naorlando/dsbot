@@ -32,12 +32,12 @@ class TestBufferGraciLogic(unittest.TestCase):
         self.assertLess(time_diff, 1.0)
     
     def test_verificar_gracia_dentro_del_limite(self):
-        """Verifica lógica de gracia dentro del límite (< 20 min)"""
+        """Verifica lógica de gracia dentro del límite (< 5 min)"""
         session = MockBaseSession('123', 'TestUser', 1)
-        grace_period_seconds = 1200  # 20 minutos
+        grace_period_seconds = 300  # 5 minutos
         
-        # Simular última actividad hace 15 minutos
-        session.last_activity_update = datetime.now() - timedelta(minutes=15)
+        # Simular última actividad hace 3 minutos (< 5 min)
+        session.last_activity_update = datetime.now() - timedelta(minutes=3)
         
         # Calcular tiempo desde última actividad
         time_since_last = (datetime.now() - session.last_activity_update).total_seconds()
@@ -50,9 +50,9 @@ class TestBufferGraciLogic(unittest.TestCase):
         self.assertFalse(should_close, "No debe cerrar sesión si está en gracia")
     
     def test_verificar_gracia_fuera_del_limite(self):
-        """Verifica lógica de gracia fuera del límite (> 20 min)"""
+        """Verifica lógica de gracia fuera del límite (> 5 min)"""
         session = MockBaseSession('123', 'TestUser', 1)
-        grace_period_seconds = 1200  # 20 minutos
+        grace_period_seconds = 300  # 5 minutos
         
         # Simular última actividad hace 25 minutos
         session.last_activity_update = datetime.now() - timedelta(minutes=25)
@@ -90,11 +90,11 @@ class TestBufferGraciLogic(unittest.TestCase):
         14:15 → Lobby (3 min, Discord no reporta)
         14:18 → Nueva partida
         
-        Con buffer 20 min: Sesión continúa ✅
+        Con buffer 5 min: Sesión continúa ✅
         Sin buffer: Sesión se cierra en 14:15 ❌
         """
         session = MockBaseSession('123', 'TestUser', 1)
-        grace_period_seconds = 1200  # 20 minutos
+        grace_period_seconds = 300  # 5 minutos
         
         # 14:00 - Jugando partida
         session.last_activity_update = datetime.now()

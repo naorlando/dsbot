@@ -279,7 +279,8 @@ class PartySessionManager(BaseSessionManager):
                     # Verificar cooldown POR JUGADOR (no por juego)
                     cooldown_minutes = party_config.get('cooldown_minutes', 60)
                     for player_id in list(players_new):
-                        if not check_cooldown(game_name, f'party_join_{game_name}_{player_id}', cooldown_seconds=cooldown_minutes * 60):
+                        # Cooldown por jugador individual (consistente con game sessions)
+                        if not check_cooldown(player_id, f'game:{game_name}', cooldown_seconds=cooldown_minutes * 60):
                             # Este jugador específico está en cooldown, removerlo de la lista
                             players_new.discard(player_id)
                             new_player_names = [p['username'] for p in current_players if p['user_id'] in players_new]

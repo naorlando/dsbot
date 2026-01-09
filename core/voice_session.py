@@ -142,7 +142,7 @@ class VoiceSessionManager(BaseSessionManager):
             # 2. Está habilitado en config
             # SIMPLIFICADO: notify_voice_leave usa mismo cooldown que entrada (deshabilitado por default)
             if config.get('notify_voice_leave', False) and session_is_confirmed and session.entry_notification_sent:
-                if check_cooldown(user_id, 'voice', cooldown_seconds=1200):
+                if check_cooldown(user_id, 'voice', cooldown_seconds=1800):
                     messages_config = config.get('messages', {})
                     message_template = messages_config.get('voice_leave', "🔇 **{user}** salió del canal de voz **{channel}**")
                     message = message_template.format(user=member.display_name, channel=channel.name)
@@ -184,7 +184,7 @@ class VoiceSessionManager(BaseSessionManager):
         
         # SIMPLIFICADO: Notificar cambio de canal usando mismo cooldown unificado 'voice'
         if config.get('notify_voice_move', True) and was_confirmed:
-            if check_cooldown(user_id, 'voice', cooldown_seconds=1200):
+            if check_cooldown(user_id, 'voice', cooldown_seconds=1800):
                 messages_config = config.get('messages', {})
                 message_template = messages_config.get('voice_move', "🔄 **{user}** cambió de **{old_channel}** a **{new_channel}**")
                 message = message_template.format(user=member.display_name, old_channel=before.name, new_channel=after.name)

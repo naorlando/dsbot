@@ -120,8 +120,8 @@ class SessionHealthCheck:
                         
                         self.voice_manager.active_sessions[user_id] = session
                         
-                        # Activar cooldown para evitar re-notificar (20 minutos)
-                        check_cooldown(user_id, 'voice', cooldown_seconds=1200)
+                        # Activar cooldown para evitar re-notificar (30 minutos)
+                        check_cooldown(user_id, 'voice', cooldown_seconds=1800)
                         
                         restored += 1
                         logger.info(f'♻️  Sesión de voz restaurada: {data["username"]} en {voice_channel.name}')
@@ -163,9 +163,9 @@ class SessionHealthCheck:
                         # Leer start_time ORIGINAL
                         start_time = datetime.fromisoformat(current_session['start'])
                         
-                        # Solo recuperar sesiones recientes (<2h)
+                        # Solo recuperar sesiones recientes (<4h)
                         age_hours = (datetime.now() - start_time).total_seconds() / 3600
-                        if age_hours > 2:
+                        if age_hours > 4:
                             continue
                         
                         # Buscar usuario en guilds
@@ -346,7 +346,7 @@ class SessionHealthCheck:
         finalized = 0
         recovered = 0
         now = datetime.now()
-        grace_period_seconds = 1200  # 20 minutos
+        grace_period_seconds = 300  # 5 minutos
         
         # Copiar lista para evitar modificación durante iteración
         sessions_to_check = list(self.game_manager.active_sessions.items())
@@ -422,7 +422,7 @@ class SessionHealthCheck:
         finalized = 0
         recovered = 0
         now = datetime.now()
-        grace_period_seconds = 1200  # 20 minutos
+        grace_period_seconds = 300  # 5 minutos
         
         # Copiar lista para evitar modificación durante iteración
         sessions_to_check = list(self.party_manager.active_sessions.items())
@@ -520,7 +520,7 @@ class SessionHealthCheck:
         """
         cleaned = 0
         now = datetime.now()
-        max_age_hours = 12
+        max_age_hours = 24
         
         try:
             # Limpiar game sessions huérfanas

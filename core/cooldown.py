@@ -14,9 +14,9 @@ def check_cooldown(user_id, event_key, cooldown_seconds=600):
     """
     Verifica si pasó el tiempo de cooldown desde el último evento similar.
     
-    IMPORTANTE: El cooldown se REINICIA en CADA intento (exitoso o no).
-    Esto previene spam: si un usuario intenta constantemente, debe esperar
-    cooldown_seconds SIN actividad para que notifique de nuevo.
+    El cooldown es PREDECIBLE: se cuenta desde la última notificación EXITOSA.
+    Si pasaron >cooldown_seconds desde la última notificación → Permite nueva notificación.
+    Si pasaron <cooldown_seconds → Rechaza sin actualizar el timestamp.
     
     Args:
         user_id: ID del usuario
@@ -35,10 +35,8 @@ def check_cooldown(user_id, event_key, cooldown_seconds=600):
             time_since_last = (now - last_time).total_seconds()
             
             if time_since_last < cooldown_seconds:
-                # Cooldown activo: REINICIAR contador para prevenir spam
-                stats['cooldowns'][cooldown_key] = now.isoformat()
-                save_stats()
-                logger.debug(f'🔄 Cooldown reiniciado: {cooldown_key} ({int(time_since_last)}s desde último intento < {cooldown_seconds}s)')
+                # Cooldown activo: NO actualizar timestamp (cooldown predecible)
+                logger.debug(f'⏳ En cooldown: {cooldown_key} ({int(time_since_last)}s desde última notificación < {cooldown_seconds}s)')
                 return False
         except ValueError:
             pass
