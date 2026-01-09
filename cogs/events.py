@@ -71,8 +71,8 @@ class EventsCog(commands.Cog, name='Events'):
             logger.warning('🧹 EJECUTANDO CORRECCIÓN DE MINUTOS/SEGUNDOS...')
             try:
                 from scripts.fix_seconds_as_minutes import fix_seconds_as_minutes
-                corrections = fix_seconds_as_minutes(stats_path, threshold=3000, dry_run=False)
-                logger.info(f'✅ Corrección completada! Entradas corregidas: {len(corrections)}')
+                corrections_count = fix_seconds_as_minutes(stats_path, threshold=3000, dry_run=False)
+                logger.info(f'✅ Corrección completada! Entradas corregidas: {corrections_count}')
                 logger.warning('⚠️  IMPORTANTE: Remover variable RUN_FIX_SECONDS de Railway!')
             except Exception as e:
                 logger.error(f'❌ Error en corrección de datos: {e}')
