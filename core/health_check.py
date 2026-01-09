@@ -290,10 +290,10 @@ class SessionHealthCheck:
     
     # ==================== HEALTH CHECK PERIÓDICO ====================
     
-    @tasks.loop(minutes=30)
+    @tasks.loop(minutes=5)
     async def periodic_check(self):
         """
-        Valida sesiones cada 30 minutos.
+        Valida sesiones cada 5 minutos.
         Finaliza sesiones con grace period expirado (sesiones "colgadas").
         
         NOTA: Se ejecuta inmediatamente al iniciar para detectar sesiones
@@ -586,7 +586,7 @@ class SessionHealthCheck:
         """Inicia el health check periódico"""
         if not self.periodic_check.is_running():
             self.periodic_check.start()
-            logger.info('🏥 Health check periódico iniciado (cada 30 min)')
+            logger.info('🏥 Health check periódico iniciado (cada 5 min)')
     
     def stop(self):
         """Detiene el health check periódico"""
