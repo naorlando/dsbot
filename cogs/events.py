@@ -138,15 +138,15 @@ class EventsCog(commands.Cog, name='Events'):
         before_activities = before.activities
         after_activities = after.activities
         
-        # Filtrar solo actividades de juegos (ignorar custom status)
+        # Filtrar solo actividades de juegos (ignorar custom status y Spotify)
         def get_game_activities(activities):
             return [
                 act for act in activities 
                 if act.type in [
-                    discord.ActivityType.playing, 
-                    discord.ActivityType.streaming,
-                    discord.ActivityType.watching,
-                    discord.ActivityType.listening
+                    discord.ActivityType.playing,     # Juegos
+                    discord.ActivityType.streaming,   # Streaming
+                    discord.ActivityType.watching,    # Viendo
+                    # ❌ NO incluir listening (Spotify) - no es un juego
                 ] and act.type != discord.ActivityType.custom  # Ignorar estados custom
             ]
         

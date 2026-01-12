@@ -73,7 +73,8 @@ class GameSessionManager(BaseSessionManager):
     async def handle_game_start(self, member: discord.Member, game_activity: discord.Activity, 
                                activity_type: str, config: dict):
         """
-        Maneja el inicio de un juego
+        Maneja el inicio de un juego.
+        Soporta múltiples sesiones simultáneas por usuario (diferentes juegos).
         
         Args:
             member: Miembro que empezó a jugar
@@ -85,22 +86,16 @@ class GameSessionManager(BaseSessionManager):
         game_name = game_activity.name
         app_id = getattr(game_activity, 'application_id', None)
         
-        # Si ya hay una sesión activa para este juego, actualizar actividad
-        if user_id in self.active_sessions and self.active_sessions[user_id].game_name == game_name:
-            self._update_activity(self.active_sessions[user_id])
+        # 🎮 Key compuesta: (user_id, game_name) para soportar múltiples juegos
+        session_key = (user_id, game_name)
+        
+        # Si ya hay una sesión activa para este juego específico, actualizar actividad
+        if session_key in self.active_sessions:
+            self._update_activity(self.active_sessions[session_key])
+            logger.debug(f'📊 Sesión actualizada: {member.display_name} - {game_name}')
             return
         
-        # Si ya hay una sesión activa para OTRO juego, cancelarla primero
-        if user_id in self.active_sessions:
-            existing_session = self.active_sessions[user_id]
-            if isinstance(existing_session, GameSession) and existing_session.game_name == game_name:
-                # Mismo juego, mantener sesión
-                return
-            else:
-                # Diferente juego, cancelar anterior
-                await self._cancel_session(user_id, reason="cambio de juego")
-        
-        # Crear nueva sesión
+        # Crear nueva sesión (no cancelar otras sesiones del mismo usuario)
         session = GameSession(
             user_id=user_id,
             username=member.display_name,
@@ -110,7 +105,8 @@ class GameSessionManager(BaseSessionManager):
             guild_id=member.guild.id
         )
         
-        self.active_sessions[user_id] = session
+        self.active_sessions[session_key] = session
+        logger.debug(f'🎮 Nueva sesión: {member.display_name} - {game_name} (total sesiones: {len(self.active_sessions)})')
         
         # Iniciar task de verificación en background (no bloquea)
         session.verification_task = asyncio.create_task(
@@ -119,29 +115,26 @@ class GameSessionManager(BaseSessionManager):
     
     async def handle_game_end(self, member: discord.Member, game_name: str, config: dict):
         """
-        Maneja el fin de un juego
+        Maneja el fin de un juego específico.
+        Soporta múltiples sesiones simultáneas por usuario.
         
         Args:
             member: Miembro que dejó de jugar
-            game_name: Nombre del juego
+            game_name: Nombre del juego que terminó
             config: Configuración del bot
         """
         user_id = str(member.id)
+        session_key = (user_id, game_name)
         
         logger.debug(f'🔍 handle_game_end llamado: {member.display_name} - {game_name}')
         
-        if user_id not in self.active_sessions:
+        if session_key not in self.active_sessions:
             # Si no hay sesión en manager, limpiar tracking directamente (ej. bot reinició)
             logger.debug(f'⚠️  No hay sesión activa para {member.display_name} - {game_name}')
             clear_game_session(user_id, game_name)
             return
         
-        session = self.active_sessions[user_id]
-        
-        # Verificar que es el juego correcto
-        if not isinstance(session, GameSession) or session.game_name != game_name:
-            logger.debug(f'⚠️  Sesión de {member.display_name} no coincide con juego terminado (esperado: {session.game_name}, recibido: {game_name})')
-            return
+        session = self.active_sessions[session_key]
         
         # Log de estado de sesión antes de procesarla
         time_since_start = (datetime.now() - session.start_time).total_seconds()
@@ -253,9 +246,10 @@ class GameSessionManager(BaseSessionManager):
         clear_game_session(user_id, game_name)
         
         # Eliminar sesión activa (verificación defensiva para evitar KeyError)
-        if user_id in self.active_sessions:
-            del self.active_sessions[user_id]
-            logger.debug(f'🗑️  Sesión de juego finalizada y limpiada para {member.display_name}')
+        if session_key in self.active_sessions:
+            del self.active_sessions[session_key]
+            remaining = sum(1 for k in self.active_sessions if k[0] == user_id)
+            logger.debug(f'🗑️  Sesión finalizada: {member.display_name} - {game_name} (sesiones restantes del usuario: {remaining})')
         else:
             logger.debug(f'⚠️  Sesión ya fue eliminada (probablemente por _cancel_session): {member.display_name}')
     

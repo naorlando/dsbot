@@ -63,6 +63,54 @@ def get_activity_verb(activity_type):
     return verbs.get(activity_type, activity_type)
 
 
+def get_primary_game_activity(activities):
+    """
+    Obtiene la actividad de juego principal, ignorando Spotify y actividades secundarias.
+    
+    Prioridad:
+    1. playing (juegos) - MÁS IMPORTANTE
+    2. streaming (Twitch/YouTube)
+    3. watching (viendo contenido)
+    
+    Ignora:
+    - listening (Spotify, música) - NO es un juego
+    - custom (estados personalizados)
+    
+    Args:
+        activities: Lista de discord.Activity del usuario
+        
+    Returns:
+        discord.Activity principal o None si no hay juegos
+    
+    Ejemplo:
+        activities = [
+            <Spotify: "Kanye West">,          # listening - ignorado
+            <Game: "League of Legends">,      # playing - SELECCIONADO ✅
+            <CustomActivity: "Estudiando">    # custom - ignorado
+        ]
+        → Retorna: <Game: "League of Legends">
+    """
+    if not activities:
+        return None
+    
+    # Orden de prioridad (de mayor a menor)
+    priority_order = [
+        discord.ActivityType.playing,     # Juegos (prioridad 1)
+        discord.ActivityType.streaming,   # Streaming (prioridad 2)
+        discord.ActivityType.watching,    # Viendo (prioridad 3)
+    ]
+    
+    # Buscar en orden de prioridad
+    for activity_type in priority_order:
+        for activity in activities:
+            if activity.type == activity_type:
+                # Encontramos la actividad de mayor prioridad
+                return activity
+    
+    # No hay actividades de juego
+    return None
+
+
 async def send_notification(message, bot, return_message=False):
     """Envía un mensaje al canal configurado con manejo de errores robusto
     

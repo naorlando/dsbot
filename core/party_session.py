@@ -663,11 +663,13 @@ class PartySessionManager(BaseSessionManager):
     def get_active_players_by_game(self, guild) -> Dict[str, List[Dict]]:
         """
         Obtiene jugadores activos agrupados por juego.
+        Usa prioridad de actividades para ignorar Spotify y actividades secundarias.
         
         Returns:
             Dict con formato: {game_name: [{user_id, username, activity}, ...]}
         """
         from collections import defaultdict
+        from core.helpers import get_primary_game_activity
         
         players_by_game = defaultdict(list)
         
@@ -675,21 +677,16 @@ class PartySessionManager(BaseSessionManager):
             if member.bot:
                 continue
             
-            # Obtener actividades de juego
-            for activity in member.activities:
-                if activity.type in [
-                    discord.ActivityType.playing,
-                    discord.ActivityType.streaming,
-                    discord.ActivityType.watching,
-                    discord.ActivityType.listening
-                ]:
-                    game_name = activity.name
-                    players_by_game[game_name].append({
-                        'user_id': str(member.id),
-                        'username': member.display_name,
-                        'activity': activity
-                    })
-                    break  # Solo la primera actividad válida
+            # 🎯 Obtener actividad PRINCIPAL (ignora Spotify automáticamente)
+            primary_activity = get_primary_game_activity(member.activities)
+            
+            if primary_activity:
+                game_name = primary_activity.name
+                players_by_game[game_name].append({
+                    'user_id': str(member.id),
+                    'username': member.display_name,
+                    'activity': primary_activity
+                })
         
         return dict(players_by_game)
 

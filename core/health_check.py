@@ -207,7 +207,9 @@ class SessionHealthCheck:
                         session.is_confirmed = True
                         session.entry_notification_sent = True
                         
-                        self.game_manager.active_sessions[user_id] = session
+                        # 🎮 Usar key compuesta (user_id, game_name)
+                        session_key = (user_id, game_name)
+                        self.game_manager.active_sessions[session_key] = session
                         
                         # Activar cooldown para evitar re-notificar
                         check_cooldown(game_name, f'{user_id}:game:{game_name}', cooldown_seconds=1800)
@@ -351,8 +353,11 @@ class SessionHealthCheck:
         # Copiar lista para evitar modificación durante iteración
         sessions_to_check = list(self.game_manager.active_sessions.items())
         
-        for user_id, session in sessions_to_check:
+        # 🎮 Las keys ahora son tuplas (user_id, game_name)
+        for session_key, session in sessions_to_check:
             try:
+                user_id, game_name = session_key  # Desempaquetar tupla
+                
                 # Calcular tiempo desde última actividad
                 time_since_activity = (now - session.last_activity_update).total_seconds()
                 
@@ -361,7 +366,7 @@ class SessionHealthCheck:
                     continue
                 
                 logger.debug(
-                    f'🔍 Validando sesión expirada: {session.username} - {session.game_name} '
+                    f'🔍 Validando sesión expirada: {session.username} - {game_name} '
                     f'({int(time_since_activity/60)} min sin actividad)'
                 )
                 
@@ -376,9 +381,10 @@ class SessionHealthCheck:
                         # ¡Usuario SIGUE jugando! Recuperar sesión
                         self.game_manager._update_activity(session)
                         recovered += 1
-                        logger.info(
-                            f'♻️  Sesión recuperada: {session.username} - {session.game_name} '
-                            f'(seguía jugando después de {int(time_since_activity/60)} min)'
+                        logger.debug(
+                            f'✅ Sesión activa: {session.username} - {session.game_name} '
+                            f'(jugando hace {int((now - session.start_time).total_seconds()/60)} min, '
+                            f'última verificación hace {int(time_since_activity)}s)'
                         )
                         continue
                 
@@ -393,8 +399,8 @@ class SessionHealthCheck:
                 else:
                     # Si no encontramos el member, limpiar directamente
                     logger.warning(f'⚠️  No se pudo obtener member para {user_id}, limpiando sesión')
-                    if user_id in self.game_manager.active_sessions:
-                        del self.game_manager.active_sessions[user_id]
+                    if session_key in self.game_manager.active_sessions:
+                        del self.game_manager.active_sessions[session_key]
                 
                 finalized += 1
             
@@ -402,7 +408,7 @@ class SessionHealthCheck:
                 logger.error(f'Error revisando sesión de juego {user_id}: {e}')
         
         if recovered > 0:
-            logger.info(f'♻️  {recovered} sesiones recuperadas (seguían activas)')
+            logger.debug(f'✅ {recovered} sesiones de juego validadas (siguen activas)')
         
         return finalized
     
@@ -454,12 +460,13 @@ class SessionHealthCheck:
                 is_still_active = await self.party_manager._is_still_active(session, None)
                 
                 if is_still_active:
-                    # Party SIGUE activa! Recuperar
+                    # Party SIGUE activa! Actualizar timestamp
                     self.party_manager._update_activity(session)
                     recovered += 1
-                    logger.info(
-                        f'♻️  Party recuperada: {game_name} '
-                        f'(seguía activa después de {int(time_since_activity/60)} min)'
+                    logger.debug(
+                        f'✅ Party activa: {game_name} '
+                        f'(activa hace {int((now - session.start_time).total_seconds()/60)} min, '
+                        f'última verificación hace {int(time_since_activity)}s)'
                     )
                     continue
                 
@@ -475,7 +482,7 @@ class SessionHealthCheck:
                 logger.error(f'Error revisando party {game_name}: {e}')
         
         if recovered > 0:
-            logger.info(f'♻️  {recovered} parties recuperadas (seguían activas)')
+            logger.debug(f'✅ {recovered} parties validadas (siguen activas)')
         
         return finalized
     
@@ -531,8 +538,9 @@ class SessionHealthCheck:
                     if not current_session:
                         continue
                     
-                    # Verificar si está en memoria
-                    if user_id in self.game_manager.active_sessions:
+                    # Verificar si está en memoria (usando key compuesta)
+                    session_key = (user_id, game_name)
+                    if session_key in self.game_manager.active_sessions:
                         continue  # Está activa en memoria, OK
                     
                     # Calcular antigüedad
