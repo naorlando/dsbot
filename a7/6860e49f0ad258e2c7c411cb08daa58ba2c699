@@ -1,0 +1,76 @@
+ARQUITECTURA.md
+  s_7bdbb75918fce8::t_49e94708b48c75 119
+config.json
+  s_7bdbb75918fce8::t_12a483b27e33df 46-54
+stats/commands/utils.py
+  s_7bdbb75918fce8::t_963f27d92128f8 195-202
+docs/PLAN_MEJORAS.md
+  s_7bdbb75918fce8::t_ab729e315a1ba4 80-81
+  s_7bdbb75918fce8::t_b564df4f0ba4f4 17-67
+stats/commands/social.py
+  s_7bdbb75918fce8::t_d7f94575d74f49 44,89
+  s_7bdbb75918fce8::t_efb52dd88b4fff 117
+stats/embeds.py
+  s_7bdbb75918fce8::t_c5b5dd115a8ff8 62-63
+core/health_check.py
+  s_7bdbb75918fce8::t_fb4779b5e0d7ca 351,431
+test_bot.py
+  s_7bdbb75918fce8::t_c3419ff5179c3e 901-912,914,940
+  s_7bdbb75918fce8::t_80be5708728701 898-900,913,915-939,941-957
+  s_7bdbb75918fce8::t_3b119904ad4690 872-896
+  s_7bdbb75918fce8::t_ba88b9a1eea063 1069
+README.md
+  s_7bdbb75918fce8::t_cd55d7959a1177 145,150,183,204-212,222
+  s_7bdbb75918fce8::t_89971461b175c2 148-149
+  s_7bdbb75918fce8::t_270615da6b6970 61-62,69,71-72
+cogs/events.py
+  s_7bdbb75918fce8::t_b9a3ff29d5148c 31,33-36,38-41,89-90,106-131
+docs/COMANDOS.md
+  s_7bdbb75918fce8::t_aff6f5277c5dbe 3-89
+  s_7bdbb75918fce8::t_18fec480dd814d 109-110
+stats/commands/user.py
+  s_7bdbb75918fce8::t_77b83d90d7ccd0 99
+  s_7bdbb75918fce8::t_d8d640a56f4626 165
+  s_7bdbb75918fce8::t_73822dbc3a9642 126
+cogs/config.py
+  s_7bdbb75918fce8::t_ec902e77216d79 145-150
+core/voice_session.py
+  s_7bdbb75918fce8::t_ed7997009780ac 243-245
+  s_7bdbb75918fce8::t_e6fe9de528b1e0 226
+docs/LOL_LOBBY_GAP.md
+  s_7bdbb75918fce8::t_e94cf94a6cd4a9 18-25
+core/persistence.py
+  s_7bdbb75918fce8::t_7937a2fbad78ed 66-74
+  s_7bdbb75918fce8::t_65cec4e45d7e6b 40-42,57-65,75-83
+core/party_session.py
+  s_7bdbb75918fce8::t_11e3a80165299b 124,509-514,526-527,531-533
+  s_7bdbb75918fce8::t_02851fc124b391 215
+  s_7bdbb75918fce8::t_82b6d840342ed4 153-192,322-326,403-404,453,457,472-476
+  s_7bdbb75918fce8::t_e7c1c110932d12 401,468
+  s_7bdbb75918fce8::t_5a65148739c09c 454
+docs/analisis/ENV_TEMPLATE.md
+  s_7bdbb75918fce8::t_69e1cf7a953e8d 119-135
+  s_7bdbb75918fce8::t_58587327086c4f 140
+cogs/utility.py
+  s_7bdbb75918fce8::t_66a647b650b596 257
+  s_7bdbb75918fce8::t_2c986169412d36 21,26,55
+  s_7bdbb75918fce8::t_145c5b33783188 22-25,318-319,390-391,433-434,455-458,465-468,487,490-492,495
+  s_7bdbb75918fce8::t_1daa180f49d7b4 61
+  s_7bdbb75918fce8::t_0bf98e1413a718 80-81,143,145-152,158,160-165,167-168,173,177,179-182,184,188,190-191,197,199,218,220,239,241-244,261
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "a76860e49f0ad258e2c7c411cb08daa58ba2c699",
+  "prompts": {},
+  "sessions": {
+    "s_7bdbb75918fce8": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "32f88f09-79b0-45d8-8612-ee3a6cfe8379",
+        "model": "gpt-5.5"
+      },
+      "human_author": "naorlando <naorlando@frba.utn.edu.ar>"
+    }
+  }
+}
