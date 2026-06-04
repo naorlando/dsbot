@@ -8,9 +8,8 @@ Bot de Discord que notifica actividad en tiempo real con estadísticas avanzadas
 - 🔊 **Activity en voz** - Entrada, salida y cambios de canal
 - 📊 **Estadísticas completas** - Rankings, gráficos ASCII, comparaciones
 - ⏱️ **Tracking de tiempo** - Cuánto tiempo pasan en voz por usuario
-- 🛡️ **Anti-spam** - Cooldown de 10 min para evitar notificaciones duplicadas
+- 🛡️ **Anti-spam** - Cooldowns configurables para notificaciones duplicadas
 - 💾 **Datos persistentes** - Stats nunca se pierden (Railway Volume)
-- 🎨 **Menú interactivo** - Visualizaciones con select menus y botones
 - 📺 **Sistema dual de canales** - Separa notificaciones de comandos de stats
 
 ## 🚀 Quick Start
@@ -59,18 +58,18 @@ python bot.py
 
 ```
 !setchannel         # Configura el canal de notificaciones (avisos)
-!setstatschannel    # (Opcional) Canal exclusivo para comandos de stats
-!bothelp            # Ver todos los comandos
+!setstatschannel    # (Opcional) Canal para comandos stats restringidos
+!bothelp            # Ver todos los comandos (canal stats si está configurado)
 ```
 
 ### 📺 Sistema Dual de Canales
 
 **Modo recomendado:** Separar notificaciones de comandos
 - **Canal de notificaciones** (`!setchannel #general`) - Para avisos de juegos/voz
-- **Canal de estadísticas** (`!setstatschannel #stats`) - Solo comandos de stats
+- **Canal de estadísticas** (`!setstatschannel #stats`) - Comandos stats restringidos
 
-Si configuras un canal de stats, los comandos (`!stats`, `!topgames`, etc.) **solo funcionarán ahí**.  
-Esto mantiene tu canal general limpio y organizado. 🎯
+Si configuras un canal de stats, los comandos marcados como restringidos (`!bothelp`, `!party`, `!export`, `!statsmenu`, `!topconnections`, etc.) **solo funcionarán ahí**.
+Esto ayuda a mantener tu canal general limpio y organizado. 🎯
 
 ```
 !channels  # Ver configuración actual de ambos canales
@@ -78,57 +77,60 @@ Esto mantiene tu canal general limpio y organizado. 🎯
 
 ## 📋 Comandos
 
+Lista completa y notas de alcance: **[docs/COMANDOS.md](docs/COMANDOS.md)**.
+
 ### 🔧 Configuración
 ```
 # Solo Owner 🔒
-!setchannel         - Configurar canal de notificaciones
-!setstatschannel    - Configurar canal de estadísticas
-!unsetchannel       - Desconfigurar canal de notificaciones
-!unsetstatschannel  - Desconfigurar canal de stats
+!setchannel         - Canal de notificaciones
+!setstatschannel    - Canal de estadísticas (comandos stats)
+!unsetchannel       - Quitar canal de notificaciones
+!unsetstatschannel  - Quitar canal de stats
 
-# Públicos
-!channels           - Ver configuración de canales
-!toggle             - Activar/desactivar notificaciones (menú)
-!config             - Ver configuración actual
+# Públicos (cualquier canal si no hay stats channel exclusivo)
+!channels           - Ver canales configurados
+!toggle             - Activar/desactivar notificaciones
+!config             - Ver configuración
 !test               - Mensaje de prueba
 ```
 
+### 📊 Estadísticas (canal de stats si está configurado)
+```
+!stats / !mystats       - Perfil
+!compare @user          - Comparar con otro usuario
+!wrapped [@user] [año]  - Resumen anual
+
+!topgamers              - Top por tiempo de juego (jugadores)
+!topgames / !topgame    - Rankings por juego
+!mygames                - Tus juegos
+!topvoice               - Top tiempo en voz
+!topchat                - Top mensajes (!topmessages)
+!topusers               - Top actividad
+!topreactions           - Reacciones
+!topstickers            - Stickers
+
+!partymaster            - Quién más arma parties
+!partywith / !partygames - Parties sociales
+
+!export [json|csv]      - Exportar datos
+!checkstats             - Debug del archivo stats
+```
+
+### 🎉 Parties (mismo alcance que stats)
+```
+!party [juego]          - Parties activas
+!partyhistory [periodo] - Historial
+!partystats [juego]     - Estadísticas de parties
+```
+
+### 🛠️ Ayuda
+```
+!bothelp                - Centro de ayuda (!help)
+```
+
+**Períodos** (donde aplique): `today`, `week`, `month`, `all`
+
 **Nota:** Los comandos de owner (🔒) requieren `DISCORD_OWNER_ID` configurado.
-
-### 📊 Estadísticas
-```
-!statsmenu               - Menú interactivo completo
-!stats [@user]           - Stats de un usuario
-!topgames [período]      - Ranking de juegos
-!topusers                - Usuarios más activos
-!topconnections [período] - Ranking de conexiones diarias
-!topmessages [límite]    - Top usuarios por mensajes
-!topreactions [límite]   - Top reacciones más usadas
-!topemojis [límite]      - Top emojis favoritos
-!topstickers [límite]    - Top stickers más enviados
-```
-
-### 📈 Avanzadas
-```
-!statsgames [período]  - Ranking con gráfico ASCII
-!statsvoice [período]  - Ranking actividad voz
-!timeline [días]       - Línea de tiempo (1-30 días)
-!compare @user1 @user2 - Comparar dos usuarios
-```
-
-### 🕐 Tiempo en Voz
-```
-!voicetime [@user] [período]  - Ver tiempo en voz
-!voicetop [período]           - Ranking por tiempo
-```
-
-### 🛠️ Utilidades
-```
-!export [json|csv]  - Exportar estadísticas
-!bothelp [comando]  - Ayuda detallada
-```
-
-**Períodos:** `today`, `week`, `month`, `all`
 
 ## 🌐 Deploy (Railway)
 
@@ -140,8 +142,12 @@ Esto mantiene tu canal general limpio y organizado. 🎯
 4. Configura variables:
    ```
    DISCORD_BOT_TOKEN=tu_token
+   DISCORD_OWNER_ID=tu_user_id      # Requerido para comandos owner
    DISCORD_CHANNEL_ID=id_canal        # Opcional (notificaciones)
    DISCORD_STATS_CHANNEL_ID=id_canal  # Opcional (comandos stats)
+   BOT_VERSION=vX.Y.Z                 # Opcional (texto del aviso de deploy)
+   NOTIFY_DEPLOY=true                 # Opcional (aviso al quedar online)
+   ENABLE_WRAPPED_SCHEDULER=false     # Opcional
    ```
 5. Deploy automático ✅
 
@@ -174,7 +180,7 @@ Minecraft         ████████ 21
 python test_bot.py
 ```
 
-**Cobertura:** 63/63 tests ✅
+**Cobertura:** correr `python -m pytest -q` antes de cada release.
 - Gráficos ASCII
 - Tracking de tiempo
 - Filtros por período
@@ -195,12 +201,15 @@ python test_bot.py
 
 ```
 dsbot/
-├── bot.py           # Bot principal (27 comandos)
-├── stats_viz.py     # Visualizaciones y gráficos
-├── test_bot.py      # Suite de tests
-├── config.json      # Configuración del bot
-├── railway.toml     # Config de Railway Volume
-└── requirements.txt # Dependencias
+├── bot.py                 # Entry point
+├── core/                  # Sesiones, persistencia, cooldowns, health check
+├── cogs/                  # events, config, stats (loader), utility
+├── stats/                 # commands/, data/, visualization/
+├── stats_viz.py           # Gráficos ASCII (legacy compartido)
+├── docs/COMANDOS.md       # Lista actualizada de comandos
+├── config.json / stats.json
+├── railway.toml
+└── requirements.txt
 ```
 
 ## 💡 Features Destacados
@@ -210,7 +219,7 @@ dsbot/
   - Whitelist de clases: `Game`, `Streaming`, `Activity`, `Spotify`
   - Blacklist configurable de app IDs
   - Filtro de nombres sospechosos
-- **Cooldown inteligente:** 10 min para juegos/voz, 5 min para conexiones
+- **Cooldown inteligente:** anti-spam por tipo de evento (juegos, voz, conexiones)
 - **Session tracking:** Detecta cuánto tiempo están en voz (>1 min) y jugando
 - **Conexiones diarias:** Trackea cuántas veces se conecta cada usuario con milestones
 - **Visualizaciones ASCII:** Gráficos que funcionan en Discord
@@ -225,7 +234,8 @@ La documentación del proyecto está organizada en carpetas temáticas:
 - **[docs/analisis/](docs/analisis/)** - Análisis técnicos y estudios de mejoras
 - **[docs/propuestas/](docs/propuestas/)** - Propuestas de nuevas features
 - **[docs/refactors/](docs/refactors/)** - Documentación de refactors completados
-- **[ARQUITECTURA.md](ARQUITECTURA.md)** - Arquitectura del sistema y diseño
+- **[ARQUITECTURA.md](ARQUITECTURA.md)** - Arquitectura (visión general; comandos en COMANDOS.md)
+- **[docs/PLAN_MEJORAS.md](docs/PLAN_MEJORAS.md)** - Roadmap: métricas, tracking, LoL/lobby
 - **[BUENAS_PRACTICAS.md](BUENAS_PRACTICAS.md)** - Guía de buenas prácticas
 
 ---

@@ -44,6 +44,9 @@ async def load_extensions():
         'cogs.stats',
         'cogs.utility',
     ]
+    if os.getenv('ENABLE_WRAPPED_SCHEDULER', 'false').lower() == 'true':
+        cogs.append('cogs.wrapped_event')
+        logger.info('🎁 ENABLE_WRAPPED_SCHEDULER: cargando cogs.wrapped_event')
     
     for cog in cogs:
         try:

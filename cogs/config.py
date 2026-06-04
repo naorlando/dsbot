@@ -142,7 +142,12 @@ class ConfigCog(commands.Cog, name='Configuration'):
         config['stats_channel_id'] = channel.id
         save_config()
         
-        await ctx.send(f'📊 Canal de estadísticas configurado: {channel.mention}\n💡 Los comandos de stats (`!stats`, `!topgames`, etc.) solo responderán en este canal.\n💡 **Recomendación:** Configura `DISCORD_STATS_CHANNEL_ID={channel.id}` en Railway para que nunca se pierda.')
+        await ctx.send(
+            f'📊 Canal de estadísticas configurado: {channel.mention}\n'
+            '💡 Los comandos protegidos con canal stats (`!bothelp`, `!party`, `!export`, '
+            '`!statsmenu`, `!topconnections`, etc.) solo responderán en este canal.\n'
+            f'💡 **Recomendación:** Configura `DISCORD_STATS_CHANNEL_ID={channel.id}` en Railway para que nunca se pierda.'
+        )
         logger.info(f'Canal de stats configurado: {channel.name} (ID: {channel.id})')
     
     @commands.command(name='unsetstatschannel', aliases=['removestatschannel', 'clearstatschannel'])

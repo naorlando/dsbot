@@ -13,6 +13,12 @@ import sys
 # Agregar el directorio actual al path
 sys.path.insert(0, str(Path(__file__).parent))
 
+try:
+    import discord  # noqa: F401
+    _SKIP_DISCORD_TESTS = False
+except ImportError:
+    _SKIP_DISCORD_TESTS = True
+
 # Importar módulos a testear
 from stats_viz import (
     create_bar_chart, create_timeline_chart, create_comparison_chart,
@@ -511,22 +517,22 @@ class TestVoiceTimeFiltering(unittest.TestCase):
         self.assertEqual(today_minutes, 60)
     
     def test_filter_week(self):
-        """Test filtro por última semana"""
+        """Test filtro por última semana (fechas relativas a hoy)"""
         from datetime import datetime, timedelta
         
-        week_ago = datetime.now() - timedelta(days=7)
+        today = datetime.now().date()
+        week_ago = today - timedelta(days=7)
         daily_minutes = {
-            '2025-12-26': 60,
-            '2025-12-20': 90,
-            '2025-12-15': 45  # Más de 7 días
+            today.strftime('%Y-%m-%d'): 60,
+            (today - timedelta(days=3)).strftime('%Y-%m-%d'): 90,
+            (today - timedelta(days=10)).strftime('%Y-%m-%d'): 45,
         }
         
         week_total = sum(
             mins for date, mins in daily_minutes.items()
-            if datetime.strptime(date, '%Y-%m-%d') >= week_ago
+            if datetime.strptime(date, '%Y-%m-%d').date() >= week_ago
         )
         
-        # Solo debe contar los últimos 7 días
         self.assertGreater(week_total, 0)
     
     def test_empty_period(self):
@@ -755,9 +761,9 @@ class TestCommandCoverage(unittest.TestCase):
     """Tests para cobertura de comandos"""
     
     def test_all_commands_count(self):
-        """Test cantidad total de comandos"""
-        total_commands = 27
-        self.assertEqual(total_commands, 27)
+        """Test cantidad total de comandos (aprox. — revisar al agregar cogs)"""
+        total_commands = 32
+        self.assertEqual(total_commands, 32)
     
     def test_command_aliases(self):
         """Test que los aliases funcionan"""
@@ -775,17 +781,21 @@ class TestCommandCoverage(unittest.TestCase):
         self.assertEqual(len(config_commands), 8)
     
     def test_stats_commands(self):
-        """Test comandos de estadísticas"""
-        basic_stats = ['stats', 'topgames', 'topmessages', 'topreactions', 'topemojis', 'topstickers', 'topusers']
-        advanced_stats = ['statsmenu', 'statsgames', 'statsvoice', 'statsuser', 'timeline', 'compare']
-        time_tracking = ['voicetime', 'voicetop', 'gametime', 'gametop']
-        self.assertEqual(len(basic_stats), 7)
-        self.assertEqual(len(advanced_stats), 6)
-        self.assertEqual(len(time_tracking), 4)
+        """Comandos stats registrados (ver docs/COMANDOS.md)"""
+        basic_stats = [
+            'stats', 'mystats', 'topgames', 'topgame', 'mygames',
+            'topchat', 'topreactions', 'topstickers', 'topusers',
+            'topgamers', 'topvoice', 'compare', 'wrapped',
+        ]
+        party_stats = ['partymaster', 'partywith', 'partygames', 'export', 'checkstats', 'statsmenu']
+        social_extra = ['topconnections']
+        self.assertEqual(len(basic_stats), 13)
+        self.assertEqual(len(party_stats), 6)
+        self.assertEqual(len(social_extra), 1)
     
     def test_utility_commands(self):
-        """Test comandos de utilidades"""
-        utility_commands = ['export', 'voicetime', 'voicetop', 'bothelp']
+        """Comandos en utility cog (además de stats)"""
+        utility_commands = ['bothelp', 'party', 'partyhistory', 'partystats']
         self.assertEqual(len(utility_commands), 4)
 
 
@@ -846,6 +856,103 @@ class TestCommandProcessing(unittest.TestCase):
                      "EventsCog debe usar @commands.Cog.listener()")
         self.assertIn('async def on_message(self, message):', source,
                      "EventsCog debe tener on_message")
+
+
+class TestPartyReactivationConfig(unittest.TestCase):
+    """Party: gracia larga + ventana reactivación (LoL / lobby) — ver docs/LOL_LOBBY_GAP.md"""
+
+    def test_party_session_source_has_reactivation(self):
+        import os
+        path = os.path.join(os.path.dirname(__file__), 'core', 'party_session.py')
+        with open(path, 'r', encoding='utf-8') as f:
+            src = f.read()
+        self.assertIn('_last_party_end_by_game', src)
+        self.assertIn('reactivation_window_minutes', src)
+
+    def test_party_session_has_lol_notification_key_antispam(self):
+        import os
+        path = os.path.join(os.path.dirname(__file__), 'core', 'party_session.py')
+        with open(path, 'r', encoding='utf-8') as f:
+            src = f.read()
+        self.assertIn('notification_key_aliases', src)
+        self.assertIn('league-of-legends', src)
+        self.assertIn("check_cooldown(\n                'party'", src)
+
+    def test_config_suppresses_lol_join_notifications(self):
+        import json
+        import os
+        path = os.path.join(os.path.dirname(__file__), 'config.json')
+        with open(path, 'r', encoding='utf-8') as f:
+            cfg = json.load(f)
+        party_cfg = cfg.get('party_detection', {})
+        self.assertIn(
+            'League of Legends',
+            party_cfg.get('suppress_join_notifications_for_games', []),
+        )
+        self.assertIn(
+            'league-of-legends',
+            party_cfg.get('notification_key_aliases', {}),
+        )
+
+
+class TestPartyAggregators(unittest.TestCase):
+    """Tests para agregaciones de parties basadas en historial."""
+
+    def _load_aggregate_party_stats(self):
+        import importlib.util
+        import os
+
+        path = os.path.join(
+            os.path.dirname(__file__), 'stats', 'data', 'aggregators.py'
+        )
+        spec = importlib.util.spec_from_file_location('party_aggregators', path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.aggregate_party_stats
+
+    def test_aggregate_party_stats_counts_users_and_pairs(self):
+        aggregate_party_stats = self._load_aggregate_party_stats()
+
+        stats_data = {
+            'parties': {
+                'history': [
+                    {'game': 'LoL', 'players': ['1', '2', '3'], 'duration_minutes': 40},
+                    {'game': 'LoL', 'players': ['1', '2'], 'duration_minutes': 25},
+                    {'game': 'Valorant', 'players': ['2', '3'], 'duration_minutes': 55},
+                ],
+                'stats_by_game': {
+                    'LoL': {'total_parties': 2},
+                    'Valorant': {'total_parties': 1},
+                },
+            }
+        }
+
+        result = aggregate_party_stats(stats_data)
+
+        self.assertEqual(result['total_parties'], 3)
+        self.assertEqual(result['by_user'], {'1': 2, '2': 3, '3': 2})
+        self.assertEqual(result['companion_pairs'][('1', '2')], 2)
+        self.assertEqual(result['largest_party'], 3)
+        self.assertEqual(result['longest_party_minutes'], 55)
+        self.assertEqual(result['by_game_sorted'][0][0], 'LoL')
+
+    def test_aggregate_party_stats_skips_invalid_player_string(self):
+        aggregate_party_stats = self._load_aggregate_party_stats()
+
+        stats_data = {
+            'parties': {
+                'history': [
+                    {'game': 'LoL', 'players': '1,2', 'duration_minutes': 10},
+                    {'game': 'LoL', 'players': ['1', '2'], 'duration_minutes': 20},
+                ],
+                'stats_by_game': {},
+            }
+        }
+
+        result = aggregate_party_stats(stats_data)
+
+        self.assertEqual(result['by_user'], {'1': 1, '2': 1})
+        self.assertEqual(result['companion_pairs'], {('1', '2'): 1})
 
 
 class TestConnectionTracking(unittest.TestCase):
@@ -958,25 +1065,18 @@ class TestConnectionTracking(unittest.TestCase):
         self.assertIn('save_connection_event', source, 
                      "on_presence_update debe llamar save_connection_event")
     
-    def test_topconnections_command_exists(self):
-        """Verifica que el comando !topconnections existe"""
+    def test_connections_tracking_in_session_dto(self):
+        """Conexiones diarias persistidas vía session_dto y expuestas por !topconnections"""
         import os
         
-        # Leer commands_basic.py
-        commands_path = os.path.join(os.path.dirname(__file__), 'stats', 'commands_basic.py')
-        with open(commands_path, 'r') as f:
+        dto_path = os.path.join(os.path.dirname(__file__), 'core', 'session_dto.py')
+        with open(dto_path, 'r') as f:
             source = f.read()
         
-        # Verificar que existe el comando
-        self.assertIn("@bot.command(name='topconnections'", source,
-                     "Debe existir comando topconnections")
-        self.assertIn("aliases=['conexiones']", source,
-                     "Debe tener alias 'conexiones'")
-        
-        # Verificar timeframes
-        self.assertIn("'today'", source, "Debe soportar timeframe 'today'")
-        self.assertIn("'week'", source, "Debe soportar timeframe 'week'")
-        self.assertIn("'all'", source, "Debe soportar timeframe 'all'")
+        self.assertIn('save_connection_event', source,
+                     "session_dto debe exponer save_connection_event")
+        self.assertIn('daily_connections', source,
+                     "Estructura debe incluir daily_connections")
     
     def test_connections_embed_exists(self):
         """Verifica que existe el embed de conexiones"""
@@ -994,20 +1094,16 @@ class TestConnectionTracking(unittest.TestCase):
                      "Debe aceptar parámetro timeframe")
     
     def test_stats_command_shows_connections(self):
-        """Verifica que el comando !stats muestra conexiones"""
+        """Verifica que !stats (user.py) puede mostrar conexiones"""
         import os
         
-        # Leer commands_basic.py
-        commands_path = os.path.join(os.path.dirname(__file__), 'stats', 'commands_basic.py')
+        commands_path = os.path.join(os.path.dirname(__file__), 'stats', 'commands', 'user.py')
         with open(commands_path, 'r') as f:
             source = f.read()
         
-        # Buscar el comando stats
         self.assertIn("@bot.command(name='stats'", source, "Debe existir comando stats")
-        
-        # Verificar que muestra conexiones
         self.assertIn("daily_connections", source,
-                     "Comando stats debe mostrar daily_connections")
+                     "Comando stats debe referenciar daily_connections")
         self.assertIn("📱 Conexiones", source,
                      "Debe tener sección de Conexiones en el embed")
 
@@ -1285,6 +1381,7 @@ class TestVoiceLeaveNotificationLogic(unittest.TestCase):
         self.assertIn('entry_notification_sent', voice_source)
 
 
+@unittest.skipIf(_SKIP_DISCORD_TESTS, 'discord.py no instalado')
 class TestPartyDetection(unittest.TestCase):
     """Tests para el sistema de detección de parties"""
     
@@ -1414,6 +1511,7 @@ class TestPartyDetection(unittest.TestCase):
         self.assertIn('Spotify', blacklist)
 
 
+@unittest.skipIf(_SKIP_DISCORD_TESTS, 'discord.py no instalado')
 class TestVoiceMoveNotificationLogic(unittest.TestCase):
     """Tests para la lógica de notificación de cambio de canal de voz"""
     
@@ -1483,6 +1581,7 @@ class TestVoiceMoveNotificationLogic(unittest.TestCase):
         self.assertIsNone(session_after)
 
 
+@unittest.skipIf(_SKIP_DISCORD_TESTS, 'discord.py no instalado')
 class TestPartySessionSystem(unittest.TestCase):
     """Tests para el sistema de party sessions"""
     

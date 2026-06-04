@@ -47,9 +47,6 @@ dsbot/ (4.3MB)
 │   │   ├── __pycache__/ (36KB)                  ❌ ELIMINAR
 │   │   ├── charts.py
 │   │   └── formatters.py
-│   ├── commands_advanced.py
-│   ├── commands_basic.py
-│   ├── commands_voice.py
 │   ├── embeds.py
 │   └── ui_components.py
 │
@@ -153,9 +150,6 @@ dsbot/ (3.2MB - 25% más pequeño)
 │   │   ├── charts.py
 │   │   ├── formatters.py
 │   │   └── viz.py                               ✅ stats_viz.py movido
-│   ├── commands_advanced.py
-│   ├── commands_basic.py
-│   ├── commands_voice.py
 │   ├── embeds.py
 │   └── ui_components.py
 │

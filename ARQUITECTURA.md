@@ -1,5 +1,7 @@
 # 🏗️ Arquitectura del Bot de Discord - Recorrido Completo
 
+> **Comandos:** la lista al día está en **[docs/COMANDOS.md](docs/COMANDOS.md)**. Este archivo describe capas y flujos; puede mencionar nombres de archivos antiguos en secciones no revisadas.
+
 ## 📋 Tabla de Contenidos
 
 1. [Visión General](#visión-general)
@@ -89,35 +91,37 @@
 
 ```
 dsbot/
-├── bot.py                    # 🚀 Entry point - Inicialización del bot
+├── bot.py                    # 🚀 Entry point
 │
-├── core/                     # 🔧 Módulos base (sin dependencias de Discord)
-│   ├── persistence.py       # 💾 Carga/guarda JSON (stats.json, config.json)
-│   ├── tracking.py          # 📊 Funciones de registro de eventos
-│   ├── cooldown.py          # ⏱️ Sistema anti-spam (10 min default)
-│   ├── checks.py            # ✅ Validaciones (owner, canal de stats)
-│   ├── helpers.py           # 🛠️ Utilidades (spam detection, notificaciones)
-│   └── voice_session.py     # 🔊 Gestión de sesiones de voz (nuevo sistema)
+├── core/                     # 🔧 Dominio, sesiones, persistencia
+│   ├── persistence.py       # 💾 JSON (stats, config), DATA_DIR
+│   ├── session_dto.py       # Escritura estructurada en stats
+│   ├── base_session.py      # Template de verificación 3s+7s, gracia
+│   ├── voice_session.py     # Sesiones de voz
+│   ├── game_session.py      # Sesiones de juego
+│   ├── party_session.py     # Parties (mismo juego, N jugadores)
+│   ├── health_check.py      # Recovery + tareas periódicas
+│   ├── cooldown.py          # Anti-spam persistido
+│   ├── checks.py            # Owner, stats_channel_only
+│   └── helpers.py           # Notificaciones, spam links
 │
-├── cogs/                     # 🎭 Extensiones modulares (features)
-│   ├── events.py            # 👂 Event listeners (presence, voice, messages)
-│   ├── config.py            # ⚙️ Comandos de configuración (owner-only)
-│   ├── stats.py             # 📊 Loader de comandos de estadísticas
-│   └── utility.py           # 🛠️ Comandos de utilidad (!bothelp)
+├── cogs/
+│   ├── events.py            # Listeners presence/voice/message/reaction
+│   ├── config.py            # Config owner
+│   ├── stats.py             # Registra comandos desde stats/commands/
+│   └── utility.py           # bothelp, party, partyhistory, partystats
 │
-├── stats/                     # 📈 Sistema de comandos de estadísticas
-│   ├── commands_basic.py    # 📋 Comandos básicos (!stats, !topgames, etc)
-│   ├── commands_advanced.py # 🎨 Comandos avanzados (!statsmenu, !timeline)
-│   ├── commands_voice.py    # 🔊 Comandos de voz (!voicetime, !voicetop)
-│   ├── embeds.py            # 🎨 Generación de embeds visuales
-│   └── ui_components.py     # 🖱️ Componentes interactivos (Views, Selects)
+├── stats/
+│   ├── commands/            # rankings, games, parties, user, social, utils, wrapped
+│   ├── data/                # filters, aggregators
+│   ├── visualization/     # charts, formatters
+│   ├── embeds.py
+│   └── ui_components.py     # Views usadas por !statsmenu
 │
-├── stats_viz.py              # 📊 Visualizaciones ASCII (gráficos, charts)
-├── test_bot.py              # 🧪 Suite de tests (65 tests)
+├── stats_viz.py             # Gráficos ASCII compartidos
+├── docs/COMANDOS.md         # Lista de comandos (fuente de verdad)
 │
-└── data/                     # 💾 Datos persistentes (Railway Volume)
-    ├── stats.json           # 📊 Estadísticas de usuarios
-    └── config.json          # ⚙️ Configuración del bot
+└── (Railway/local) stats.json, config.json
 ```
 
 ---
@@ -714,7 +718,7 @@ Usuario: !stats
     ↓
 @stats_channel_only() → Verificar canal
     ↓
-stats/commands_basic.py:show_stats()
+stats/commands/user.py:stats_command()
     ↓
 Leer stats['users'][user_id]
     ↓
@@ -736,7 +740,7 @@ Usuario: !statsmenu
     ↓
 @stats_channel_only() → Verificar canal
     ↓
-stats/commands_advanced.py:stats_menu()
+stats/commands/utils.py:statsmenu_command()
     ↓
 Crear StatsView (con StatsSelect + PeriodSelect)
     ↓

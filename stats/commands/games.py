@@ -200,13 +200,12 @@ def setup_game_commands(bot):
                 inline=False
             )
         
-        # TODO: Agregar stats de parties cuando esté implementado
-        # if game_stats['parties'] > 0:
-        #     embed.add_field(
-        #         name="👥 Parties",
-        #         value=f"**Parties formadas:** {game_stats['parties']}",
-        #         inline=False
-        #     )
+        if game_stats.get('parties', 0) > 0:
+            embed.add_field(
+                name="👥 Parties (historial)",
+                value=f"**Parties formadas:** {game_stats['parties']:,}",
+                inline=False
+            )
         
         embed.set_footer(text="💡 Usa !topgame <juego> para ver stats de otros juegos")
         

@@ -121,7 +121,7 @@ class PartySession(BaseSession):
     def get_active_players_count(self) -> int:
         """Retorna el número de jugadores activos (no salidos o dentro de grace)"""
         now = datetime.now()
-        grace_seconds = 1200  # 20 minutos
+        grace_seconds = self.grace_period_seconds
         
         active_count = 0
         for player in self.players.values():
@@ -139,10 +139,57 @@ class PartySession(BaseSession):
 class PartySessionManager(BaseSessionManager):
     """Gestiona sesiones de parties con verificación automática"""
     
-    def __init__(self, bot):
-        super().__init__(bot, min_duration_seconds=10)
+    def __init__(self, bot, grace_period_seconds: int = 1800):
+        """
+        grace_period_seconds: tiempo sin actividad "suficiente" antes de cerrar la party.
+        Default 30 min: cubre huecos tipo LoL (post-partida → cola) donde Discord deja de
+        mostrar a 2+ jugadores en el mismo juego y antes el party caía a 5 min de gracia.
+        """
+        super().__init__(bot, min_duration_seconds=10, grace_period_seconds=grace_period_seconds)
         self._ensure_party_structure()
         self._finalize_locks = {}  # Lock por game_name para prevenir finalize múltiple
+        # Timestamp de última party finalizada por juego (anti-spam "party formada" en re-fila)
+        self._last_party_end_by_game: Dict[str, datetime] = {}
+
+    def _notification_key(self, game_name: str, party_config: dict) -> str:
+        """
+        Clave estable para cooldown/reactivación de notificaciones.
+
+        LoL puede aparecer con variantes de nombre entre cliente/lobby/juego; para
+        anti-spam conviene tratarlas como la misma party aunque el display cambie.
+        """
+        aliases = party_config.get('notification_key_aliases', {})
+        normalized = (game_name or '').strip().lower()
+
+        for canonical_key, names in aliases.items():
+            for name in names:
+                alias = str(name).strip().lower()
+                if alias and (alias == normalized or alias in normalized):
+                    return canonical_key
+
+        if 'league of legends' in normalized or normalized == 'lol':
+            return 'league-of-legends'
+
+        return normalized or game_name
+
+    def _should_notify_player_join(self, game_name: str, party_config: dict) -> bool:
+        """Permite apagar joins para juegos ruidosos sin desactivar las parties."""
+        suppressed = party_config.get('suppress_join_notifications_for_games', [])
+        if not suppressed:
+            return True
+
+        notification_key = self._notification_key(game_name, party_config)
+        normalized_game = (game_name or '').strip().lower()
+        suppressed_keys = {
+            self._notification_key(str(name), party_config)
+            for name in suppressed
+        }
+        suppressed_names = {str(name).strip().lower() for name in suppressed}
+
+        return (
+            notification_key not in suppressed_keys
+            and normalized_game not in suppressed_names
+        )
     
     def _ensure_party_structure(self):
         """Asegura que existe la estructura de parties en stats"""
@@ -165,7 +212,7 @@ class PartySessionManager(BaseSessionManager):
         
         session = self.active_sessions[game_name]
         now = datetime.now()
-        grace_seconds = 1200  # 20 minutos
+        grace_seconds = self.grace_period_seconds
         players_removed = 0
         
         # Revisar cada jugador
@@ -272,7 +319,11 @@ class PartySessionManager(BaseSessionManager):
             
             # Si la sesión está confirmada, notificar solo jugadores NUEVOS (no returnedos)
             if session.is_confirmed:
-                if players_new and party_config.get('notify_on_join', True):
+                if (
+                    players_new
+                    and party_config.get('notify_on_join', True)
+                    and self._should_notify_player_join(game_name, party_config)
+                ):
                     # Obtener nombres de los nuevos jugadores
                     new_player_names = [p['username'] for p in current_players if p['user_id'] in players_new]
                     
@@ -347,6 +398,10 @@ class PartySessionManager(BaseSessionManager):
             # Eliminar sesión activa
             if game_name in self.active_sessions:
                 del self.active_sessions[game_name]
+
+            # Para ventana de reactivación (ej. LoL: nueva cola tras lobby)
+            notification_key = self._notification_key(game_name, config.get('party_detection', {}))
+            self._last_party_end_by_game[notification_key] = datetime.now()
             
             # Limpiar lock
             if game_name in self._finalize_locks:
@@ -395,11 +450,30 @@ class PartySessionManager(BaseSessionManager):
         Fase 1 de confirmación (después de 3s): notificar party formada.
         """
         party_config = config.get('party_detection', {})
-        
+        notification_key = self._notification_key(session.game_name, party_config)
+
+        # Reactivación: misma sesión de juego que se cerró hace poco (lobby entre partidas)
+        react_min = float(party_config.get('reactivation_window_minutes', 30))
+        last_end = self._last_party_end_by_game.get(notification_key)
+        if last_end is not None:
+            elapsed = (datetime.now() - last_end).total_seconds()
+            if elapsed < react_min * 60:
+                logger.info(
+                    f'⏭️  Party formada sin notificar (ventana reactivación {react_min:.0f} min, '
+                    f'hace {int(elapsed)}s): {session.game_name}'
+                )
+                self._create_active_party_in_stats(session.game_name, session)
+                session.entry_notification_sent = False
+                return
+
         # Notificar party formada
         if party_config.get('notify_on_formed', True):
             cooldown_minutes = party_config.get('cooldown_minutes', 10)
-            if check_cooldown(session.game_name, f'party_formed_{session.game_name}', cooldown_seconds=cooldown_minutes * 60):
+            if check_cooldown(
+                'party',
+                f'formed:{notification_key}',
+                cooldown_seconds=cooldown_minutes * 60,
+            ):
                 message = self._create_party_formed_message(session.game_name, session.player_names, party_config)
                 if message:
                     try:
@@ -432,8 +506,12 @@ class PartySessionManager(BaseSessionManager):
         mention = '@here' if party_config.get('use_here_mention', True) else ''
         players_str = ', '.join([f'**{name}**' for name in player_names])
         
-        message = template.format(game=game_name, players=players_str)
-        if mention:
+        message = template.format(
+            game=game_name,
+            players=players_str,
+            mention=mention,
+        )
+        if mention and '{mention}' not in template:
             message = f'{mention} {message}'
         
         return message
@@ -445,9 +523,14 @@ class PartySessionManager(BaseSessionManager):
                                    '🎮 **{new_players}** se unió a la party de **{game}!** ({total} jugadores)')
         
         new_players_str = ', '.join([f'**{name}**' for name in new_player_names])
+        mention = '@here ' if party_config.get('use_here_mention', True) else ''
+        verb = 'se unió' if len(new_player_names) == 1 else 'se unieron'
         
         message = template.format(
             new_players=new_players_str,
+            players=new_players_str,
+            mention=mention,
+            verb=verb,
             game=game_name,
             total=len(all_player_names)
         )

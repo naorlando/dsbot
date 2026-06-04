@@ -59,7 +59,8 @@ async def create_overview_embed(filtered_stats: Dict, period_label: str) -> disc
             unique_stickers.add(sticker)
         
         daily_connections = user_data.get('daily_connections', {})
-        total_active_days += len(daily_connections)
+        if isinstance(daily_connections, dict):
+            total_active_days += len(daily_connections.get('by_date', {}))
     
     # Resumen con TODAS las stats
     resumen_lines = [
@@ -427,6 +428,12 @@ async def create_connections_ranking_embed(filtered_stats: Dict, period_label: s
                 from datetime import timedelta
                 date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
                 count += by_date.get(date, 0)
+        elif timeframe == 'month':
+            count = 0
+            for i in range(30):
+                from datetime import timedelta
+                date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
+                count += by_date.get(date, 0)
         else:  # 'all'
             count = total
         
@@ -476,6 +483,7 @@ async def create_connections_ranking_embed(filtered_stats: Dict, period_label: s
     timeframe_labels = {
         'today': 'Hoy',
         'week': 'Esta semana',
+        'month': 'Últimos 30 días',
         'all': 'Total histórico'
     }
     

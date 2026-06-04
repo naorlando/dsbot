@@ -38,8 +38,17 @@ class GameSession(BaseSession):
 class GameSessionManager(BaseSessionManager):
     """Gestiona todas las sesiones de juego activas"""
     
-    def __init__(self, bot, party_manager: Optional['PartySessionManager'] = None):
-        super().__init__(bot, min_duration_seconds=10)
+    def __init__(
+        self,
+        bot,
+        party_manager: Optional['PartySessionManager'] = None,
+        grace_period_seconds: int = 900,
+    ):
+        """
+        grace_period_seconds: gracia antes de dar por cerrada una sesión de juego cuando
+        Discord deja de reportar la actividad (huecos tipo lobby LoL). Default 15 min.
+        """
+        super().__init__(bot, min_duration_seconds=10, grace_period_seconds=grace_period_seconds)
         self.party_manager = party_manager
     
     def set_party_manager(self, party_manager: 'PartySessionManager'):

@@ -18,7 +18,12 @@ class UtilityCog(commands.Cog, name='Utilidades'):
     def __init__(self, bot):
         self.bot = bot
         self.party_manager = PartySessionManager(bot)
-    
+
+    def _get_party_manager(self):
+        """Usa el manager runtime de EventsCog para ver parties activas reales."""
+        events_cog = self.bot.get_cog('Events')
+        return getattr(events_cog, 'party_manager', self.party_manager)
+
     @commands.command(name='bothelp', aliases=['help', 'ayuda', 'comandos'])
     @stats_channel_only()
     async def show_help(self, ctx, categoria: str = None):
@@ -47,13 +52,13 @@ class UtilityCog(commands.Cog, name='Utilidades'):
                 description='› Explora las categorías para descubrir todos los comandos disponibles',
                 color=discord.Color.dark_embed()
             )
-            
+
             embed.add_field(
                 name='',
                 value='',
                 inline=False
             )
-            
+
             embed.add_field(
                 name='📂 **Categorías**',
                 value=(
@@ -68,10 +73,12 @@ class UtilityCog(commands.Cog, name='Utilidades'):
             embed.add_field(
                 name='⚡ **Destacados**',
                 value=(
-                    '› `!statsmenu` • Menú interactivo\n'
                     '› `!stats` • Tus estadísticas\n'
+                    '› `!wrapped` • Resumen anual\n'
                     '› `!topgames` • Top juegos\n'
-                    '› `!voicetime` • Tiempo en voz'
+                    '› `!topvoice` • Ranking tiempo en voz\n'
+                    '› `!topconnections` • Ranking conexiones\n'
+                    '› `!compare` • Comparar dos usuarios'
                 ),
                 inline=True
             )
@@ -133,84 +140,63 @@ class UtilityCog(commands.Cog, name='Utilidades'):
             )
             
             embed.add_field(
-                name='📈 **Básicos**',
+                name='📈 **Rankings y perfiles**',
                 value=(
-                    '› `!stats` • Ver tu perfil\n'
-                    '› `!topgames` • Top juegos\n'
-                    '› `!topmessages` • Top mensajes\n'
-                    '› `!topreactions` • Top reacciones\n'
-                    '› `!topemojis` • Top emojis\n'
-                    '› `!topstickers` • Top stickers\n'
-                    '› `!topusers` • Top usuarios'
+                    '› `!stats` / `!mystats` • Perfil\n'
+                    '› `!topgamers` • Top por juegos\n'
+                    '› `!topvoice` • Top por voz\n'
+                    '› `!topchat` • Top mensajes (`!topmessages`)\n'
+                    '› `!topusers` • Top usuarios (actividad)\n'
+                    '› `!topgames` / `!topgame` / `!mygames` • Juegos\n'
+                    '› `!topreactions` / `!topstickers` • Social\n'
+                    '› `!topconnections` • Conexiones'
                 ),
                 inline=True
             )
             
             embed.add_field(
-                name='✨ **Avanzados**',
+                name='✨ **Parties y más**',
                 value=(
+                    '› `!partymaster` • Quién más arma parties\n'
+                    '› `!partywith` • Con quién jugás\n'
+                    '› `!partygames` • Juegos con más parties\n'
+                    '› `!party` / `!partyhistory` / `!partystats` • Activas e historial\n'
+                    '› `!compare` • Comparar usuarios\n'
+                    '› `!wrapped` • Resumen anual\n'
                     '› `!statsmenu` • Menú interactivo\n'
-                    '› `!statsgames` • Ranking juegos\n'
-                    '› `!statsvoice` • Ranking voz\n'
-                    '› `!statsuser` • Perfil detallado\n'
-                    '› `!timeline` • Línea de tiempo\n'
-                    '› `!compare` • Comparar users\n'
-                    '› `!export` • Exportar datos'
+                    '› `!export` • Exportar JSON/CSV\n'
+                    '› `!checkstats` • Info del archivo de datos'
                 ),
                 inline=True
             )
             
-            embed.set_footer(text='📅 Períodos disponibles: today, week, month, all')
+            embed.set_footer(text='💡 Voz: métricas en !stats; ranking global en !topvoice · Períodos: today, week, month, all')
             await ctx.send(embed=embed)
         
         elif categoria == 'voice':
-            # Comandos de voz
+            # Voz: no hay comandos dedicados tipo !voicetime; se usa stats + topvoice
             embed = discord.Embed(
-                title='🎙️ Comandos de Voz',
-                description='› Estadísticas de tiempo en canales de voz',
+                title='🎙️ Estadísticas de voz',
+                description=(
+                    'No hay comandos `!voicetime` / `!voicetop` en esta versión. '
+                    'Usá lo siguiente:'
+                ),
                 color=discord.Color.dark_purple()
             )
             
             embed.add_field(
-                name='',
-                value='',
+                name='📊 **Dónde ver voz**',
+                value=(
+                    '› `!stats` / `!mystats` • Tiempo y sesiones de voz en tu perfil\n'
+                    '› `!topvoice` • Ranking por tiempo en voz (alias: `!topvoz`, `!voice`)'
+                ),
                 inline=False
             )
             
             embed.add_field(
-                name='⏱️ **Comandos**',
+                name='📅 **Períodos** (donde aplique el comando)',
                 value=(
-                    '› `!voicetime` • Ver tu tiempo\n'
-                    '› `!voicetop` • Ranking global'
-                ),
-                inline=True
-            )
-            
-            embed.add_field(
-                name='📅 **Períodos**',
-                value=(
-                    '› `today` • Hoy\n'
-                    '› `week` • Semana\n'
-                    '› `month` • Mes\n'
-                    '› `all` • Todo'
-                ),
-                inline=True
-            )
-            
-            embed.add_field(
-                name='',
-                value='',
-                inline=False
-            )
-            
-            embed.add_field(
-                name='💡 **Ejemplos**',
-                value=(
-                    '```\n'
-                    '!voicetime\n'
-                    '!voicetime @Juan week\n'
-                    '!voicetop month\n'
-                    '```'
+                    '› `today` · `week` · `month` · `all`'
                 ),
                 inline=False
             )
@@ -229,7 +215,9 @@ class UtilityCog(commands.Cog, name='Utilidades'):
                 name='⚙️ **Configuración**',
                 value=(
                     '› `!setchannel` 🔒 • Configurar notificaciones\n'
+                    '› `!unsetchannel` 🔒 • Quitar notificaciones\n'
                     '› `!setstatschannel` 🔒 • Configurar stats\n'
+                    '› `!unsetstatschannel` 🔒 • Quitar stats\n'
                     '› `!channels` • Ver canales\n'
                     '› `!toggle` • Activar/desactivar\n'
                     '› `!config` • Ver configuración\n'
@@ -248,31 +236,31 @@ class UtilityCog(commands.Cog, name='Utilidades'):
             )
             
             embed2.add_field(
-                name='📈 **Básicos**',
+                name='📈 **Stats · rankings**',
                 value=(
-                    '› `!stats` • Perfil de usuario\n'
-                    '› `!topgames` • Top juegos\n'
-                    '› `!topmessages` • Top mensajes\n'
-                    '› `!topreactions` • Top reacciones\n'
-                    '› `!topemojis` • Top emojis\n'
-                    '› `!topstickers` • Top stickers\n'
-                    '› `!topusers` • Top usuarios'
+                    '› `!stats` · `!mystats` · `!compare` · `!wrapped`\n'
+                    '› `!topgamers` · `!topvoice` · `!topchat` · `!topusers`\n'
+                    '› `!topgames` · `!topgame` · `!mygames`\n'
+                    '› `!topreactions` · `!topstickers` · `!topconnections`'
                 ),
-                inline=True
+                inline=False
             )
             
             embed2.add_field(
-                name='✨ **Avanzados**',
+                name='🎉 **Parties**',
                 value=(
-                    '› `!statsmenu` • Menú interactivo\n'
-                    '› `!statsgames` • Ranking juegos\n'
-                    '› `!statsvoice` • Ranking voz\n'
-                    '› `!statsuser` • Perfil detallado\n'
-                    '› `!timeline` • Línea de tiempo\n'
-                    '› `!compare` • Comparar users\n'
-                    '› `!export` • Exportar datos'
+                    '› `!partymaster` · `!partywith` · `!partygames`\n'
+                    '› `!party` · `!partyhistory` · `!partystats`'
                 ),
-                inline=True
+                inline=False
+            )
+
+            embed2.add_field(
+                name='🛠️ **Utilidades stats**',
+                value=(
+                    '› `!statsmenu` · `!export` · `!checkstats`'
+                ),
+                inline=False
             )
             
             await ctx.send(embed=embed2)
@@ -287,8 +275,8 @@ class UtilityCog(commands.Cog, name='Utilidades'):
             embed3.add_field(
                 name='🎙️ **Voz**',
                 value=(
-                    '› `!voicetime` • Tu tiempo en voz\n'
-                    '› `!voicetop` • Ranking por tiempo'
+                    '› Ver tiempo en `!stats` / `!mystats`\n'
+                    '› Ranking: `!topvoice`'
                 ),
                 inline=True
             )
@@ -327,7 +315,8 @@ class UtilityCog(commands.Cog, name='Utilidades'):
         - !party - Muestra todas las parties activas
         - !party Valorant - Muestra quién está jugando Valorant
         """
-        active_parties = self.party_manager.get_active_parties()
+        party_manager = self._get_party_manager()
+        active_parties = party_manager.get_active_parties()
         
         if not active_parties:
             await ctx.send('🎮 No hay parties activas en este momento')
@@ -398,7 +387,8 @@ class UtilityCog(commands.Cog, name='Utilidades'):
             await ctx.send('⚠️ Timeframe inválido. Usa: today, week, month, all')
             return
         
-        history = self.party_manager.get_party_history(timeframe, limit=10)
+        party_manager = self._get_party_manager()
+        history = party_manager.get_party_history(timeframe, limit=10)
         
         if not history:
             await ctx.send(f'🎮 No hay historial de parties para **{timeframe}**')
@@ -440,7 +430,8 @@ class UtilityCog(commands.Cog, name='Utilidades'):
         - !partystats - Muestra stats de todos los juegos
         - !partystats Valorant - Muestra stats de un juego específico
         """
-        all_stats = self.party_manager.get_game_stats()
+        party_manager = self._get_party_manager()
+        all_stats = party_manager.get_game_stats()
         
         if not all_stats:
             await ctx.send('🎮 No hay estadísticas de parties disponibles')
@@ -461,17 +452,20 @@ class UtilityCog(commands.Cog, name='Utilidades'):
                 return
             
             stats = all_stats[matching_game]
-            avg_players = stats['total_players_sum'] / stats['total_parties'] if stats['total_parties'] > 0 else 0
+            total_parties = stats.get('total_parties', 0)
+            total_duration = stats.get('total_duration_minutes', 0)
+            max_players = stats.get('max_players_ever', stats.get('max_players_record', 0))
+            unique_players = len(stats.get('total_unique_players', []))
             
             embed = discord.Embed(
                 title=f'🎮 Stats de Parties - {matching_game}',
                 color=discord.Color.gold()
             )
             
-            embed.add_field(name='🎯 Total Parties', value=str(stats['total_parties']), inline=True)
-            embed.add_field(name='⏱️ Tiempo Total', value=f'{stats["total_duration_minutes"]} min', inline=True)
-            embed.add_field(name='👥 Récord Jugadores', value=str(stats['max_players_record']), inline=True)
-            embed.add_field(name='📊 Promedio Jugadores', value=f'{avg_players:.1f}', inline=True)
+            embed.add_field(name='🎯 Total Parties', value=str(total_parties), inline=True)
+            embed.add_field(name='⏱️ Tiempo Total', value=f'{total_duration} min', inline=True)
+            embed.add_field(name='👥 Récord Jugadores', value=str(max_players), inline=True)
+            embed.add_field(name='👤 Jugadores Únicos', value=str(unique_players), inline=True)
             
             # Top duplas
             if stats.get('most_frequent_pairs'):
@@ -490,13 +484,15 @@ class UtilityCog(commands.Cog, name='Utilidades'):
         )
         
         # Top juegos por número de parties
-        top_games = sorted(all_stats.items(), key=lambda x: x[1]['total_parties'], reverse=True)[:10]
+        top_games = sorted(all_stats.items(), key=lambda x: x[1].get('total_parties', 0), reverse=True)[:10]
         
         for game_name, stats in top_games:
-            avg_players = stats['total_players_sum'] / stats['total_parties'] if stats['total_parties'] > 0 else 0
+            total_parties = stats.get('total_parties', 0)
+            total_duration = stats.get('total_duration_minutes', 0)
+            max_players = stats.get('max_players_ever', stats.get('max_players_record', 0))
             embed.add_field(
                 name=f'{game_name}',
-                value=f'🎯 {stats["total_parties"]} parties | ⏱️ {stats["total_duration_minutes"]} min | 👥 Avg {avg_players:.1f}',
+                value=f'🎯 {total_parties} parties | ⏱️ {total_duration} min | 👥 Récord {max_players}',
                 inline=False
             )
         

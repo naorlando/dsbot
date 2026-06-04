@@ -7,7 +7,14 @@ from unittest.mock import MagicMock, patch, mock_open
 import json
 from datetime import datetime
 
+try:
+    import discord  # noqa: F401
+    _SKIP_DISCORD = False
+except ImportError:
+    _SKIP_DISCORD = True
 
+
+@unittest.skipIf(_SKIP_DISCORD, 'discord.py requerido (pip install discord.py)')
 class TestWrappedCalculations(unittest.TestCase):
     """Tests para los cálculos del wrapped"""
     
@@ -167,6 +174,7 @@ class TestWrappedCalculations(unittest.TestCase):
         self.assertGreater(len(embed.fields), 0)
 
 
+@unittest.skipIf(_SKIP_DISCORD, 'discord.py requerido (pip install discord.py)')
 class TestWrappedFiltering(unittest.TestCase):
     """Tests para filtrado por año"""
     
@@ -195,6 +203,7 @@ class TestWrappedFiltering(unittest.TestCase):
         self.assertEqual(stats['total_hours'], 5.0)
 
 
+@unittest.skipIf(_SKIP_DISCORD, 'discord.py requerido (pip install discord.py)')
 class TestWrappedEdgeCases(unittest.TestCase):
     """Tests para casos límite"""
     

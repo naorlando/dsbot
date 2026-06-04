@@ -18,6 +18,9 @@
     "blacklisted_app_ids": [
         "1435707463935594496"
     ],
+    "game_session": {
+        "grace_period_seconds": 900
+    },
     "messages": {
         "game_start": "🎮 **{user}** está {verb} **{activity}**",
         "voice_join": "🔊 **{user}** entró al canal de voz **{channel}**",
@@ -35,10 +38,20 @@
     "party_detection": {
         "enabled": true,
         "min_players": 2,
+        "grace_period_seconds": 1800,
         "notify_on_formed": true,
         "notify_on_join": true,
         "cooldown_minutes": 60,
-        "reactivation_window_minutes": 30,
+        "reactivation_window_minutes": 45,
+        "suppress_join_notifications_for_games": [
+            "League of Legends"
+        ],
+        "notification_key_aliases": {
+            "league-of-legends": [
+                "League of Legends",
+                "LoL"
+            ]
+        },
         "use_here_mention": true,
         "blacklisted_games": [
             "Spotify",

@@ -23,10 +23,24 @@ logger = logging.getLogger('dsbot')
 class VoiceSession(BaseSession):
     """Representa una sesión de voz activa"""
     
-    def __init__(self, user_id: str, username: str, channel_id: int, channel_name: str, guild_id: int):
+    def __init__(
+        self,
+        user_id: str,
+        username: str,
+        channel_id: int,
+        channel_name: str,
+        guild_id: int,
+        voice_continuation: bool = False,
+    ):
         super().__init__(user_id, username, guild_id)
         self.channel_id = channel_id
         self.channel_name = channel_name
+        # True si el usuario viene de otro canal de voz (misma presencia continua)
+        self.voice_continuation = voice_continuation
+        if voice_continuation:
+            # Ya estuvo en voz confirmado antes: habilita notify de salida aunque el join
+            # al nuevo canal quede silenciado por cooldown (anti-spam del move).
+            self.entry_notification_sent = True
 
 
 class VoiceSessionManager(BaseSessionManager):
@@ -35,7 +49,14 @@ class VoiceSessionManager(BaseSessionManager):
     def __init__(self, bot):
         super().__init__(bot, min_duration_seconds=10)
     
-    async def handle_start(self, member: discord.Member, channel: discord.VoiceChannel, config: dict):
+    async def handle_start(
+        self,
+        member: discord.Member,
+        channel: discord.VoiceChannel,
+        config: dict,
+        *,
+        continuation_from_voice_move: bool = False,
+    ):
         """
         Maneja la entrada de un usuario a un canal de voz
         
@@ -43,6 +64,7 @@ class VoiceSessionManager(BaseSessionManager):
             member: Miembro que entró
             channel: Canal de voz
             config: Configuración del bot
+            continuation_from_voice_move: True si viene de handle_voice_move tras sesión ya confirmada
         """
         user_id = str(member.id)
         
@@ -56,7 +78,8 @@ class VoiceSessionManager(BaseSessionManager):
             username=member.display_name,
             channel_id=channel.id,
             channel_name=channel.name,
-            guild_id=member.guild.id
+            guild_id=member.guild.id,
+            voice_continuation=continuation_from_voice_move,
         )
         
         self.active_sessions[user_id] = session
@@ -66,7 +89,14 @@ class VoiceSessionManager(BaseSessionManager):
             self._verify_session(session, member, config)
         )
     
-    async def handle_end(self, member: discord.Member, channel: discord.VoiceChannel, config: dict):
+    async def handle_end(
+        self,
+        member: discord.Member,
+        channel: discord.VoiceChannel,
+        config: dict,
+        *,
+        skip_grace: bool = False,
+    ):
         """
         Maneja la salida de un usuario de un canal de voz
         
@@ -74,6 +104,8 @@ class VoiceSessionManager(BaseSessionManager):
             member: Miembro que salió
             channel: Canal de voz (el que dejó)
             config: Configuración del bot
+            skip_grace: True cuando el usuario dejó el voice por completo (no es move).
+                Evita dejar sesión huérfana si la gracia retrasa el cierre.
         """
         user_id = str(member.id)
         
@@ -84,13 +116,17 @@ class VoiceSessionManager(BaseSessionManager):
         
         session = self.active_sessions[user_id]
         
-        # Verificar que es el canal correcto
+        # Desincronización canal (reconexiones / estados raros): limpiar sin dejar huérfano
         if session.channel_id != channel.id:
-            logger.debug(f'⚠️  Sesión de {member.display_name} no coincide con canal de salida')
+            logger.warning(
+                f'⚠️  Sesión/canal desincronizado ({session.channel_id} vs {channel.id}) '
+                f'— forzando cierre para {member.display_name}'
+            )
+            await self._force_cleanup_mismatched_session(user_id, session, member, channel, config)
             return
         
-        # Buffer de gracia: Verificar si realmente salió o es desconexión temporal
-        if self._is_in_grace_period(session):
+        # Gracia solo para flickers; al cortar voice del todo, finalizar siempre
+        if not skip_grace and self._is_in_grace_period(session):
             logger.info(f'⏳ Sesión de voz en gracia: {member.display_name} - {channel.name}')
             return
         
@@ -160,6 +196,34 @@ class VoiceSessionManager(BaseSessionManager):
         else:
             logger.debug(f'⚠️  Sesión ya fue eliminada (probablemente por _cancel_session): {member.display_name}')
     
+    async def _force_cleanup_mismatched_session(
+        self,
+        user_id: str,
+        session: VoiceSession,
+        member: discord.Member,
+        channel: discord.VoiceChannel,
+        config: dict,
+    ):
+        """Canal de sesión ≠ canal del evento: evita sesión huérfana en memoria."""
+        if session.verification_task and not session.verification_task.done():
+            session.verification_task.cancel()
+        if session.notification_message:
+            try:
+                await session.notification_message.delete()
+            except discord.errors.NotFound:
+                pass
+            except Exception as e:
+                logger.error(f'Error borrando notificación (mismatch): {e}')
+        duration_seconds = session.duration_seconds()
+        session_is_valid = duration_seconds >= self.min_duration_seconds or session.is_confirmed
+        if session_is_valid and int(duration_seconds / 60) >= 1:
+            save_voice_time(user_id, member.display_name, int(duration_seconds / 60), session.channel_name)
+            logger.info(f'💾 Tiempo guardado (mismatch cleanup): {member.display_name} en {session.channel_name}')
+        clear_voice_session(user_id)
+        remove_voice_notification(user_id)
+        self.active_sessions.pop(user_id, None)
+        logger.debug(f'🗑️  Sesión forzada limpiada (mismatch) para {member.display_name}')
+
     async def handle_voice_move(self, member: discord.Member, before: discord.VoiceChannel, after: discord.VoiceChannel, config: dict):
         """
         Maneja el cambio de canal de voz
@@ -176,15 +240,19 @@ class VoiceSessionManager(BaseSessionManager):
         old_session = self.active_sessions.get(user_id)
         was_confirmed = old_session.is_confirmed if old_session else False
         
-        # Tratar como salida del canal anterior
-        await self.handle_end(member, before, config)
+        # El move cierra el tramo anterior: no aplicar gracia porque luego se crea
+        # una sesión nueva y _cancel_session no guarda tiempo acumulado.
+        await self.handle_end(member, before, config, skip_grace=True)
         
-        # Tratar como entrada al canal nuevo
-        await self.handle_start(member, after, config)
+        # Entrada al canal nuevo: si ya llevaba voz confirmada, marcar continuidad para que
+        # el join silenciado por cooldown no deje entry_notification_sent=False y rompa el leave.
+        await self.handle_start(
+            member, after, config, continuation_from_voice_move=was_confirmed
+        )
         
-        # SIMPLIFICADO: Notificar cambio de canal usando mismo cooldown unificado 'voice'
+        # Cooldown propio para move: no roba el bucket 'voice' del join al canal nuevo
         if config.get('notify_voice_move', True) and was_confirmed:
-            if check_cooldown(user_id, 'voice', cooldown_seconds=1800):
+            if check_cooldown(user_id, 'voice_move', cooldown_seconds=1800):
                 messages_config = config.get('messages', {})
                 message_template = messages_config.get('voice_move', "🔄 **{user}** cambió de **{old_channel}** a **{new_channel}**")
                 message = message_template.format(user=member.display_name, old_channel=before.name, new_channel=after.name)
@@ -225,7 +293,8 @@ class VoiceSessionManager(BaseSessionManager):
         # Notificar entrada con cooldown (20 minutos)
         if config.get('notify_voice', True):
             if check_cooldown(session.user_id, 'voice', cooldown_seconds=1200):
-                increment_voice_count(session.user_id, session.username)
+                if not session.voice_continuation:
+                    increment_voice_count(session.user_id, session.username)
                 
                 messages_config = config.get('messages', {})
                 message_template = messages_config.get('voice_join', "🔊 **{user}** entró al canal de voz **{channel}**")
@@ -242,10 +311,12 @@ class VoiceSessionManager(BaseSessionManager):
                 logger.info(f'🔊 Notificación enviada: {session.username} en {session.channel_name}')
             else:
                 logger.debug(f'⏭️  Notificación de entrada no enviada: {session.username} - {session.channel_name} (cooldown activo)')
-                session.entry_notification_sent = False  # No se envió por cooldown
+                if not session.voice_continuation:
+                    session.entry_notification_sent = False
         else:
             logger.debug(f'⏭️  Notificación de entrada no enviada: {session.username} - {session.channel_name} (notify_voice deshabilitado)')
-            session.entry_notification_sent = False  # No se envió porque está deshabilitado
+            if not session.voice_continuation:
+                session.entry_notification_sent = False
     
     async def _on_session_confirmed_phase2(self, session: BaseSession, member: discord.Member, config: dict):
         """Callback cuando la sesión es confirmada después de 10s"""
@@ -259,5 +330,5 @@ class VoiceSessionManager(BaseSessionManager):
         await self.handle_start(member, channel, config)
     
     async def handle_voice_leave(self, member: discord.Member, channel: discord.VoiceChannel, config: dict):
-        """Alias para handle_end (compatibilidad)"""
-        await self.handle_end(member, channel, config)
+        """Alias para handle_end (compatibilidad) — salida total de voz."""
+        await self.handle_end(member, channel, config, skip_grace=True)

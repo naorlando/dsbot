@@ -8,10 +8,13 @@ from discord.ext import commands
 import json
 
 from core.persistence import STATS_FILE
+from core.checks import stats_channel_only
 from ..visualization import (
     create_bar_chart,
     format_large_number
 )
+from ..embeds import create_connections_ranking_embed
+from stats_viz import get_period_label
 
 
 def setup_social_commands(bot):
@@ -38,7 +41,7 @@ def setup_social_commands(bot):
         for user_id, user_data in stats_data.get('users', {}).items():
             username = user_data.get('username', 'Unknown')
             reactions = user_data.get('reactions', {})
-            count = reactions.get('count', 0)
+            count = reactions.get('total', 0) or reactions.get('count', 0)
             
             if count > 0:
                 reaction_stats.append((username, count))
@@ -83,7 +86,7 @@ def setup_social_commands(bot):
         for user_id, user_data in stats_data.get('users', {}).items():
             username = user_data.get('username', 'Unknown')
             stickers = user_data.get('stickers', {})
-            count = stickers.get('count', 0)
+            count = stickers.get('total', 0) or stickers.get('count', 0)
             
             if count > 0:
                 sticker_stats.append((username, count))
@@ -105,4 +108,27 @@ def setup_social_commands(bot):
         )
         
         await ctx.send(f"```{chart}```")
+
+    @bot.command(name='topconnections', aliases=['conexiones'])
+    @stats_channel_only()
+    async def topconnections_command(ctx, timeframe: str = 'week'):
+        """
+        📱 Ranking de conexiones diarias (offline → online)
+
+        Uso: !topconnections [today|week|month|all]
+        """
+        tf = timeframe.lower().strip()
+        valid = ('today', 'week', 'month', 'all')
+        if tf not in valid:
+            await ctx.send(f"❌ Período inválido. Usa: {', '.join(valid)}")
+            return
+        try:
+            with open(STATS_FILE, 'r', encoding='utf-8') as f:
+                stats_data = json.load(f)
+        except Exception as e:
+            await ctx.send(f"❌ Error al cargar estadísticas: {e}")
+            return
+        label = get_period_label(tf)
+        embed = await create_connections_ranking_embed(stats_data, label, timeframe=tf)
+        await ctx.send(embed=embed)
 

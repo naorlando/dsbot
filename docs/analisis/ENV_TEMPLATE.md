@@ -106,10 +106,37 @@ DISCORD_STATS_CHANNEL_ID=canal_stats_aqui
 
 ---
 
+### `ENABLE_WRAPPED_SCHEDULER` **(opcional, default: false)**
+
+Si es `true`, carga el cog `cogs.wrapped_event` y ejecuta la tarea que puede enviar el wrapped automático el 31/12 (según la lógica del cog). Si no la necesitás, dejala sin definir.
+
+```env
+ENABLE_WRAPPED_SCHEDULER=true
+```
+
+---
+
+### `BOT_VERSION` / `NOTIFY_DEPLOY` **(opcionales)**
+
+Al iniciar, el bot envía una notificación al canal configurado avisando que el deploy quedó activo. Usa `BOT_VERSION` como etiqueta visible; si no existe, intenta usar el commit de Railway.
+
+```env
+BOT_VERSION=v2026.06.03
+NOTIFY_DEPLOY=true
+```
+
+Para desactivar ese aviso:
+
+```env
+NOTIFY_DEPLOY=false
+```
+
+---
+
 ## 💡 Tips
 
 - **Múltiples Owners:** Puedes agregar varios owners separándolos por comas (sin espacios o con espacios, ambos funcionan).
 - **Canales:** Los IDs de canales también se pueden configurar con comandos (`!setchannel`, `!setstatschannel`), pero las variables de entorno son más persistentes.
-- **Railway:** Las variables de Railway tienen prioridad sobre `config.json` para evitar perder configuración en redeploys.
+- **Railway:** Las variables de Railway tienen prioridad para IDs de canales. El resto de ajustes (por ejemplo `party_detection` y `game_session`) vive en `config.json` del volumen `/data`.
 - **Seguridad:** Los IDs de usuario son permanentes (no cambian aunque el usuario cambie su nombre o tag).
 

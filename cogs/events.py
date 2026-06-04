@@ -28,10 +28,17 @@ class EventsCog(commands.Cog, name='Events'):
     
     def __init__(self, bot):
         self.bot = bot
+        self.deploy_notification_sent = False
         # Sistema centralizado de gestión de sesiones
+        party_cfg = config.get('party_detection', {})
+        game_cfg = config.get('game_session', {})
+        party_grace = int(party_cfg.get('grace_period_seconds', 1800))
+        game_grace = int(game_cfg.get('grace_period_seconds', 900))
         self.voice_manager = VoiceSessionManager(bot)
-        self.party_manager = PartySessionManager(bot)
-        self.game_manager = GameSessionManager(bot, party_manager=self.party_manager)
+        self.party_manager = PartySessionManager(bot, grace_period_seconds=party_grace)
+        self.game_manager = GameSessionManager(
+            bot, party_manager=self.party_manager, grace_period_seconds=game_grace
+        )
         
         # Recovery de sesiones + Health check periódico
         self.health_check = SessionHealthCheck(
@@ -79,6 +86,8 @@ class EventsCog(commands.Cog, name='Events'):
         
         # Iniciar health check periódico (cada 30 min)
         self.health_check.start()
+
+        await self._send_deploy_notification_once()
         
         # Verificar que el canal de notificaciones esté configurado
         channel_id = get_channel_id()
@@ -94,6 +103,32 @@ class EventsCog(commands.Cog, name='Events'):
         else:
             logger.warning('⚠️  Canal de notificaciones no configurado')
             logger.info('💡 Configura DISCORD_CHANNEL_ID en variables de entorno o usa !setchannel')
+
+    async def _send_deploy_notification_once(self):
+        """Notifica una vez por proceso que el deploy quedó activo."""
+        if self.deploy_notification_sent:
+            return
+
+        import os
+
+        if os.getenv('NOTIFY_DEPLOY', 'true').lower() != 'true':
+            self.deploy_notification_sent = True
+            return
+
+        version = (
+            os.getenv('BOT_VERSION')
+            or os.getenv('RAILWAY_GIT_COMMIT_SHA', '')[:7]
+            or 'nueva versión'
+        )
+        message = (
+            f'🚀 **Deploy activo** · `{version}`\n'
+            'El bot ya se encuentra online con la nueva versión.'
+        )
+
+        sent = await send_notification(message, self.bot)
+        if sent is not None:
+            logger.info(f'🚀 Notificación de deploy enviada: {version}')
+        self.deploy_notification_sent = True
     
     @commands.Cog.listener()
     async def on_presence_update(self, before, after):
@@ -257,9 +292,9 @@ class EventsCog(commands.Cog, name='Events'):
         if not before.channel and after.channel:
             await self.voice_manager.handle_start(member, after.channel, config)
         
-        # Salida de canal de voz
+        # Salida de canal de voz (corte total: no aplicar gracia que deje sesión colgada)
         elif before.channel and not after.channel:
-            await self.voice_manager.handle_end(member, before.channel, config)
+            await self.voice_manager.handle_end(member, before.channel, config, skip_grace=True)
         
         # Cambio de canal de voz
         elif before.channel and after.channel and before.channel != after.channel:

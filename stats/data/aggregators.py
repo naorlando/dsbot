@@ -39,6 +39,18 @@ def aggregate_game_stats(stats_data: Dict) -> Dict[str, Dict]:
         game_stats[game]['player_count'] = len(players)
         game_stats[game]['player_list'] = list(players)
         del game_stats[game]['players']
+
+    # Parties por juego (stats['parties']['stats_by_game'])
+    for gname, pdata in stats_data.get('parties', {}).get('stats_by_game', {}).items():
+        if gname not in game_stats:
+            game_stats[gname] = {
+                'minutes': 0,
+                'count': 0,
+                'player_count': 0,
+                'player_list': [],
+                'parties': 0,
+            }
+        game_stats[gname]['parties'] = pdata.get('total_parties', 0) if isinstance(pdata, dict) else 0
     
     return game_stats
 
@@ -102,24 +114,49 @@ def aggregate_game_time_by_user(stats_data: Dict) -> List[Tuple[str, int, int, i
 
 def aggregate_party_stats(stats_data: Dict) -> Dict:
     """
-    Agrega estadísticas de parties
-    
-    Args:
-        stats_data: Datos completos de stats
-        
-    Returns:
-        Dict con estadísticas de parties
+    Agrega estadísticas desde stats['parties'] (history + stats_by_game).
     """
-    # TODO: Implementar cuando se agreguen stats de parties al JSON
-    party_stats = {
-        'total_parties': 0,
-        'by_game': {},
-        'by_user': {},
-        'largest_party': 0,
-        'longest_party_minutes': 0
+    parties_root = stats_data.get('parties') or {}
+    history = parties_root.get('history') or []
+    stats_by_game = parties_root.get('stats_by_game') or {}
+
+    by_user: Dict[str, int] = {}
+    companion_pairs: Dict[Tuple[str, str], int] = {}
+
+    for entry in history:
+        players = entry.get('players') or []
+        if isinstance(players, str):
+            continue
+        ids = [str(p) for p in players]
+        for uid in ids:
+            by_user[uid] = by_user.get(uid, 0) + 1
+        for i in range(len(ids)):
+            for j in range(i + 1, len(ids)):
+                a, b = sorted((ids[i], ids[j]))
+                key = (a, b)
+                companion_pairs[key] = companion_pairs.get(key, 0) + 1
+
+    largest = 0
+    longest_min = 0
+    for entry in history:
+        largest = max(largest, len(entry.get('players') or []))
+        longest_min = max(longest_min, entry.get('duration_minutes', 0) or 0)
+
+    by_game_sorted = sorted(
+        stats_by_game.items(),
+        key=lambda x: x[1].get('total_parties', 0) if isinstance(x[1], dict) else 0,
+        reverse=True,
+    )
+
+    return {
+        'total_parties': len(history),
+        'by_game': stats_by_game,
+        'by_game_sorted': by_game_sorted,
+        'by_user': by_user,
+        'companion_pairs': companion_pairs,
+        'largest_party': largest,
+        'longest_party_minutes': longest_min,
     }
-    
-    return party_stats
 
 
 def aggregate_message_stats(stats_data: Dict) -> List[Tuple[str, int, int]]:
@@ -275,6 +312,13 @@ def get_game_stats_detailed(stats_data: Dict, game_name: str) -> Dict:
     Returns:
         Dict con estadísticas detalladas del juego
     """
+    sg = (
+        stats_data.get('parties', {})
+        .get('stats_by_game', {})
+        .get(game_name, {})
+    )
+    party_count = sg.get('total_parties', 0) if isinstance(sg, dict) else 0
+
     result = {
         'total_minutes': 0,
         'total_sessions': 0,
@@ -283,7 +327,7 @@ def get_game_stats_detailed(stats_data: Dict, game_name: str) -> Dict:
         'top_players': [],
         'first_played': None,
         'last_played': None,
-        'parties': 0  # TODO: Implementar cuando tengamos stats de parties
+        'parties': party_count,
     }
     
     players = []

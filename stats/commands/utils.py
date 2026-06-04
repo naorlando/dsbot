@@ -14,6 +14,9 @@ from io import StringIO
 
 from core.persistence import stats, STATS_FILE, DATA_DIR
 from core.checks import stats_channel_only
+from stats_viz import filter_by_period, get_period_label
+from ..embeds import create_overview_embed
+from ..ui_components import StatsView
 
 logger = logging.getLogger('dsbot')
 
@@ -182,4 +185,24 @@ def setup_utils_commands(bot: commands.Bot):
         except Exception as e:
             logger.error(f'Error verificando stats.json: {e}', exc_info=True)
             await ctx.send(f'❌ Error: {str(e)}')
+
+    @bot.command(name='statsmenu', aliases=['menu_stats', 'statspanel'])
+    @stats_channel_only()
+    async def statsmenu_command(ctx):
+        """
+        📊 Menú interactivo: rankings, timeline y períodos (select menus).
+        """
+        try:
+            with open(STATS_FILE, 'r', encoding='utf-8') as f:
+                stats_data = json.load(f)
+        except Exception as e:
+            await ctx.send(f'❌ Error al cargar estadísticas: {e}')
+            return
+
+        filtered = filter_by_period(stats_data, 'all')
+        period_label = get_period_label('all')
+        embed = await create_overview_embed(filtered, period_label)
+        view = StatsView(period='all')
+        msg = await ctx.send(embed=embed, view=view)
+        view.message = msg
 

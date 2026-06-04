@@ -96,7 +96,7 @@ def setup_user_commands(bot):
                 value="*Sin actividad de gaming*",
                 inline=False
             )
-        
+
         # 🔊 VOZ
         voice = user_data.get('voice', {})
         if voice.get('total_minutes', 0) > 0 or voice.get('count', 0) > 0:
@@ -123,7 +123,7 @@ def setup_user_commands(bot):
                 value="*Sin actividad de voz*",
                 inline=False
             )
-        
+
         # 💬 MENSAJES
         messages = user_data.get('messages', {})
         if messages.get('count', 0) > 0:
@@ -144,9 +144,9 @@ def setup_user_commands(bot):
         
         # 😄 REACCIONES
         reactions = user_data.get('reactions', {})
-        if reactions.get('count', 0) > 0:
-            react_count = reactions.get('count', 0)
-            reactions_text = f"😄 **Reacciones:** {format_large_number(react_count)}"
+        react_total = reactions.get('total', 0) or reactions.get('count', 0)
+        if react_total > 0:
+            reactions_text = f"😄 **Reacciones:** {format_large_number(react_total)}"
             
             embed.add_field(
                 name="😄 Reacciones",
@@ -154,6 +154,15 @@ def setup_user_commands(bot):
                 inline=True
             )
         
+        # 📱 CONEXIONES (offline → online en el día)
+        dc = user_data.get('daily_connections', {})
+        if isinstance(dc, dict) and dc.get('total', 0) > 0:
+            embed.add_field(
+                name="📱 Conexiones",
+                value=f"**Total registrado:** {format_large_number(dc.get('total', 0))} (apariciones online)",
+                inline=True
+            )
+
         # Footer con comandos relacionados
         embed.set_footer(text="💡 Usa !mygames para ver tu top de juegos | !compare @usuario para comparar")
         

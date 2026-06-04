@@ -7,87 +7,130 @@ import discord
 from discord.ext import commands
 import json
 
-from ..visualization import (
-    create_ranking_visual,
-    format_time,
-    format_list_with_commas
-)
+from core.persistence import STATS_FILE
+from ..data.aggregators import aggregate_party_stats
+from ..visualization import format_time
 
 
 def setup_party_commands(bot):
     """Registra los comandos de parties"""
-    
+
     @bot.command(name='partymaster', aliases=['topparties', 'partyking'])
     async def partymaster_command(ctx):
         """
-        👥 Top usuarios por parties formadas
-        
-        Uso: !partymaster
-        
-        Muestra quién ha jugado más en party
+        👥 Usuarios con más participaciones en parties (historial)
         """
-        # TODO: Implementar cuando tengamos stats de parties en JSON
+        try:
+            with open(STATS_FILE, 'r', encoding='utf-8') as f:
+                stats_data = json.load(f)
+        except Exception as e:
+            await ctx.send(f"❌ Error al cargar estadísticas: {e}")
+            return
+
+        ap = aggregate_party_stats(stats_data)
+        by_user = ap.get('by_user') or {}
+        if not by_user:
+            await ctx.send("📊 Aún no hay parties registradas en el historial.")
+            return
+
+        users = stats_data.get('users', {})
+        ranked = sorted(by_user.items(), key=lambda x: x[1], reverse=True)[:15]
+        lines = []
+        for i, (uid, count) in enumerate(ranked, 1):
+            name = users.get(uid, {}).get('username', f'ID {uid}')
+            lines.append(f"{i}. **{name}** — {count} parties")
+
         embed = discord.Embed(
-            title="🚧 Próximamente",
-            description=(
-                "Este comando estará disponible pronto!\n\n"
-                "**Mostrará:**\n"
-                "• Top usuarios por parties formadas\n"
-                "• Tiempo total en party\n"
-                "• Juegos favoritos para party\n\n"
-                "Mientras tanto, usa `!party` para ver parties activas."
-            ),
-            color=discord.Color.orange()
+            title='👑 Partymaster',
+            description='Top por veces que apareciste en una party (historial).',
+            color=discord.Color.gold(),
         )
+        embed.add_field(name='Ranking', value='\n'.join(lines[:10]), inline=False)
+        if len(lines) > 10:
+            embed.add_field(name='…', value='\n'.join(lines[10:]), inline=False)
+        embed.set_footer(text=f"Total parties en historial: {ap.get('total_parties', 0)}")
         await ctx.send(embed=embed)
-    
-    
+
     @bot.command(name='partywith', aliases=['partywho'])
-    async def partywith_command(ctx, *, username: str = None):
+    async def partywith_command(ctx, member: discord.Member = None):
         """
-        👥 Con quién has jugado más en party
-        
-        Uso: !partywith [usuario]
-        
-        Sin usuario: muestra tu top companions
-        Con usuario: muestra stats de parties con ese usuario
+        👥 Con quién compartiste más parties (mismo historial)
         """
-        # TODO: Implementar cuando tengamos stats de parties en JSON
+        target = member or ctx.author
+        try:
+            with open(STATS_FILE, 'r', encoding='utf-8') as f:
+                stats_data = json.load(f)
+        except Exception as e:
+            await ctx.send(f"❌ Error al cargar estadísticas: {e}")
+            return
+
+        uid = str(target.id)
+        ap = aggregate_party_stats(stats_data)
+        pairs = ap.get('companion_pairs') or {}
+        users_map = stats_data.get('users', {})
+
+        # Parejas donde participó uid
+        companions = []
+        for (a, b), cnt in pairs.items():
+            other = None
+            if a == uid:
+                other = b
+            elif b == uid:
+                other = a
+            if other is not None:
+                oname = users_map.get(other, {}).get('username', f'ID {other}')
+                companions.append((oname, cnt))
+
+        companions.sort(key=lambda x: x[1], reverse=True)
+        if not companions:
+            await ctx.send(
+                f"📊 No hay datos de companions en parties para **{target.display_name}**."
+            )
+            return
+
+        lines = [f"{i}. **{name}** — {c} parties" for i, (name, c) in enumerate(companions[:12], 1)]
         embed = discord.Embed(
-            title="🚧 Próximamente",
-            description=(
-                "Este comando estará disponible pronto!\n\n"
-                "**Mostrará:**\n"
-                "• Tus compañeros de party más frecuentes\n"
-                "• Juegos que jugaron juntos\n"
-                "• Tiempo total en party\n"
-                "• Última party juntos\n"
-            ),
-            color=discord.Color.orange()
+            title=f'🤝 Party companions — {target.display_name}',
+            description='Basado en historial de parties.',
+            color=discord.Color.purple(),
         )
+        embed.add_field(name='Top', value='\n'.join(lines), inline=False)
         await ctx.send(embed=embed)
-    
-    
+
     @bot.command(name='partygames', aliases=['toppartygames'])
     async def partygames_command(ctx):
         """
-        🎮 Juegos más jugados en party
-        
-        Uso: !partygames
-        
-        Muestra qué juegos son más populares para parties
+        🎮 Juegos con más parties formadas (stats_by_game)
         """
-        # TODO: Implementar cuando tengamos stats de parties en JSON
+        try:
+            with open(STATS_FILE, 'r', encoding='utf-8') as f:
+                stats_data = json.load(f)
+        except Exception as e:
+            await ctx.send(f"❌ Error al cargar estadísticas: {e}")
+            return
+
+        ap = aggregate_party_stats(stats_data)
+        sorted_g = ap.get('by_game_sorted') or []
+        if not sorted_g:
+            await ctx.send("📊 No hay estadísticas de parties por juego todavía.")
+            return
+
+        rows = []
+        for game_name, data in sorted_g[:12]:
+            if not isinstance(data, dict):
+                continue
+            tp = data.get('total_parties', 0)
+            dm = data.get('total_duration_minutes', 0)
+            mx = data.get('max_players_ever', 0)
+            rows.append((game_name, tp, dm, mx))
+
+        lines = [
+            f"**{g}** — {tp} parties · {format_time(dm)} · récord {mx} jug."
+            for g, tp, dm, mx in rows
+        ]
         embed = discord.Embed(
-            title="🚧 Próximamente",
-            description=(
-                "Este comando estará disponible pronto!\n\n"
-                "**Mostrará:**\n"
-                "• Juegos con más parties formadas\n"
-                "• Promedio de jugadores por party\n"
-                "• Tiempo total en party por juego\n"
-            ),
-            color=discord.Color.orange()
+            title='🎮 Juegos con más parties',
+            description='\n'.join(lines),
+            color=discord.Color.blue(),
         )
         await ctx.send(embed=embed)
-

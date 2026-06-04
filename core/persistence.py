@@ -37,6 +37,9 @@ def load_config():
             "game_activity_types": ["playing", "streaming", "watching", "listening"],
             "game_min_duration_seconds": 10,
             "blacklisted_app_ids": [],
+            "game_session": {
+                "grace_period_seconds": 900
+            },
             "messages": {
                 "game_start": "🎮 **{user}** está {verb} **{activity}**",
                 "game_end": "🎮 **{user}** dejó de jugar **{game}**",
@@ -51,6 +54,33 @@ def load_config():
                 "initial_delay": 30,
                 "max_delay": 300,
                 "exponential_base": 2
+            },
+            "party_detection": {
+                "enabled": True,
+                "min_players": 2,
+                "grace_period_seconds": 1800,
+                "notify_on_formed": True,
+                "notify_on_join": True,
+                "cooldown_minutes": 60,
+                "reactivation_window_minutes": 45,
+                "suppress_join_notifications_for_games": [
+                    "League of Legends"
+                ],
+                "notification_key_aliases": {
+                    "league-of-legends": [
+                        "League of Legends",
+                        "LoL"
+                    ]
+                },
+                "use_here_mention": True,
+                "blacklisted_games": [
+                    "Spotify",
+                    "YouTube",
+                    "Chrome",
+                    "Visual Studio Code"
+                ],
+                "message_template_formed": "🎮 {mention}¡Party de **{game}** formada! {players} están jugando juntos",
+                "message_template_join": "🎮 {mention}{players} {verb} a la party de **{game}** ({total} jugadores)"
             }
         }
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
