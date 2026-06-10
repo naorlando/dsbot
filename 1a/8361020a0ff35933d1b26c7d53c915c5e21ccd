@@ -1,0 +1,29 @@
+cogs/events.py
+  s_7bdbb75918fce8::t_137f2fc1b6a487 51-63,244-245,247-250
+docs/analisis/ENV_TEMPLATE.md
+  s_7bdbb75918fce8::t_d30424438f96fa 141
+test_bot.py
+  s_7bdbb75918fce8::t_a67356722af56d 898-925
+README.md
+  s_7bdbb75918fce8::t_ba2959ad72aa5d 221
+config.json
+  s_7bdbb75918fce8::t_eb2a28013550b8 21-44
+core/persistence.py
+  s_7bdbb75918fce8::t_e8a24f380c895a 40-63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "1a8361020a0ff35933d1b26c7d53c915c5e21ccd",
+  "prompts": {},
+  "sessions": {
+    "s_7bdbb75918fce8": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "32f88f09-79b0-45d8-8612-ee3a6cfe8379",
+        "model": "gpt-5.5"
+      },
+      "human_author": "naorlando <naorlando@frba.utn.edu.ar>"
+    }
+  }
+}
