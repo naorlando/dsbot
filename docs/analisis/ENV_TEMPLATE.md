@@ -138,5 +138,6 @@ NOTIFY_DEPLOY=false
 - **Múltiples Owners:** Puedes agregar varios owners separándolos por comas (sin espacios o con espacios, ambos funcionan).
 - **Canales:** Los IDs de canales también se pueden configurar con comandos (`!setchannel`, `!setstatschannel`), pero las variables de entorno son más persistentes.
 - **Railway:** Las variables de Railway tienen prioridad para IDs de canales. El resto de ajustes (por ejemplo `party_detection` y `game_session`) vive en `config.json` del volumen `/data`.
+- **Emuladores:** Si Discord muestra un emulador pero no notifica, agregá su nombre a `allowed_no_app_id_games` en `config.json` del volumen `/data`.
 - **Seguridad:** Los IDs de usuario son permanentes (no cambian aunque el usuario cambie su nombre o tag).
 

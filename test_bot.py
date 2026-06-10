@@ -895,6 +895,34 @@ class TestPartyReactivationConfig(unittest.TestCase):
         )
 
 
+class TestEmulatorActivityDetection(unittest.TestCase):
+    """Emuladores: Discord puede mostrarlos como Game/playing sin application_id."""
+
+    def test_config_has_emulator_allowlist(self):
+        import json
+        import os
+
+        path = os.path.join(os.path.dirname(__file__), 'config.json')
+        with open(path, 'r', encoding='utf-8') as f:
+            cfg = json.load(f)
+
+        allowed = cfg.get('allowed_no_app_id_games', [])
+        self.assertIn('RetroArch', allowed)
+        self.assertIn('Dolphin', allowed)
+        self.assertIn('PCSX2', allowed)
+
+    def test_events_allows_no_app_id_games_by_allowlist(self):
+        import os
+
+        path = os.path.join(os.path.dirname(__file__), 'cogs', 'events.py')
+        with open(path, 'r', encoding='utf-8') as f:
+            src = f.read()
+
+        self.assertIn('_is_allowed_no_app_id_activity', src)
+        self.assertIn('allowed_no_app_id_games', src)
+        self.assertIn('Emulador/actividad sin app_id permitida', src)
+
+
 class TestPartyAggregators(unittest.TestCase):
     """Tests para agregaciones de parties basadas en historial."""
 

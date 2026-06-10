@@ -218,6 +218,7 @@ dsbot/
 - **Juegos verificados:** Filtro multicapa que solo trackea actividades legítimas
   - Whitelist de clases: `Game`, `Streaming`, `Activity`, `Spotify`
   - Blacklist configurable de app IDs
+  - Allowlist configurable para emuladores sin app ID (`allowed_no_app_id_games`)
   - Filtro de nombres sospechosos
 - **Cooldown inteligente:** anti-spam por tipo de evento (juegos, voz, conexiones)
 - **Session tracking:** Detecta cuánto tiempo están en voz (>1 min) y jugando

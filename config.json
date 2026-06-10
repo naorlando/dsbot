@@ -18,6 +18,30 @@
     "blacklisted_app_ids": [
         "1435707463935594496"
     ],
+    "allowed_no_app_id_games": [
+        "RetroArch",
+        "Dolphin",
+        "PCSX2",
+        "RPCS3",
+        "Ryujinx",
+        "Yuzu",
+        "Citra",
+        "PPSSPP",
+        "DuckStation",
+        "Project64",
+        "mGBA",
+        "melonDS",
+        "DeSmuME",
+        "Snes9x",
+        "VisualBoyAdvance",
+        "MAME",
+        "Cemu",
+        "Xenia",
+        "AetherSX2",
+        "BlueStacks",
+        "LDPlayer",
+        "NoxPlayer"
+    ],
     "game_session": {
         "grace_period_seconds": 900
     },

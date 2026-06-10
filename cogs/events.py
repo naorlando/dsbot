@@ -48,6 +48,19 @@ class EventsCog(commands.Cog, name='Events'):
             party_manager=self.party_manager,
             config=config
         )
+
+    def _is_allowed_no_app_id_activity(self, game_name: str) -> bool:
+        """Permite emuladores conocidos que Discord muestra sin application_id."""
+        normalized = (game_name or '').strip().lower()
+        if not normalized:
+            return False
+
+        for allowed_name in config.get('allowed_no_app_id_games', []):
+            allowed = str(allowed_name).strip().lower()
+            if allowed and (allowed == normalized or allowed in normalized):
+                return True
+
+        return False
     
     @commands.Cog.listener()
     async def on_ready(self):
@@ -228,10 +241,13 @@ class EventsCog(commands.Cog, name='Events'):
             # 4. Verificar application_id (usar getattr para evitar crash con Spotify)
             app_id = getattr(game_activity, 'application_id', None)
             
-            # Solo Spotify puede no tener app_id (se maneja diferente)
+            # Emuladores conocidos suelen figurar como Game/playing sin app_id.
+            # Los permitimos por allowlist, pero seguimos ignorando custom statuses.
             if not app_id and activity_class != 'Spotify':
-                logger.debug(f'🚫 Actividad sin application_id ignorada: "{game_name}" (clase: {activity_class}, usuario: {after.display_name})')
-                continue
+                if not self._is_allowed_no_app_id_activity(game_name):
+                    logger.debug(f'🚫 Actividad sin application_id ignorada: "{game_name}" (clase: {activity_class}, usuario: {after.display_name})')
+                    continue
+                logger.info(f'🎮 Emulador/actividad sin app_id permitida: "{game_name}" (clase: {activity_class}, usuario: {after.display_name})')
             
             # 5. Verificar contra blacklist configurable
             blacklisted_apps = config.get('blacklisted_app_ids', [])
