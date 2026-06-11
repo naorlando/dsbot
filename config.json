@@ -88,4 +88,4 @@
         "message_template_join": "🎮 {mention}{players} {verb} a la party de **{game}** ({total} jugadores)"
     }
 }
-
+ 
