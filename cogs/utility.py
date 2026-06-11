@@ -8,6 +8,7 @@ import logging
 
 from core.checks import stats_channel_only
 from core.party_session import PartySessionManager
+from core.updates import load_update_sections
 
 logger = logging.getLogger('dsbot')
 
@@ -65,6 +66,7 @@ class UtilityCog(commands.Cog, name='Utilidades'):
                     '› `!help config` • Configuración (owner)\n'
                     '› `!help stats` • Estadísticas\n'
                     '› `!help voice` • Comandos de voz\n'
+                    '› `!updates` • Últimas novedades\n'
                     '› `!help all` • Ver todo'
                 ),
                 inline=True
@@ -285,6 +287,7 @@ class UtilityCog(commands.Cog, name='Utilidades'):
                 name='🛠️ **Utilidades**',
                 value=(
                     '› `!bothelp` • Ver ayuda\n'
+                    '› `!updates` • Últimas novedades\n'
                     '› `!channels` • Ver canales'
                 ),
                 inline=True
@@ -304,6 +307,38 @@ class UtilityCog(commands.Cog, name='Utilidades'):
                 f'❌ Categoría `{categoria}` no encontrada.\n'
                 f'Usa: `!help` (general), `!help config`, `!help stats`, `!help voice`, o `!help all`'
             )
+
+    @commands.command(name='updates', aliases=['update', 'novedades', 'changelog'])
+    @stats_channel_only()
+    async def show_updates(self, ctx, limit: int = 3):
+        """
+        Muestra las últimas novedades curadas del bot.
+
+        Uso:
+        - !updates
+        - !updates 5
+        """
+        limit = max(1, min(limit, 5))
+        sections = load_update_sections(limit)
+
+        if not sections:
+            await ctx.send('ℹ️ No hay novedades documentadas todavía.')
+            return
+
+        embed = discord.Embed(
+            title='🚀 Últimas novedades del bot',
+            description='Cambios resumidos para usuarios del servidor.',
+            color=discord.Color.dark_teal()
+        )
+
+        for title, lines in sections:
+            value = '\n'.join(lines[:8])
+            if len(value) > 1000:
+                value = value[:997] + '...'
+            embed.add_field(name=title, value=value or 'Sin detalles.', inline=False)
+
+        embed.set_footer(text='Tip: usá !updates 5 para ver más entradas')
+        await ctx.send(embed=embed)
     
     @commands.command(name='party', aliases=['parties'])
     @stats_channel_only()

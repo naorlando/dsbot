@@ -19,6 +19,7 @@ from core.party_session import PartySessionManager
 from core.health_check import SessionHealthCheck
 from core.cooldown import check_cooldown
 from core.helpers import is_link_spam, get_activity_verb, send_notification
+from core.updates import format_latest_update_for_deploy
 
 logger = logging.getLogger('dsbot')
 
@@ -133,10 +134,15 @@ class EventsCog(commands.Cog, name='Events'):
             or os.getenv('RAILWAY_GIT_COMMIT_SHA', '')[:7]
             or 'nueva versión'
         )
-        message = (
+        latest_update = format_latest_update_for_deploy()
+        message_parts = [
             f'🚀 **Deploy activo** · `{version}`\n'
             'El bot ya se encuentra online con la nueva versión.'
-        )
+        ]
+        if latest_update:
+            message_parts.append(latest_update)
+        message_parts.append('Usá `!updates` para leer más novedades.')
+        message = '\n\n'.join(message_parts)
 
         sent = await send_notification(message, self.bot)
         if sent is not None:

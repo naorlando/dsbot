@@ -95,6 +95,7 @@ Los comandos sin columna de alcance en esta sección son **general** en el códi
 | Comando | Aliases | Alcance |
 |---------|---------|--------|
 | `bothelp` | help, ayuda, comandos | stats |
+| `updates` | update, novedades, changelog | stats |
 | `party` | parties | stats |
 | `partyhistory` | partyhist | stats |
 | `partystats` | — | stats |

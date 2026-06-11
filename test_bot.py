@@ -6,6 +6,7 @@ Incluye tests para visualizaciones, estadísticas y funcionalidades core
 import unittest
 import json
 import os
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 import sys
@@ -762,8 +763,8 @@ class TestCommandCoverage(unittest.TestCase):
     
     def test_all_commands_count(self):
         """Test cantidad total de comandos (aprox. — revisar al agregar cogs)"""
-        total_commands = 32
-        self.assertEqual(total_commands, 32)
+        total_commands = 33
+        self.assertEqual(total_commands, 33)
     
     def test_command_aliases(self):
         """Test que los aliases funcionan"""
@@ -795,8 +796,42 @@ class TestCommandCoverage(unittest.TestCase):
     
     def test_utility_commands(self):
         """Comandos en utility cog (además de stats)"""
-        utility_commands = ['bothelp', 'party', 'partyhistory', 'partystats']
-        self.assertEqual(len(utility_commands), 4)
+        utility_commands = ['bothelp', 'updates', 'party', 'partyhistory', 'partystats']
+        self.assertEqual(len(utility_commands), 5)
+
+
+class TestUpdatesHelpers(unittest.TestCase):
+    """Tests para novedades curadas del bot"""
+
+    def test_load_update_sections_reads_markdown_sections(self):
+        from core.updates import load_update_sections
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            updates_path = Path(tmpdir) / 'UPDATES.md'
+            updates_path.write_text(
+                '# Updates\n\n'
+                '## 2026-06-10 · Nuevo comando\n\n'
+                '- Se agregó `!updates`.\n'
+                '- Lee novedades curadas.\n\n'
+                '## 2026-06-09 · Fix\n\n'
+                '- Se corrigió algo.\n',
+                encoding='utf-8'
+            )
+
+            sections = load_update_sections(limit=1, updates_path=updates_path)
+
+        self.assertEqual(len(sections), 1)
+        self.assertEqual(sections[0][0], '2026-06-10 · Nuevo comando')
+        self.assertEqual(sections[0][1], ['- Se agregó `!updates`.', '- Lee novedades curadas.'])
+
+    def test_format_latest_update_for_deploy_includes_latest_title(self):
+        from core.updates import format_latest_update_for_deploy
+
+        message = format_latest_update_for_deploy(max_items=2)
+
+        self.assertIsNotNone(message)
+        self.assertIn('Última novedad', message)
+        self.assertIn('Emuladores detectados', message)
 
 
 class TestCommandProcessing(unittest.TestCase):

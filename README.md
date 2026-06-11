@@ -114,6 +114,7 @@ Lista completa y notas de alcance: **[docs/COMANDOS.md](docs/COMANDOS.md)**.
 
 !export [json|csv]      - Exportar datos
 !checkstats             - Debug del archivo stats
+!updates                - Últimas novedades del bot
 ```
 
 ### 🎉 Parties (mismo alcance que stats)
@@ -126,6 +127,7 @@ Lista completa y notas de alcance: **[docs/COMANDOS.md](docs/COMANDOS.md)**.
 ### 🛠️ Ayuda
 ```
 !bothelp                - Centro de ayuda (!help)
+!updates                - Últimas novedades (!novedades)
 ```
 
 **Períodos** (donde aplique): `today`, `week`, `month`, `all`
