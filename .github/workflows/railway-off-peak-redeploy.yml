@@ -1,0 +1,26 @@
+name: Railway off-peak redeploy
+
+on:
+  schedule:
+    # Railway Free blocks deploys in this region from 08:00 to 20:00 ET.
+    # Run shortly after the window closes and let GitHub handle DST.
+    - cron: "23 20 * * *"
+      timezone: "America/New_York"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: railway-off-peak-redeploy
+  cancel-in-progress: false
+
+jobs:
+  redeploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Redeploy the Railway worker
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: npx --yes @railway/cli@5.52.0 redeploy --service worker --yes

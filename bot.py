@@ -77,9 +77,12 @@ except discord.errors.PrivilegedIntentsRequired:
     logger.error('Habilita "Presence Intent" y "Server Members Intent" en:')
     logger.error('https://discord.com/developers/applications')
     logger.error('Bot Settings > Privileged Gateway Intents')
+    raise
 except discord.errors.LoginFailure:
     logger.error('❌ ERROR: Token inválido')
     logger.error('Verifica que DISCORD_BOT_TOKEN sea correcto')
+    raise
 except Exception as e:
     logger.error(f'❌ ERROR inesperado: {e}')
+    raise
 
