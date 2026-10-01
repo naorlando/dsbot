@@ -86,6 +86,12 @@ class UtilityCog(commands.Cog, name='Utilidades'):
             )
             
             embed.set_footer(text='💡 Tip: Usa !help [categoría] para ver comandos específicos')
+            if self.bot.get_cog('Asistente'):
+                embed.add_field(
+                    name='🤖 Asistente ligero',
+                    value='`!ask pregunta` • Charla y métricas\n`!buscar consulta` • Web con fuentes\nSólo en el canal habilitado; sin historial.',
+                    inline=False
+                )
             await ctx.send(embed=embed)
         
         elif categoria == 'config':

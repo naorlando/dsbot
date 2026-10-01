@@ -1,0 +1,26 @@
+name: Lightweight assistant tests
+
+on:
+  pull_request:
+    paths: ["core/assistant.py", "cogs/assistant.py", "tests/test_assistant*.py", "bot.py", "requirements.txt", ".github/workflows/assistant-tests.yml"]
+  push:
+    branches: [main]
+    paths: ["core/assistant.py", "cogs/assistant.py", "tests/test_assistant*.py", "bot.py", "requirements.txt", ".github/workflows/assistant-tests.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python -m unittest discover -s tests -p 'test_assistant*.py'
+      - run: python -m compileall -q core/assistant.py cogs/assistant.py bot.py

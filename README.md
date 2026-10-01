@@ -77,6 +77,12 @@ Esto ayuda a mantener tu canal general limpio y organizado. 🎯
 
 ## 📋 Comandos
 
+### 🤖 Asistente opcional y liviano
+
+`!ask pregunta` consulta un agente de sólo lectura; `!buscar consulta` hace una
+búsqueda web explícita con fuentes. Apagado por defecto, sin modelos locales ni historial.
+Ver [alternativas, costos, límites y configuración](docs/ASISTENTE_LIGHT.md).
+
 Lista completa y notas de alcance: **[docs/COMANDOS.md](docs/COMANDOS.md)**.
 
 ### 🔧 Configuración
