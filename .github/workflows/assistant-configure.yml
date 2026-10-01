@@ -1,0 +1,35 @@
+name: Boton manual metrics configuration
+
+on:
+  workflow_dispatch:
+    inputs:
+      share_metrics:
+        description: "Allow summarized Discord activity/names to reach the configured LLM (owner opt-in)"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: boton-manual-config
+  cancel-in-progress: false
+
+jobs:
+  configure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover -s tests -p test_assistant_configure.py
+      - name: Set only the requested flag, without deploying
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          AI_SHARE_METRICS: ${{ inputs.share_metrics && 'true' || 'false' }}
+        run: python -m scripts.deploy.configure_assistant

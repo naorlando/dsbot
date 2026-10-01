@@ -5,12 +5,14 @@ versión opcional; sin claves y sin `AI_ENABLED=true` el bot conserva su comport
 
 ## Qué hace
 
-- `!ask ¿Quién jugó más esta semana?` / `!pregunta ...`: conversación breve y herramientas de métricas.
+- `!boton ¿Quién jugó más esta semana?` / `!ask ...` / `!pregunta ...`: conversación breve; Botón elige una herramienta permitida.
 - `!ask ¿Cuánto tiempo jugué hoy?`: datos de quien pregunta, sin identificadores enviados al modelo.
+- `!boton ¿Qué comando muestra el ranking de voz esta semana?`: consulta la ayuda pública incluida en el deploy.
+- `!boton ¿Qué novedades tenés?`: consulta las novedades del bot.
 - `!buscar ¿Cómo salió Boca contra River el 27 de septiembre de 2026?`: una búsqueda web explícita con fuentes.
 - `!buscar ¿Cuánto está el dólar blue hoy en Argentina?`: búsqueda, no recomendación financiera.
 
-No escucha conversaciones, no lee historial, no recibe audio y no responde a cada
+No escucha conversaciones, no lee el historial del canal, no recibe audio y no responde a cada
 mensaje. Invocación por comando de texto. No hay SQL libre, ejecución de código,
 escritura de estadísticas, archivos, compras, mensajes privados ni navegación libre.
 Las futuras herramientas deben ser funciones permitidas con argumentos validados.
@@ -39,7 +41,8 @@ sin páginas completas, sin respuesta generada por Tavily y sin parámetros auto
 que puedan cambiar el costo. Tope local: 20 búsquedas/día y 600/mes. No habilitar
 pay-as-you-go ni recarga automática en el proveedor para un piloto gratis.
 
-La búsqueda sólo ocurre con `!buscar`, sobre el texto que escribió el usuario.
+La búsqueda ocurre con `!buscar` o cuando Botón elige `search_web` desde `!boton`,
+`!ask` o `!pregunta`. Siempre usa el texto original que escribió el usuario.
 No se permite que el modelo genere consultas que filtren datos del servidor;
 en una búsqueda no se exponen herramientas de métricas. Los resultados de web son
 datos no confiables; el prompt no les concede autoridad. El bot agrega los enlaces
@@ -67,16 +70,21 @@ HTTP a 256 KiB, las preguntas a 800 caracteres y los resultados de herramientas 
 Los 500 MB del volumen son almacenamiento, no RAM ni presupuesto de API.
 
 Una consulta a la vez, sin cola; cooldown compartido de 45 segundos por usuario entre
-ambos comandos. Máximo 3 llamadas de modelo, 2 llamadas de métricas y 1 búsqueda por
+todos los alias. Máximo 3 llamadas de modelo, 2 herramientas en total y 1 búsqueda por
 pregunta; 400 tokens máximos de salida por llamada, 18 segundos de espera de red y
-60 segundos de tiempo total. Sin reintentos automáticos ni memoria conversacional.
+60 segundos de tiempo total. Sin reintentos automáticos.
+Memoria conversacional: últimos 5 mensajes (usuario y Botón juntos), por persona,
+servidor y canal, en RAM. Vence tras 30 minutos sin uso, máximo 64 conversaciones y
+800 caracteres por mensaje. Reiniciar/deployar la borra. Los resultados privados
+de métricas se reemplazan por una nota sin cifras/nombres. No persiste llamadas de
+herramientas ni claves. `!olvidar` borra la memoria propia sin gastar API.
 Los contadores se guardan atómicamente antes de enviar cada llamada. Si el archivo
 está corrupto o no se puede guardar, se bloquean nuevas llamadas. Sólo una réplica:
 el presupuesto no es un contador distribuido para varias instancias.
 
 ## Privacidad y alcance de métricas
 
-Las preguntas viajan al proveedor elegido. `!buscar` envía su texto también a Tavily.
+Las preguntas viajan al proveedor elegido. Una búsqueda envía el texto original también a Tavily.
 Con `AI_SHARE_METRICS=true`, el modelo recibe resúmenes de actividad, nombres visibles
 y rankings de hasta cinco miembros; nunca mensajes, tokens, IDs o datos crudos del JSON.
 Avisar a los miembros y revisar las políticas de datos del proveedor antes de habilitarlo.
@@ -108,7 +116,7 @@ AI_ALLOW_PAID=false
 AI_GUILD_ID=id_del_unico_servidor
 AI_CHANNEL_ID=id_del_canal_habilitado
 AI_SHARE_METRICS=true
-# Opcional: sin esta clave, !buscar informa que web no está habilitada
+# Opcional: sin esta clave, Botón no tiene búsqueda web
 TAVILY_API_KEY=clave_de_tavily
 ```
 
@@ -135,5 +143,29 @@ Para apagar sin afectar el bot: `AI_ENABLED=false` y aplicar las variables.
 6. Observar Activity/Usage en el proveedor: sin fallback pago, sin saldo utilizado
    en el modo gratuito. Configurar tope externo si se elige modelo pago.
 
-Las pruebas automáticas simulan proveedores: todavía no se probó una respuesta real
-del modelo ni un bot conectado, porque faltan las claves/elección del dueño.
+Además de las pruebas automáticas con proveedores simulados, se probaron las tres
+herramientas contra las APIs reales el 1 de octubre de 2026: ayuda, métricas ficticias
+y búsqueda con enlaces. OpenRouter reportó costo cero; Tavily utilizó búsqueda basic.
+El router gratuito puede elegir modelos diferentes y fallar por disponibilidad.
+En este servidor se fija `cohere/north-mini-code:free`: las pruebas reales de métricas,
+web y memoria respondieron dentro del límite. Sigue siendo gratuito y sin fallback;
+ningún proveedor gratis garantiza disponibilidad. El valor por defecto del código
+sigue siendo `openrouter/free` para instalaciones nuevas.
+
+Para repetir sin datos reales: exportar claves sólo al entorno del proceso y ejecutar
+`python -m scripts.test_assistant_live help`, `metrics` o `web`. No imprime ni guarda claves.
+
+## Harness de Botón
+
+`cogs/assistant.py` aplica canal/servidor permitidos, cooldown, concurrencia y límite
+total de tiempo. `core/assistant.py` mantiene el bucle pequeño de decisión → herramienta
+validada → respuesta. Las únicas herramientas son `get_metrics`, `get_bot_help`,
+`search_web` y `ask_clarification`; esta última pregunta al usuario y termina el turno
+sin consultar otra herramienta. No hay shell, SQL, escritura ni rutas elegidas por el modelo. La ayuda
+sale de `docs/COMANDOS.md` y `docs/UPDATES.md`, no de una lectura arbitraria de GitHub.
+Después de consultar métricas se bloquea web, y viceversa, incluso si el modelo
+intenta pedirla. Los logs sólo registran modelo, costo y nombre de herramienta, no chats.
+`!botonestado` permite verificar herramientas habilitadas y límites sin costo de API.
+La tarea manual `Boton manual metrics configuration` de GitHub Actions permite
+activar/desactivar sólo `AI_SHARE_METRICS` usando el token existente de Railway, sin
+mostrar secretos ni iniciar un deploy. No se ejecuta por cron ni por cada push.

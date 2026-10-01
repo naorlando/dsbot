@@ -2,10 +2,10 @@ name: Lightweight assistant tests
 
 on:
   pull_request:
-    paths: ["core/assistant.py", "cogs/assistant.py", "tests/test_assistant*.py", "bot.py", "requirements.txt", ".github/workflows/assistant-tests.yml"]
+    paths: ["core/assistant*.py", "core/updates.py", "cogs/assistant.py", "cogs/utility.py", "tests/test_assistant*.py", "scripts/test_assistant_live.py", "scripts/deploy/configure_assistant.py", "docs/COMANDOS.md", "docs/UPDATES.md", "bot.py", "requirements.txt", ".github/workflows/assistant-*.yml"]
   push:
     branches: [main]
-    paths: ["core/assistant.py", "cogs/assistant.py", "tests/test_assistant*.py", "bot.py", "requirements.txt", ".github/workflows/assistant-tests.yml"]
+    paths: ["core/assistant*.py", "core/updates.py", "cogs/assistant.py", "cogs/utility.py", "tests/test_assistant*.py", "scripts/test_assistant_live.py", "scripts/deploy/configure_assistant.py", "docs/COMANDOS.md", "docs/UPDATES.md", "bot.py", "requirements.txt", ".github/workflows/assistant-*.yml"]
 
 permissions:
   contents: read
@@ -23,4 +23,4 @@ jobs:
           python-version: "3.12"
       - run: pip install -r requirements.txt
       - run: python -m unittest discover -s tests -p 'test_assistant*.py'
-      - run: python -m compileall -q core/assistant.py cogs/assistant.py bot.py
+      - run: python -m compileall -q core/assistant.py core/assistant_memory.py cogs/assistant.py bot.py scripts/test_assistant_live.py scripts/deploy/configure_assistant.py

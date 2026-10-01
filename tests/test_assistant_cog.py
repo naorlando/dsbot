@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from cogs.assistant import AssistantCog
+from core.assistant_memory import ConversationMemory
 
 
 @asynccontextmanager
@@ -20,7 +21,7 @@ class CogTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.env.stop)
         self.bot = SimpleNamespace(guilds=[SimpleNamespace(id=10)])
         self.cog = AssistantCog(self.bot)
-        self.cog.agent = SimpleNamespace(answer=AsyncMock(return_value="Respuesta @everyone"))
+        self.cog.agent = SimpleNamespace(answer=AsyncMock(return_value="Respuesta @everyone"), memory=ConversationMemory())
         self.ctx = SimpleNamespace(
             guild=SimpleNamespace(id=10, members=[SimpleNamespace(id=1, display_name="Name", bot=False)]),
             channel=SimpleNamespace(id=20), author=SimpleNamespace(id=1, bot=False), send=AsyncMock(), typing=typing)
@@ -50,6 +51,7 @@ class CogTests(unittest.IsolatedAsyncioTestCase):
         await self.cog.respond(self.ctx, "hola")
         await self.cog.respond(self.ctx, "web", web=True)
         self.cog.agent.answer.assert_awaited_once()
+        self.assertEqual(self.cog.agent.answer.call_args.kwargs["conversation_key"], (10, 20, 1))
         allowed = self.ctx.send.call_args_list[0].kwargs["allowed_mentions"]
         self.assertFalse(allowed.everyone)
         self.assertFalse(allowed.users)
@@ -77,6 +79,27 @@ class CogTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.cog.session.closed)
         await self.cog.cog_unload()
         self.assertTrue(self.cog.session.closed)
+
+    async def test_boton_aliases_registered(self):
+        self.assertIn("boton", self.cog.ask.aliases)
+        self.assertIn("botón", self.cog.ask.aliases)
+
+    async def test_forget_and_status_do_not_spend_model_calls(self):
+        key = (10, 20, 1)
+        self.cog.agent.memory.remember(key, "hola", "hola")
+        await self.cog.forget.callback(self.cog, self.ctx)
+        self.assertEqual(self.cog.agent.memory.read(key), [])
+        await self.cog.status.callback(self.cog, self.ctx)
+        self.assertIn("últimos 5 mensajes", self.ctx.send.call_args.args[0])
+        self.cog.agent.answer.assert_not_called()
+
+    async def test_forget_wrong_scope_does_not_clear(self):
+        key = (10, 20, 1)
+        self.cog.agent.memory.remember(key, "hola", "hola")
+        self.ctx.channel.id = 99
+        await self.cog.forget.callback(self.cog, self.ctx)
+        self.assertTrue(self.cog.agent.memory.read(key))
+        self.ctx.send.assert_not_called()
 
 
 if __name__ == "__main__":

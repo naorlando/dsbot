@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
-from core.assistant import Assistant, AssistantError, Settings, UsageBudget, metrics
+from core.assistant import Assistant, AssistantError, Settings, UsageBudget, metrics, bot_help
 
 
 class BudgetTests(unittest.TestCase):
@@ -90,7 +90,7 @@ class MetricsTests(unittest.TestCase):
 
 def tool_call(name="get_metrics", arguments=None):
     return {"content": None, "tool_calls": [{"id": "call1", "type": "function", "function": {
-        "name": name, "arguments": json.dumps(arguments or {"view": "me", "period": "all"})}}]}
+        "name": name, "arguments": json.dumps(arguments if arguments is not None else {"view": "me", "period": "all"})}}]}
 
 
 class AgentTests(unittest.IsolatedAsyncioTestCase):
@@ -140,6 +140,94 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         await self.agent.answer("Hola", lambda **args: {})
         self.agent.search.assert_not_called()
 
+    async def test_help_tool_roundtrip(self):
+        self.agent.completion = AsyncMock(side_effect=[tool_call("get_bot_help", {"topic": "commands"}), {"content": "Usá !topvoice week."}])
+        answer = await self.agent.answer("Qué comando muestra el ranking de voz?", lambda **args: self.fail("No metrics"))
+        self.assertIn("!topvoice", answer)
+        messages = self.agent.completion.call_args.args[0]
+        self.assertIn("topvoice", messages[-1]["content"])
+        first = self.agent.completion.call_args_list[0]
+        self.assertEqual(first.kwargs["tool_choice"], "required")
+        self.assertEqual([t["function"]["name"] for t in first.args[1]], ["get_bot_help"])
+
+    async def test_model_decides_web_but_cannot_rewrite_query(self):
+        self.agent.search = AsyncMock(return_value=[{"title": "Dato", "url": "https://example.com", "content": "Dato actual"}])
+        self.agent.completion = AsyncMock(side_effect=[tool_call("search_web", {}), {"content": "Dato [1]"}])
+        result = await self.agent.answer("Cuánto está el dólar blue hoy?", lambda **args: self.fail("No metrics"))
+        self.agent.search.assert_awaited_once_with("Cuánto está el dólar blue hoy?")
+        self.assertIn("Fuentes consultadas", result)
+        names = [t["function"]["name"] for t in self.agent.completion.call_args.args[1]]
+        self.assertNotIn("search_web", names)
+        self.assertNotIn("get_metrics", names)
+
+    async def test_search_query_argument_is_rejected(self):
+        self.agent.search = AsyncMock()
+        self.agent.completion = AsyncMock(return_value=tool_call("search_web", {"query": "private data"}))
+        with self.assertRaises(AssistantError):
+            await self.agent.answer("Hola", lambda **args: {})
+        self.agent.search.assert_not_called()
+
+    async def test_metrics_then_web_is_rejected(self):
+        self.agent.search = AsyncMock()
+        self.agent.completion = AsyncMock(side_effect=[tool_call(), tool_call("search_web", {})])
+        with self.assertRaises(AssistantError):
+            await self.agent.answer("Métricas y web", lambda **args: {"private": "data"})
+        self.agent.search.assert_not_called()
+
+    async def test_web_then_metrics_is_rejected(self):
+        self.agent.search = AsyncMock(return_value=[])
+        self.agent.completion = AsyncMock(side_effect=[tool_call("search_web", {}), tool_call()])
+        callback = AsyncMock()
+        with self.assertRaises(AssistantError):
+            await self.agent.answer("Web y métricas", callback)
+        callback.assert_not_called()
+
+    async def test_search_cannot_repeat_even_with_empty_results(self):
+        self.agent.search = AsyncMock(return_value=[])
+        self.agent.completion = AsyncMock(return_value=tool_call("search_web", {}))
+        with self.assertRaises(AssistantError):
+            await self.agent.answer("Pregunta", lambda **args: {})
+        self.agent.search.assert_awaited_once()
+
+    async def test_unconfigured_web_not_offered_and_help_always_available(self):
+        self.agent.settings = Settings("openrouter", "openrouter/free", "test", "fixed")
+        self.agent.completion = AsyncMock(return_value={"content": "Hola"})
+        await self.agent.answer("Hola", lambda **args: {})
+        names = [t["function"]["name"] for t in self.agent.completion.call_args.args[1]]
+        self.assertEqual(names, ["get_bot_help", "ask_clarification"])
+
+    async def test_explicit_web_without_key_before_llm(self):
+        self.agent.settings = Settings("openrouter", "openrouter/free", "test", "fixed")
+        self.agent.completion = AsyncMock()
+        with self.assertRaises(AssistantError):
+            await self.agent.answer("Pregunta", lambda **args: {}, web=True)
+        self.agent.completion.assert_not_called()
+
+    async def test_invalid_help_topic_or_path_never_reads_file(self):
+        for args in ({"topic": "../../.env"}, {"topic": "commands", "path": ".env"}):
+            self.agent.completion = AsyncMock(return_value=tool_call("get_bot_help", args))
+            with self.assertRaises(AssistantError):
+                await self.agent.answer("Ayuda", lambda **args: {})
+
+    async def test_three_sources_fit_without_truncating_urls(self):
+        sources = [{"title": "Dato", "content": "Texto", "url": "https://example.com/" + str(i) + "x" * 270} for i in range(3)]
+        self.agent.search = AsyncMock(return_value=sources)
+        self.agent.completion = AsyncMock(return_value={"content": "x" * 1700})
+        result = await self.agent.answer("Pregunta", lambda **args: {}, web=True)
+        self.assertLessEqual(len(result), 1990)
+        for source in sources:
+            self.assertIn(source["url"], result)
+
+    async def test_parallel_tools_and_invalid_identifier_rejected_before_callback(self):
+        callback = AsyncMock()
+        for message in (dict(tool_call(), tool_calls=tool_call()["tool_calls"] * 2),
+                        {"tool_calls": [dict(tool_call()["tool_calls"][0], id=123)]}):
+            self.agent.completion = AsyncMock(return_value=message)
+            with self.assertRaises(AssistantError):
+                await self.agent.answer("Pregunta", callback)
+        callback.assert_not_called()
+
+
     async def test_question_length_before_any_request(self):
         self.agent.completion = AsyncMock()
         for question in ("", " " * 3, "x" * 801):
@@ -172,6 +260,87 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(payload["auto_parameters"])
             self.assertEqual(len(sources), 1)
             self.assertEqual(len(sources[0]["content"]), 1000)
+
+    async def test_clarification_ends_turn_without_other_tools(self):
+        self.agent.search = AsyncMock()
+        callback = AsyncMock()
+        self.agent.completion = AsyncMock(return_value=tool_call("ask_clarification", {"question": "¿Qué equipo y fecha?"}))
+        answer = await self.agent.answer("Cómo salió el partido?", callback, conversation_key=(1, 2, 3))
+        self.assertEqual(answer, "¿Qué equipo y fecha?")
+        callback.assert_not_called()
+        self.agent.search.assert_not_called()
+        self.agent.completion.assert_awaited_once()
+        self.assertEqual(len(self.agent.memory.read((1, 2, 3))), 2)
+
+    async def test_invalid_clarification_rejected(self):
+        for args in ({"question": " "}, {"question": 123}, {"question": "x" * 221}, {"question": "Qué?", "query": "secret"}):
+            self.agent.completion = AsyncMock(return_value=tool_call("ask_clarification", args))
+            with self.assertRaises(AssistantError):
+                await self.agent.answer("Pregunta", lambda **args: {})
+
+    async def test_malformed_tool_payloads_fail_closed(self):
+        for message in ({"tool_calls": "bad"}, {"tool_calls": [None]}, {"tool_calls": [{"function": []}]},
+                        {"tool_calls": [dict(tool_call()["tool_calls"][0], type="shell")]}, None):
+            self.agent.completion = AsyncMock(return_value=message)
+            with self.assertRaises(AssistantError):
+                await self.agent.answer("Pregunta", lambda **args: self.fail("Must not execute"))
+
+    async def test_memory_isolation_and_no_tool_results(self):
+        key = (1, 2, 3)
+        self.agent.completion = AsyncMock(side_effect=[tool_call(), {"content": "PRIVATE: 999 minutos"}])
+        await self.agent.answer("Cuánto jugué?", lambda **args: {"secret": "PRIVATE"}, conversation_key=key)
+        self.assertNotIn("PRIVATE", json.dumps(self.agent.memory.read(key)))
+        self.agent.completion = AsyncMock(return_value={"content": "Hola"})
+        await self.agent.answer("Y hoy?", lambda **args: {}, conversation_key=key)
+        sent = self.agent.completion.call_args.args[0]
+        self.assertIn("Cuánto jugué?", json.dumps(sent, ensure_ascii=False))
+        self.assertNotIn("PRIVATE", json.dumps(sent))
+        await self.agent.answer("Hola", lambda **args: {}, conversation_key=(1, 2, 4))
+        self.assertNotIn("Cuánto jugué?", json.dumps(self.agent.completion.call_args.args[0], ensure_ascii=False))
+
+    async def test_failure_does_not_update_memory(self):
+        self.agent.completion = AsyncMock(side_effect=AssistantError("unavailable"))
+        with self.assertRaises(AssistantError):
+            await self.agent.answer("Hola", lambda **args: {}, conversation_key=(1, 2, 3))
+        self.assertEqual(self.agent.memory.read((1, 2, 3)), [])
+
+    async def test_recognizable_credentials_not_sent_or_remembered(self):
+        self.agent.completion = AsyncMock()
+        with self.assertRaises(AssistantError):
+            await self.agent.answer("mi clave sk-or-v1-" + "x" * 20, lambda **args: {}, conversation_key=(1, 2, 3))
+        self.agent.completion.assert_not_called()
+        self.assertEqual(self.agent.memory.read((1, 2, 3)), [])
+
+    async def test_malformed_search_results(self):
+        with patch("core.assistant.post_json", new_callable=AsyncMock) as post:
+            post.return_value = {"results": "bad"}
+            with self.assertRaises(AssistantError):
+                await self.agent.search("query")
+            post.return_value = {"results": [None, {"url": 123}, {"url": "https://example.com"}]}
+            self.assertEqual(len(await self.agent.search("query")), 1)
+
+
+class HelpTests(unittest.TestCase):
+    def setUp(self):
+        self.settings = Settings("openrouter", "openrouter/free", "SECRET", "fixed")
+
+    def test_only_fixed_topics_allowed(self):
+        with self.assertRaises(AssistantError):
+            bot_help(self.settings, ".env")
+
+    def test_commands_and_updates_from_public_docs(self):
+        self.assertIn("topvoice", bot_help(self.settings, "commands")["content"])
+        self.assertTrue(bot_help(self.settings, "updates")["sections"])
+
+    def test_capabilities_match_flags_without_credentials(self):
+        result = bot_help(self.settings, "capabilities")
+        self.assertFalse(result["web_enabled"])
+        self.assertFalse(result["metrics_enabled"])
+        self.assertNotIn("SECRET", json.dumps(result))
+        configured = Settings("openrouter", "openrouter/free", "SECRET", "fixed", "search-secret", True)
+        result = bot_help(configured, "capabilities")
+        self.assertTrue(result["web_enabled"])
+        self.assertTrue(result["metrics_enabled"])
 
 
 if __name__ == "__main__":

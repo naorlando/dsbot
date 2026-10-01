@@ -8,7 +8,7 @@ import aiohttp
 import discord
 from discord.ext import commands
 
-from core.assistant import Assistant, AssistantError, Settings, UsageBudget, metrics
+from core.assistant import Assistant, AssistantError, Settings, UsageBudget, metrics, bot_help
 from core.persistence import DATA_DIR, stats
 
 logger = logging.getLogger("dsbot")
@@ -27,6 +27,7 @@ class AssistantCog(commands.Cog, name="Asistente"):
     async def cog_load(self):
         self.session = aiohttp.ClientSession()
         self.agent = Assistant(self.settings, UsageBudget(DATA_DIR / "assistant_usage.json"), self.session)
+        logger.info("Boton ready tools=%s metrics=%s web=%s memory_messages=5", ",".join(bot_help(self.settings, "capabilities")["tools"]), self.settings.share_metrics, bool(self.settings.search_key))
 
     async def cog_unload(self):
         if self.session:
@@ -53,7 +54,8 @@ class AssistantCog(commands.Cog, name="Asistente"):
                 return metrics(stats, members, ctx.author.id, view, period)
             try:
                 async with ctx.typing():
-                    result = await asyncio.wait_for(self.agent.answer(question, get_metrics, web), timeout=60)
+                    result = await asyncio.wait_for(self.agent.answer(question, get_metrics, web,
+                        conversation_key=(ctx.guild.id, ctx.channel.id, ctx.author.id)), timeout=60)
                 await ctx.send(result, allowed_mentions=discord.AllowedMentions.none())
             except AssistantError as exc:
                 await ctx.send(str(exc), allowed_mentions=discord.AllowedMentions.none())
@@ -64,15 +66,39 @@ class AssistantCog(commands.Cog, name="Asistente"):
                 logger.warning("Assistant failed (%s)", type(exc).__name__)
                 await ctx.send("No pude responder. Las estadísticas y el resto del bot siguen funcionando.")
 
-    @commands.command(name="ask", aliases=["pregunta"])
+    @commands.command(name="ask", aliases=["pregunta", "boton", "botón"])
     async def ask(self, ctx, *, question: str = ""):
-        """!ask ¿Quién jugó más esta semana? No realiza búsquedas web."""
+        """!boton pregunta: elige entre métricas, ayuda y búsqueda web habilitadas."""
         await self.respond(ctx, question)
 
     @commands.command(name="buscar")
     async def search(self, ctx, *, question: str = ""):
         """!buscar ¿Cuánto está el dólar blue hoy? Una búsqueda explícita con fuentes."""
         await self.respond(ctx, question, web=True)
+
+    def in_scope(self, ctx):
+        return (not ctx.author.bot and ctx.guild and ctx.guild.id == self.guild_id
+                and ctx.channel.id == self.channel_id)
+
+    @commands.command(name="olvidar", aliases=["resetboton"])
+    async def forget(self, ctx):
+        """Borra sólo tu memoria corta de Botón en este canal; no llama al modelo."""
+        if self.in_scope(ctx):
+            async with self.lock:
+                self.agent.memory.forget((ctx.guild.id, ctx.channel.id, ctx.author.id))
+            await ctx.send("Listo, borré tu memoria corta de Botón en este canal.")
+
+    @commands.command(name="botonestado")
+    async def status(self, ctx):
+        """Capacidades reales y límites, sin gastar una llamada al modelo."""
+        if self.in_scope(ctx):
+            flags = bot_help(self.settings, "capabilities")
+            tools = ["ayuda pública", "aclaraciones"]
+            if flags["metrics_enabled"]:
+                tools.append("métricas (sólo lectura)")
+            if flags["web_enabled"]:
+                tools.append("búsqueda web con fuentes")
+            await ctx.send("Botón: " + ", ".join(tools) + ".\nMemoria: últimos 5 mensajes tuyos y míos, por persona/canal; RAM, vence tras 30 min sin uso. !olvidar la borra. No guarda resultados privados.\nLímites: 3 llamadas de modelo y 2 herramientas por pregunta; 40 llamadas/día; web 20/día y 600/mes. Sin ejecución ni escritura de datos.")
 
     async def cog_command_error(self, ctx, error):
         if isinstance(error, commands.CommandOnCooldown):

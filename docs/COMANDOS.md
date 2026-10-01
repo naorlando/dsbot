@@ -2,6 +2,14 @@
 
 Prefijo: `!` · Si `DISCORD_STATS_CHANNEL_ID` / `!setstatschannel` está configurado, solo los comandos marcados **stats** quedan restringidos a ese canal.
 
+Uso rápido: `!topvoice week` muestra el ranking de voz semanal; `!topgamers week`, el de juegos. Períodos: `today`, `week`, `month`, `all`. `!mystats` muestra tu perfil.
+
+## Botón (`cogs/assistant.py`)
+
+`!boton pregunta`, `!botón pregunta`, `!ask pregunta` y `!pregunta pregunta` llaman al mismo agente. Puede elegir métricas, ayuda pública, búsqueda web o pedir una aclaración, según lo habilitado. `!buscar consulta` fuerza una búsqueda. Sólo responde en el servidor y canal configurados, sin audio, con cooldown compartido de 45 segundos. No ejecuta comandos ni cambia datos. Las métricas requieren `AI_SHARE_METRICS=true`; web requiere clave de Tavily. `!boton novedades` consulta las novedades del deploy.
+
+Memoria: últimos 5 mensajes de la conversación con cada persona en cada canal; sólo RAM, vence tras 30 minutos sin uso y se pierde al reiniciar. No guarda resultados privados de métricas. `!olvidar` / `!resetboton` borra tu memoria. `!botonestado` muestra herramientas habilitadas y límites sin llamar al modelo.
+
 ## Leyenda
 
 | Alcance | Significado |

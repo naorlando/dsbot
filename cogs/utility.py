@@ -88,8 +88,8 @@ class UtilityCog(commands.Cog, name='Utilidades'):
             embed.set_footer(text='💡 Tip: Usa !help [categoría] para ver comandos específicos')
             if self.bot.get_cog('Asistente'):
                 embed.add_field(
-                    name='🤖 Asistente ligero',
-                    value='`!ask pregunta` • Charla y métricas\n`!buscar consulta` • Web con fuentes\nSólo en el canal habilitado; sin historial.',
+                    name='🤖 Botón · agente ligero',
+                    value='`!boton pregunta` / `!ask` / `!pregunta` • Elige métricas, ayuda o web\n`!buscar consulta` • Fuerza web con fuentes\n`!botonestado` • Capacidades y límites\n`!olvidar` • Borra tus últimos 5 mensajes de memoria\nSólo en el canal habilitado.',
                     inline=False
                 )
             await ctx.send(embed=embed)

@@ -1,5 +1,14 @@
 # Updates del bot
 
+## 2026-10-01 · Botón, agente con herramientas
+
+- `!boton` / `!botón`, `!ask` y `!pregunta` llaman a Botón: elige entre métricas de sólo lectura, ayuda pública y web según las herramientas habilitadas.
+- `!buscar` fuerza una búsqueda; con Tavily conectado, también puede elegir buscar desde una pregunta normal y responder con enlaces reales de las fuentes.
+- Consulta comandos, capacidades y novedades de la versión desplegada. No tiene acceso libre al código, archivos privados ni terminal.
+- Nunca mezcla métricas y web en una misma consulta. El buscador recibe sólo la pregunta original, no consultas inventadas por el modelo.
+- Pide aclaraciones cuando falta información. Mantiene hasta 5 mensajes por persona/canal en RAM, con vencimiento de 30 minutos, sin guardar resultados privados de métricas; `!olvidar` los borra.
+- `!botonestado` muestra capacidades reales sin consumir el modelo. Harness con argumentos validados, tres llamadas de modelo y dos herramientas por pedido, sin fallback pago.
+
 ## 2026-10-01 · Deploy inteligente y asistente opcional
 
 - La automatización nocturna compara versiones: no redespliega el mismo commit si ya está activo o dormido, ni duplica un despliegue en curso.
