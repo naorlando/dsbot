@@ -1,4 +1,4 @@
-name: Railway off-peak redeploy
+name: Railway off-peak deploy if changed
 
 on:
   schedule:
@@ -7,6 +7,17 @@ on:
     - cron: "23 20 * * *"
       timezone: "America/New_York"
   workflow_dispatch:
+    inputs:
+      check_only:
+        description: "Inspect Railway without creating a deployment"
+        type: boolean
+        default: true
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/railway-off-peak-redeploy.yml
+      - scripts/deploy/railway_if_changed.py
+      - tests/test_railway_if_changed.py
 
 permissions:
   contents: read
@@ -18,9 +29,21 @@ concurrency:
 jobs:
   redeploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: Redeploy the Railway worker
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Test deployment decisions
+        run: python -m unittest discover -s tests -p test_railway_if_changed.py
+      - name: Compare main with Railway and deploy only if needed
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-        run: npx --yes @railway/cli@5.52.0 redeploy --service worker --yes
+          GH_TOKEN: ${{ github.token }}
+          RAILWAY_SERVICE_ID: 90c60cd3-9b09-48c4-81b0-bd5fb5297033
+          RAILWAY_ENVIRONMENT_ID: f80a184d-71dc-4b3a-9a79-b3760d7e4176
+          CHECK_ONLY: ${{ github.event_name == 'push' || inputs.check_only }}
+        run: python scripts/deploy/railway_if_changed.py
