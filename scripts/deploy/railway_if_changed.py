@@ -7,6 +7,7 @@ import time
 from datetime import datetime
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 ENDPOINT = "https://backboard.railway.com/graphql/v2"
@@ -16,13 +17,14 @@ PENDING = {"INITIALIZING", "QUEUED", "BUILDING", "DEPLOYING", "WAITING", "REMOVI
 
 def request_json(url, headers, payload=None):
     body = None if payload is None else json.dumps(payload).encode()
-    req = Request(url, data=body, headers={"Content-Type": "application/json", **headers})
+    req = Request(url, data=body, headers={"Content-Type": "application/json",
+                                          "User-Agent": "dsbot-deployment-check/1.0", **headers})
     try:
         with urlopen(req, timeout=30) as response:
             return json.load(response)
     except HTTPError as exc:
         # Never print headers, tokens, or untrusted provider response bodies.
-        raise RuntimeError(f"API request failed (HTTP {exc.code})") from None
+        raise RuntimeError(f"{urlparse(url).hostname} request failed (HTTP {exc.code})") from None
     except URLError:
         raise RuntimeError("API connection failed") from None
 
