@@ -21,7 +21,7 @@ class AssistantCog(commands.Cog, name="Asistente"):
         self.guild_id = int(os.environ["AI_GUILD_ID"])
         self.channel_id = int(os.environ["AI_CHANNEL_ID"])
         self.lock = asyncio.Lock()
-        self.cooldowns = commands.CooldownMapping.from_cooldown(1, 45, commands.BucketType.user)
+        self.cooldowns = commands.CooldownMapping.from_cooldown(1, 3, commands.BucketType.user)
         self.session = None
 
     async def cog_load(self):
@@ -58,8 +58,10 @@ class AssistantCog(commands.Cog, name="Asistente"):
                         conversation_key=(ctx.guild.id, ctx.channel.id, ctx.author.id)), timeout=60)
                 await ctx.send(result, allowed_mentions=discord.AllowedMentions.none())
             except AssistantError as exc:
+                self.cooldowns.get_bucket(ctx.message).reset()
                 await ctx.send(str(exc), allowed_mentions=discord.AllowedMentions.none())
             except asyncio.TimeoutError:
+                self.cooldowns.get_bucket(ctx.message).reset()
                 await ctx.send("La consulta tardó demasiado; la corté para no seguir consumiendo.")
             except Exception as exc:
                 # No questions, response text, credentials or HTTP payloads in logs.
@@ -86,6 +88,8 @@ class AssistantCog(commands.Cog, name="Asistente"):
         if self.in_scope(ctx):
             async with self.lock:
                 self.agent.memory.forget((ctx.guild.id, ctx.channel.id, ctx.author.id))
+                if hasattr(self.agent, 'pending_questions'):
+                    self.agent.pending_questions.pop((ctx.guild.id, ctx.channel.id, ctx.author.id), None)
             await ctx.send("Listo, borré tu memoria corta de Botón en este canal.")
 
     @commands.command(name="botonestado")
@@ -98,7 +102,7 @@ class AssistantCog(commands.Cog, name="Asistente"):
                 tools.append("métricas (sólo lectura)")
             if flags["web_enabled"]:
                 tools.append("búsqueda web con fuentes")
-            await ctx.send("Botón: " + ", ".join(tools) + ".\nMemoria: últimos 5 mensajes tuyos y míos, por persona/canal; RAM, vence tras 30 min sin uso. !olvidar la borra. No guarda resultados privados.\nLímites: 3 llamadas de modelo y 2 herramientas por pregunta; 40 llamadas/día; web 20/día y 600/mes. Sin ejecución ni escritura de datos.")
+            await ctx.send("Botón: " + ", ".join(tools) + ".\nWeb: citas verificadas; una búsqueda nueva no arrastra respuestas anteriores.\nMemoria: últimos 5 mensajes tuyos y míos, por persona/canal; RAM, vence tras 30 min sin uso. !olvidar la borra. No guarda resultados privados.\nLímites: anti-spam 3 segundos; 3 llamadas de modelo y 2 herramientas por pregunta; 40 llamadas/día; web 20 llamadas/día y 600/mes (búsqueda y extracción cuentan por separado). Sin ejecución ni escritura de datos.")
 
     async def cog_command_error(self, ctx, error):
         if isinstance(error, commands.CommandOnCooldown):

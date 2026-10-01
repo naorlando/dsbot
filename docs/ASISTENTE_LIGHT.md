@@ -36,17 +36,30 @@ disponible y soporta herramientas; el catálogo gratuito cambia.
 ### Búsqueda web separada
 
 [Tavily](https://docs.tavily.com/documentation/api-credits) ofrece 1.000 créditos/mes
-sin tarjeta; búsqueda basic = 1 crédito. El bot usa sólo basic, máximo 3 extractos,
-sin páginas completas, sin respuesta generada por Tavily y sin parámetros automáticos
-que puedan cambiar el costo. Tope local: 20 búsquedas/día y 600/mes. No habilitar
+sin tarjeta; búsqueda basic = 1 crédito. El bot pide hasta 5 candidatos y acepta hasta
+3 fuentes; excluye resultados sociales ruidosos y filtra versiones/fechas requeridas.
+Puede hacer una extracción basic de hasta 2 URLs ya aceptadas, con 5 fragmentos por fuente;
+no permite URLs elegidas por el modelo. Ambas llamadas consumen una unidad local de
+presupuesto antes de enviarse. Tope local: 20 llamadas web/día y 600/mes (hasta 10
+preguntas/día si todas requieren extracción). Sin respuesta generada por Tavily ni
+parámetros automáticos que cambien el costo. No habilitar
 pay-as-you-go ni recarga automática en el proveedor para un piloto gratis.
 
-La búsqueda ocurre con `!buscar` o cuando Botón elige `search_web` desde `!boton`,
-`!ask` o `!pregunta`. Siempre usa el texto original que escribió el usuario.
+La búsqueda ocurre con `!buscar`, con un enrutador determinista para consultas que
+necesitan evidencia, o cuando Botón elige `search_web` desde `!boton`, `!ask` o `!pregunta`.
+El harness normaliza sólo la consulta actual, quitando muletillas y preservando entidades,
+versiones y fechas. El modelo no puede reescribirla.
 No se permite que el modelo genere consultas que filtren datos del servidor;
 en una búsqueda no se exponen herramientas de métricas. Los resultados de web son
-datos no confiables; el prompt no les concede autoridad. El bot agrega los enlaces
-reales retornados por Tavily, pero no garantiza que un extracto sea actual o correcto.
+datos no confiables; el prompt no les concede autoridad. Las respuestas web son JSON
+estructurado con IDs de fuentes y citas; el harness comprueba que cada cita existe
+literalmente en la evidencia y publica sólo esas citas, sin paráfrasis libres del modelo.
+Los enlaces los agrega el harness sólo para las fuentes usadas. Eso impide publicar
+citas inventadas, pero no garantiza que una página externa sea verdadera o pertinente.
+Para pasaportes argentinos se lee la sección PASAPORTE de una URL oficial fija de
+RENAPER: lectura HTML acotada, sin redirects ni URL configurable. El tarifario se
+presenta directamente, sin llamar al modelo ni hardcodear importes. Es una excepción
+deliberadamente pequeña a la extracción de Tavily, que omitía los precios de esa página.
 Para partidos/cotizaciones que no tengan evidencia suficiente debe pedir precisión
 o decir que no pudo confirmarlo. Conviene agregar APIs especializadas más adelante.
 
@@ -66,25 +79,36 @@ de agentes, base vectorial, navegador, SDK de modelos ni nuevo proceso.
 Se reutiliza `aiohttp` (ya es dependencia de discord.py).
 Sólo se persiste `assistant_usage.json`, unos pocos cientos de bytes; no crece con chats.
 La RAM adicional no se midió en producción, pero se limita el tamaño de respuestas
-HTTP a 256 KiB, las preguntas a 800 caracteres y los resultados de herramientas a 4.000.
+HTTP a 256 KiB y las preguntas a 800 caracteres. Cada fuente tiene hasta 4.501 caracteres
+(extracción + snippet); la sección oficial hasta 5.000. Los resultados se serializan
+como JSON completo, sin cortarlos a mitad de estructura.
 Los 500 MB del volumen son almacenamiento, no RAM ni presupuesto de API.
 
-Una consulta a la vez, sin cola; cooldown compartido de 45 segundos por usuario entre
+Una consulta a la vez, sin cola; protección anti-spam compartida de 3 segundos por usuario entre
 todos los alias. Máximo 3 llamadas de modelo, 2 herramientas en total y 1 búsqueda por
-pregunta; 400 tokens máximos de salida por llamada, 18 segundos de espera de red y
-60 segundos de tiempo total. Sin reintentos automáticos.
+pregunta; 400 tokens de salida para conversación y 800 para seleccionar evidencia web,
+18 segundos de espera de API, 8 segundos para la página oficial y 60 segundos totales.
+Hasta una reparación de formato/evidencia, dentro del máximo de 3 llamadas de modelo;
+sin reintentos de red ni de HTTP 429. Hay además un máximo de 20 llamadas de modelo
+en una ventana móvil de 60 segundos. Los errores no consumen un cooldown adicional.
 Memoria conversacional: últimos 5 mensajes (usuario y Botón juntos), por persona,
 servidor y canal, en RAM. Vence tras 30 minutos sin uso, máximo 64 conversaciones y
 800 caracteres por mensaje. Reiniciar/deployar la borra. Los resultados privados
 de métricas se reemplazan por una nota sin cifras/nombres. No persiste llamadas de
-herramientas ni claves. `!olvidar` borra la memoria propia sin gastar API.
+herramientas ni claves. Las búsquedas nuevas no reciben historial y sus respuestas no
+se conservan como hechos: cada consulta web requiere evidencia nueva. `!olvidar` borra
+la memoria propia sin gastar API.
+Las aclaraciones pendientes de fecha/tipo de dólar/país se guardan aparte en RAM,
+máximo 64, por la misma persona/canal y durante 30 minutos. Sólo continuaciones
+acotadas retoman la pregunta del usuario; nunca usan una respuesta del modelo como
+consulta. Cambiar de tema o `!olvidar` descarta esa aclaración.
 Los contadores se guardan atómicamente antes de enviar cada llamada. Si el archivo
 está corrupto o no se puede guardar, se bloquean nuevas llamadas. Sólo una réplica:
 el presupuesto no es un contador distribuido para varias instancias.
 
 ## Privacidad y alcance de métricas
 
-Las preguntas viajan al proveedor elegido. Una búsqueda envía el texto original también a Tavily.
+Las preguntas viajan al proveedor elegido. Una búsqueda envía la consulta actual normalizada a Tavily.
 Con `AI_SHARE_METRICS=true`, el modelo recibe resúmenes de actividad, nombres visibles
 y rankings de hasta cinco miembros; nunca mensajes, tokens, IDs o datos crudos del JSON.
 Avisar a los miembros y revisar las políticas de datos del proveedor antes de habilitarlo.
@@ -164,8 +188,42 @@ validada → respuesta. Las únicas herramientas son `get_metrics`, `get_bot_hel
 sin consultar otra herramienta. No hay shell, SQL, escritura ni rutas elegidas por el modelo. La ayuda
 sale de `docs/COMANDOS.md` y `docs/UPDATES.md`, no de una lectura arbitraria de GitHub.
 Después de consultar métricas se bloquea web, y viceversa, incluso si el modelo
-intenta pedirla. Los logs sólo registran modelo, costo y nombre de herramienta, no chats.
+intenta pedirla. Los logs correlacionan cada ejecución mediante `trace`: ruta, pasos,
+presupuestos, herramienta y argumentos enumerados, dominio/índice de fuentes,
+extracción, tokens, costo reportado, tiempos, terminación y validación. No registran
+preguntas, respuestas, claves, nombres de miembros, métricas ni historial. Para
+debug de APIs reales, `scripts.test_assistant_live --debug` muestra evidencia y
+salidas del modelo sólo en escenarios públicos fijos, nunca una conversación real.
 `!botonestado` permite verificar herramientas habilitadas y límites sin costo de API.
 La tarea manual `Boton manual metrics configuration` de GitHub Actions permite
 activar/desactivar sólo `AI_SHARE_METRICS` usando el token existente de Railway, sin
 mostrar secretos ni iniciar un deploy. No se ejecuta por cron ni por cada push.
+
+## Patrones investigados con Context7
+
+Se consultó el CLI oficial de [Context7](https://github.com/upstash/context7) para
+`/huggingface/smolagents`. No se instaló un framework en el bot ni se ejecutaron
+templates de terceros. Se adoptaron patrones, no capacidades de ejecución:
+
+- [smolagents ToolCallingAgent](https://huggingface.co/docs/smolagents/reference/agents):
+  herramientas JSON explícitas, pasos máximos, callbacks de observación y validación
+  de respuesta final. No se usa CodeAgent ni ejecución Python.
+- [Pydantic AI: validación de salidas](https://pydantic.dev/docs/ai/core-concepts/output/)
+  y [herramientas](https://pydantic.dev/docs/ai/tools-toolsets/tools-advanced/): contrato
+  de datos, herramientas habilitadas por etapa y reparación acotada. La implementación
+  usa dataclasses/JSON estándar, sin sumar SDK ni dependencia.
+- [mini-SWE-agent](https://github.com/SWE-agent/mini-swe-agent): útil como referencia
+  de bucle pequeño; descartado como template para Discord porque está orientado a
+  agentes de programación con shell. Botón nunca tiene una herramienta de comandos.
+- La búsqueda de “dots agents” no permitió verificar un template adecuado: el repo
+  encontrado redirigía a un proyecto distinto. No se importó ni ejecutó código de allí.
+
+## Regresiones de búsqueda (1 de octubre de 2026)
+
+Pruebas reales: la pregunta del 9/12/2018 devolvió la final River–Boca con cita verificable;
+pasaporte devolvió los importes de RENAPER mediante lectura oficial sin modelo.
+La recuperación de MU 99b preserva esa versión; sus fuentes recuperadas no bastan
+por sí solas para prometer una guía completa. Pruebas simuladas bloquean precios,
+campeonatos y películas inventadas, citas inexistentes, fuentes falsas, JSON cortado
+y contaminación del tema anterior. OpenRouter devolvió HTTP 429 durante la ronda:
+no se habilitaron pagos ni fallback; no se declara validación real de todos los casos.

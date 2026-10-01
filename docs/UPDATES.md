@@ -1,5 +1,15 @@
 # Updates del bot
 
+## 2026-10-01 · Botón: búsquedas verificadas y trazas
+
+- Las consultas de precios, lanzamientos, eventos y guías se enrutan a web; se normaliza la pregunta sin perder entidades, fechas o versiones.
+- Las respuestas web son citas textuales verificadas con enlaces reales. Si el modelo inventa hechos, fuentes o fragmentos, no se publican.
+- El pasaporte argentino se lee del tarifario oficial actual de RENAPER, sin precios fijos ni interpretación del modelo.
+- Se pide fecha del partido y tipo de dólar cuando faltan; no se reúnen datos personales de Dateas.
+- Una búsqueda nueva no arrastra el tema anterior. La memoria breve sigue disponible para conversación, pero no recicla respuestas web como evidencia.
+- Anti-spam de 3 segundos en lugar de 45; no hay cola ni reintentos automáticos del proveedor gratuito. Siguen los topes diarios/mensuales.
+- Cada ejecución deja trazas correlacionadas en Railway: etapas, herramientas, fuentes, consumo y errores, sin claves, datos privados ni historial de Discord.
+
 ## 2026-10-01 · Botón, agente con herramientas
 
 - `!boton` / `!botón`, `!ask` y `!pregunta` llaman a Botón: elige entre métricas de sólo lectura, ayuda pública y web según las herramientas habilitadas.

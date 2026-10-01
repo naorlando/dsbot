@@ -93,6 +93,11 @@ def tool_call(name="get_metrics", arguments=None):
         "name": name, "arguments": json.dumps(arguments if arguments is not None else {"view": "me", "period": "all"})}}]}
 
 
+def web_answer(quote='Dato actual confirmado', count=1):
+    return {'content': json.dumps({'status': 'answer', 'evidence': [
+        {'source': i, 'quote': quote} for i in range(1, count + 1)]})}
+
+
 class AgentTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -127,8 +132,8 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.agent.completion.await_count, 3)
 
     async def test_web_explicit_single_query_no_metrics(self):
-        self.agent.search = AsyncMock(return_value=[{"title": "Result", "url": "https://example.com", "content": "Fact"}])
-        self.agent.completion = AsyncMock(return_value={"content": "Dato [1]"})
+        self.agent.search = AsyncMock(return_value=[{"title": "Result", "url": "https://example.com", "content": "Dato actual confirmado"}])
+        self.agent.completion = AsyncMock(return_value=web_answer())
         result = await self.agent.answer("Resultado de Boca hoy", lambda **args: self.fail("No metrics on web"), web=True)
         self.agent.search.assert_awaited_once_with("Resultado de Boca hoy")
         self.assertEqual(self.agent.completion.call_args.args[1], [])
@@ -151,10 +156,10 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([t["function"]["name"] for t in first.args[1]], ["get_bot_help"])
 
     async def test_model_decides_web_but_cannot_rewrite_query(self):
-        self.agent.search = AsyncMock(return_value=[{"title": "Dato", "url": "https://example.com", "content": "Dato actual"}])
-        self.agent.completion = AsyncMock(side_effect=[tool_call("search_web", {}), {"content": "Dato [1]"}])
-        result = await self.agent.answer("Cuánto está el dólar blue hoy?", lambda **args: self.fail("No metrics"))
-        self.agent.search.assert_awaited_once_with("Cuánto está el dólar blue hoy?")
+        self.agent.search = AsyncMock(return_value=[{"title": "Dato", "url": "https://example.com", "content": "Dato actual confirmado"}])
+        self.agent.completion = AsyncMock(side_effect=[tool_call("search_web", {}), web_answer()])
+        result = await self.agent.answer("Algún dato interesante?", lambda **args: self.fail("No metrics"))
+        self.agent.search.assert_awaited_once_with("Algún dato interesante?")
         self.assertIn("Fuentes consultadas", result)
         names = [t["function"]["name"] for t in self.agent.completion.call_args.args[1]]
         self.assertNotIn("search_web", names)
@@ -175,7 +180,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.agent.search.assert_not_called()
 
     async def test_web_then_metrics_is_rejected(self):
-        self.agent.search = AsyncMock(return_value=[])
+        self.agent.search = AsyncMock(return_value=[{'content': 'Dato actual confirmado', 'url': 'https://example.com'}])
         self.agent.completion = AsyncMock(side_effect=[tool_call("search_web", {}), tool_call()])
         callback = AsyncMock()
         with self.assertRaises(AssistantError):
@@ -185,8 +190,9 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
     async def test_search_cannot_repeat_even_with_empty_results(self):
         self.agent.search = AsyncMock(return_value=[])
         self.agent.completion = AsyncMock(return_value=tool_call("search_web", {}))
-        with self.assertRaises(AssistantError):
-            await self.agent.answer("Pregunta", lambda **args: {})
+        result = await self.agent.answer("Pregunta", lambda **args: {})
+        self.assertIn('No encontré fuentes', result)
+        self.agent.completion.assert_awaited_once()
         self.agent.search.assert_awaited_once()
 
     async def test_unconfigured_web_not_offered_and_help_always_available(self):
@@ -210,9 +216,10 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                 await self.agent.answer("Ayuda", lambda **args: {})
 
     async def test_three_sources_fit_without_truncating_urls(self):
-        sources = [{"title": "Dato", "content": "Texto", "url": "https://example.com/" + str(i) + "x" * 270} for i in range(3)]
+        sources = [{"title": "Dato", "content": f"Dato actual confirmado {i}", "url": "https://example.com/" + str(i) + "x" * 270} for i in range(3)]
         self.agent.search = AsyncMock(return_value=sources)
-        self.agent.completion = AsyncMock(return_value={"content": "x" * 1700})
+        self.agent.completion = AsyncMock(return_value={'content': json.dumps({'status': 'answer', 'evidence': [
+            {'source': i + 1, 'quote': s['content']} for i, s in enumerate(sources)]})})
         result = await self.agent.answer("Pregunta", lambda **args: {}, web=True)
         self.assertLessEqual(len(result), 1990)
         for source in sources:
@@ -259,13 +266,13 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(payload["search_depth"], "basic")
             self.assertFalse(payload["auto_parameters"])
             self.assertEqual(len(sources), 1)
-            self.assertEqual(len(sources[0]["content"]), 1000)
+            self.assertEqual(len(sources[0]["content"]), 1500)
 
     async def test_clarification_ends_turn_without_other_tools(self):
         self.agent.search = AsyncMock()
         callback = AsyncMock()
         self.agent.completion = AsyncMock(return_value=tool_call("ask_clarification", {"question": "¿Qué equipo y fecha?"}))
-        answer = await self.agent.answer("Cómo salió el partido?", callback, conversation_key=(1, 2, 3))
+        answer = await self.agent.answer("Partido?", callback, conversation_key=(1, 2, 3))
         self.assertEqual(answer, "¿Qué equipo y fecha?")
         callback.assert_not_called()
         self.agent.search.assert_not_called()
