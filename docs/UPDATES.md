@@ -1,5 +1,19 @@
 # Updates del bot
 
+## 2026-10-01 · Deploy inteligente y asistente opcional
+
+- La automatización nocturna compara versiones: no redespliega el mismo commit si ya está activo o dormido, ni duplica un despliegue en curso.
+- Se agregó un asistente ligero con `!ask` / `!pregunta` para conversación y métricas de sólo lectura, y `!buscar` para web con fuentes; sigue desactivado hasta configurar las claves y el canal permitido.
+- Usa OpenRouter gratis por defecto, sin fallback pago, con límites de consumo y sin guardar historial de chat.
+- La búsqueda web es explícita y opcional; necesita una clave de Tavily.
+- El asistente requiere un único servidor y compartir métricas con el proveedor debe habilitarse expresamente.
+
+## 2026-09-19 · Despliegue fuera de hora pico
+
+- Se agregó una tarea de GitHub Actions para desplegar fuera de la ventana restringida de Railway Free.
+- El build pasó a Railpack y los errores fatales de arranque ahora se reportan como fallos del proceso.
+- La comparación de versiones del 1 de octubre reemplaza el redeploy diario incondicional.
+
 ## 2026-06-10 · Emuladores detectados
 
 - El bot ahora detecta emuladores que Discord muestra como actividad sin `application_id`.

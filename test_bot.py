@@ -825,13 +825,14 @@ class TestUpdatesHelpers(unittest.TestCase):
         self.assertEqual(sections[0][1], ['- Se agregó `!updates`.', '- Lee novedades curadas.'])
 
     def test_format_latest_update_for_deploy_includes_latest_title(self):
-        from core.updates import format_latest_update_for_deploy
+        from core.updates import format_latest_update_for_deploy, load_update_sections
 
         message = format_latest_update_for_deploy(max_items=2)
 
         self.assertIsNotNone(message)
         self.assertIn('Última novedad', message)
-        self.assertIn('Emuladores detectados', message)
+        # El aviso debe seguir el changelog actual, no una novedad fija de junio.
+        self.assertIn(load_update_sections(limit=1)[0][0], message)
 
 
 class TestCommandProcessing(unittest.TestCase):
