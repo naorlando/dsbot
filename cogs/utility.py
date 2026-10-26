@@ -89,7 +89,7 @@ class UtilityCog(commands.Cog, name='Utilidades'):
             if self.bot.get_cog('Asistente'):
                 embed.add_field(
                     name='🤖 Botón · agente ligero',
-                    value='`!boton pregunta` / `!ask` / `!pregunta` • Elige métricas, ayuda o web\n`!buscar consulta` • Fuerza web con fuentes\n`!botonestado` • Capacidades y límites\n`!olvidar` • Borra tus últimos 10 mensajes de memoria\nSólo en el canal habilitado.',
+                    value='`!boton pregunta` • Todo Botón en un comando: métricas, historial del canal, ayuda o web\n`!botonestado` • Capacidades y límites\n`!olvidar` • Borra tus últimos 10 mensajes de memoria\nSólo en el canal habilitado.',
                     inline=False
                 )
             await ctx.send(embed=embed)

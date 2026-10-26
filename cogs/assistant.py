@@ -118,15 +118,10 @@ class AssistantCog(commands.Cog, name="Asistente"):
                 logger.warning("Assistant failed (%s)", type(exc).__name__)
                 await ctx.send("No pude responder. Las estadísticas y el resto del bot siguen funcionando.")
 
-    @commands.command(name="ask", aliases=["pregunta", "boton", "botón"])
+    @commands.command(name="boton", aliases=["botón"])
     async def ask(self, ctx, *, question: str = ""):
-        """!boton pregunta: elige entre métricas, ayuda y búsqueda web habilitadas."""
+        """!boton pregunta: métricas, historial, web o ayuda, sin comandos extra."""
         await self.respond(ctx, question)
-
-    @commands.command(name="buscar")
-    async def search(self, ctx, *, question: str = ""):
-        """!buscar ¿Cuánto está el dólar blue hoy? Una búsqueda explícita con fuentes."""
-        await self.respond(ctx, question, web=True)
 
     def in_scope(self, ctx):
         return (not ctx.author.bot and ctx.guild and ctx.guild.id == self.guild_id

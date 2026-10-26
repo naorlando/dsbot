@@ -35,15 +35,16 @@ def plan_question(question, explicit=False):
         return SearchPlan(query)
     if re.search(r'\b(?:como salio|resultado|resumen del partido)\b', text):
         if not re.search(r'\b(?:hoy|ayer|ultimo|ultima|\d{1,2}[/-]\d{1,2}|\d{4}|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b', text):
-            return SearchPlan(query, reply='¿De qué fecha es el partido? ¿Querés el último encuentro entre esos equipos?', clarify='match_date')
+            # Fewer reply prompts: an undated match defaults to the latest one.
+            query = f'{query} ultimo partido'
     if 'dolar' in text and not re.search(r'\b(blue|oficial|mep|ccl|tarjeta|cripto|bolsa)\b', text):
-        return SearchPlan(query, reply='¿Qué dólar querés consultar: blue, oficial, MEP, CCL o tarjeta?', clarify='dollar_type')
+        # Rioplatense default: "el dolar" sin tipo es el blue; sin preguntas intermedias.
+        query = f'{query} blue'
     web = explicit or bool(re.search(
         r'\b(busca\w*|cuanto (?:sale|cuesta|esta)|precio|tarifa|cotizacion|dolar|cuando sale|fecha de lanzamiento|'
         r'que paso|que sucedio|que ocurrio|quien gano|como termino|como salio|resultado|guia|mantecono)\b', text))
     if 'pasaporte' in text and web:
-        if not re.search(r'\b(argentin\w*|renaper)\b', text):
-            return SearchPlan(query, reply='¿De qué país es el pasaporte que querés consultar?', clarify='country')
+        # Default argentino: el flujo de tarifas es del RENAPER; sin preguntas intermedias.
         return SearchPlan('pasaporte argentino tarifas vigentes regular express al instante RENAPER',
                           True, domains=('argentina.gob.ar',), extract=True, required=('pasaporte',))
     if 'wow' in text and web:

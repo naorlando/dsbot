@@ -5,12 +5,12 @@ versión opcional; sin claves y sin `AI_ENABLED=true` el bot conserva su comport
 
 ## Qué hace
 
-- `!boton ¿Quién jugó más esta semana?` / `!ask ...` / `!pregunta ...`: conversación breve; Botón elige una herramienta permitida.
-- `!ask ¿Cuánto tiempo jugué hoy?`: datos de quien pregunta, sin identificadores enviados al modelo.
+- `!boton ¿Quién jugó más esta semana?`: conversación breve; Botón elige una herramienta permitida.
+- `!boton ¿Cuánto tiempo jugué hoy?`: datos de quien pregunta, sin identificadores enviados al modelo.
 - `!boton ¿Qué comando muestra el ranking de voz esta semana?`: consulta la ayuda pública incluida en el deploy.
 - `!boton ¿Qué novedades tenés?`: consulta las novedades del bot.
-- `!buscar ¿Cómo salió Boca contra River el 27 de septiembre de 2026?`: una búsqueda web explícita con fuentes.
-- `!buscar ¿Cuánto está el dólar blue hoy en Argentina?`: búsqueda, no recomendación financiera.
+- `!boton ¿Cómo salió Boca contra River el 27 de septiembre de 2026?`: web con fuentes verificadas, sin comando aparte.
+- `!boton ¿Cuánto está el dólar blue hoy en Argentina?`: búsqueda, no recomendación financiera.
 
 No escucha audio y no responde a cada mensaje. Invocación por comando de texto. La única
 lectura de conversaciones es la nueva herramienta `search_channel_history`: páginas el
@@ -48,8 +48,8 @@ preguntas/día si todas requieren extracción). Sin respuesta generada por Tavil
 parámetros automáticos que cambien el costo. No habilitar
 pay-as-you-go ni recarga automática en el proveedor para un piloto gratis.
 
-La búsqueda ocurre con `!buscar`, con un enrutador determinista para consultas que
-necesitan evidencia, o cuando Botón elige `search_web` desde `!boton`, `!ask` o `!pregunta`.
+La búsqueda ocurre con un enrutador determinista para consultas que
+necesitan evidencia, o cuando Botón elige `search_web` desde `!boton`.
 El harness normaliza sólo la consulta actual, quitando muletillas y preservando entidades,
 versiones y fechas. El modelo no puede reescribirla.
 No se permite que el modelo genere consultas que filtren datos del servidor;
@@ -221,10 +221,10 @@ Para apagar sin afectar el bot: `AI_ENABLED=false` y aplicar las variables.
 ## Prueba de aceptación después de cargar las claves
 
 1. Confirmar en logs que carga `cogs.assistant`, sin imprimir claves.
-2. Probar `!ask hola` en el canal permitido y comprobar que no busca web.
-3. Probar `!ask cuánto jugué hoy` y contrastar con datos diarios/comandos existentes.
-4. Probar `!buscar dólar blue hoy en Argentina`; verificar fuente y fecha en el enlace.
-5. Confirmar rechazo en DMs/otro canal y que `!ask` seguido de `!buscar` tiene cooldown.
+2. Probar `!boton hola` en el canal permitido y comprobar que no busca web.
+3. Probar `!boton cuánto jugué hoy` y contrastar con datos diarios/comandos existentes.
+4. Probar `!boton dólar blue hoy en Argentina`; verificar fuente y fecha en el enlace.
+5. Confirmar rechazo en DMs/otro canal y que dos `!boton` seguidos tienen cooldown.
 6. Observar Activity/Usage en el proveedor: sin fallback pago, sin saldo utilizado
    en el modo gratuito. Configurar tope externo si se elige modelo pago.
 

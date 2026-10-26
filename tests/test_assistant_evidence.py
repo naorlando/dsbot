@@ -22,10 +22,19 @@ class PolicyTests(unittest.TestCase):
         self.assertIn('World of Warcraft', plan_question('cuando sale wow forever').query)
         self.assertIn('forever', plan_question('cuando sale wow forever').query)
 
-    def test_clarify_before_network(self):
-        for q, explicit in (('test', True), ('como salio boca vs racing dame un resumen', False),
-                            ('cuánto está el dólar', False), ('cuánto sale el pasaporte', False)):
-            self.assertTrue(plan_question(q, explicit).reply)
+    def test_defaults_instead_of_clarifications(self):
+        # Tanta pregunta da fricción: el router defaultea en vez de aclarar.
+        match = plan_question('como salio boca vs racing dame un resumen')
+        self.assertFalse(match.reply)
+        self.assertIn('ultimo partido', match.query)
+        dolar = plan_question('cuánto está el dólar')
+        self.assertFalse(dolar.reply)
+        self.assertIn('blue', dolar.query)
+        pasaporte = plan_question('cuánto sale el pasaporte')
+        self.assertFalse(pasaporte.reply)
+        self.assertEqual(pasaporte.domains, ('argentina.gob.ar',))
+        # Queda aclaración sólo cuando no hay tema concreto.
+        self.assertTrue(plan_question('test', True).reply)
 
     def test_identity_fees_not_confused_with_doxxing(self):
         self.assertFalse(plan_question('cuanto sale el DNI argentino').reply)
@@ -134,29 +143,50 @@ class RetrievalTests(unittest.IsolatedAsyncioTestCase):
     async def test_refusal_and_clarification_do_not_consume(self):
         self.agent.completion = AsyncMock()
         self.agent.search = AsyncMock()
-        for q, explicit in [('test', True), ('como salio boca vs racing', False), ('busca dateas persona', False)]:
+        for q, explicit in [('test', True), ('busca dateas persona', False)]:
             await self.agent.answer(q, lambda **args: self.fail('no metrics'), explicit)
         self.agent.completion.assert_not_called()
         self.agent.search.assert_not_called()
 
-    async def test_clarification_can_be_answered_without_retyping_question(self):
-        key = (1, 2, 3)
-        self.agent.completion = AsyncMock(return_value={'content': '{"status":"insufficient","evidence":[]}'})
+    async def test_undated_match_defaults_to_latest_without_prompting(self):
+        self.agent.completion = AsyncMock(return_value={'content': json.dumps({'status': 'answer', 'evidence': [
+            {'source': 1, 'quote': 'Partido pendiente de confirmar'}]})})
         self.agent.search = AsyncMock(return_value=[{'url': 'https://example.com', 'content': 'Partido pendiente de confirmar'}])
-        result = await self.agent.answer('como salio boca vs racing', lambda **a: {}, conversation_key=key)
-        self.assertIn('fecha', result)
-        self.agent.completion.assert_not_called()
-        await self.agent.answer('el último', lambda **a: {}, conversation_key=key)
-        self.agent.search.assert_awaited_once_with('como salio boca vs racing el último')
+        result = await self.agent.answer('como salio boca vs racing', lambda **a: {}, conversation_key=(1, 2, 3))
+        self.assertIn('Partido pendiente', result)
+        # Sin fricción: la búsqueda incluyó el default "ultimo" y no se preguntó nada.
+        self.agent.search.assert_awaited_once_with('como salio boca vs racing ultimo partido')
+
+    async def test_dollar_defaults_to_blue_without_prompting(self):
+        self.agent.completion = AsyncMock(return_value={'content': json.dumps({'status': 'answer', 'evidence': [
+            {'source': 1, 'quote': 'Blue accedido'}]})})
+        self.agent.search = AsyncMock(return_value=[{'url': 'https://example.com', 'content': 'Blue accedido'}])
+        await self.agent.answer('cuanto esta el dolar', lambda **a: {}, conversation_key=(1, 2, 3))
+        self.agent.search.assert_awaited_once_with('cuanto esta el dolar blue')
+        self.assertNotIn((1, 2, 3), self.agent.pending_questions)
+
+    async def test_lazy_insufficient_gets_one_forced_reread(self):
+        self.agent.search = AsyncMock(return_value=[{'url': 'https://example.com', 'content': 'Blue $1.480 confirmado'}])
+        self.agent.completion = AsyncMock(side_effect=[
+            {'content': '{"status":"insufficient","evidence":[]}'},
+            {'content': json.dumps({'status': 'answer', 'evidence': [{'source': 1, 'quote': 'Blue $1.480 confirmado'}]})}])
+        result = await self.agent.answer('dólar blue hoy', lambda **a: {}, web=True)
+        self.assertIn('Blue $1.480', result)
+        self.assertEqual(self.agent.completion.await_count, 2)
+        # Y si a la segunda declara insufficient de verdad, se respeta (máximo 1 reintento).
+        self.agent.completion = AsyncMock(return_value={'content': '{"status":"insufficient","evidence":[]}'})
+        result = await self.agent.answer('tema sin datos', lambda **a: {}, web=True)
+        self.assertIn('No pude confirmar', result)
+        self.assertEqual(self.agent.completion.await_count, 2)
 
     async def test_clarification_cannot_leak_between_people_or_topics(self):
         self.agent.completion = AsyncMock(return_value={'content': 'Hola'})
-        self.agent.search = AsyncMock()
+        self.agent.search = AsyncMock(return_value=[{'url': 'https://example.com', 'content': 'Dato actual confirmado'}])
         await self.agent.answer('cuanto esta el dolar', lambda **a: {}, conversation_key=(1, 2, 3))
         await self.agent.answer('Hola', lambda **a: {}, conversation_key=(1, 2, 3))
+        # Memoria y continuaciones quedan aisladas por persona/canal.
         self.assertNotIn((1, 2, 3), self.agent.pending_questions)
-        await self.agent.answer('blue', lambda **a: {}, conversation_key=(1, 2, 4))
-        self.agent.search.assert_not_called()
+        self.assertNotIn('dolar', json.dumps(self.agent.memory.read((1, 2, 4))))
 
     async def test_old_topic_not_sent_on_new_search(self):
         key = (1, 2, 3)

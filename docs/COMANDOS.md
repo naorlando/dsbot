@@ -6,7 +6,7 @@ Uso rápido: `!topvoice week` muestra el ranking de voz semanal; `!topgamers wee
 
 ## Botón (`cogs/assistant.py`)
 
-`!boton pregunta`, `!botón pregunta`, `!ask pregunta` y `!pregunta pregunta` llaman al mismo agente. Puede elegir métricas, ayuda pública, búsqueda web o pedir una aclaración, según lo habilitado. `!buscar consulta` fuerza una búsqueda; precios, fechas de lanzamiento, eventos y guías también se enrutan a web. Sólo responde en el servidor y canal configurados, sin audio, con protección anti-spam compartida de 3 segundos. No ejecuta comandos ni cambia datos. Las métricas requieren `AI_SHARE_METRICS=true`; web requiere clave de Tavily. `!boton novedades` consulta las novedades del deploy.
+`!boton pregunta` (y `!botón`) es el único alias del agente: un solo comando para métricas, historial del canal, ayuda pública, búsqueda web o aclaración, según lo habilitado. Precios, fechas de lanzamiento, eventos, resultados y guías se enrutan a web solos; el dólar sin tipo consulta el blue y los partidos sin fecha buscan el último. Sólo responde en el servidor y canal configurados, sin audio, con protección anti-spam compartida de 3 segundos. No ejecuta comandos ni cambia datos. Las métricas requieren `AI_SHARE_METRICS=true`; web requiere clave de Tavily. `!boton novedades` consulta las novedades del deploy.
 
 Las respuestas web muestran citas textuales verificadas y sus enlaces: no se publican hechos redactados por el modelo sin soporte. Si falta fecha del partido o tipo de dólar, pregunta primero. Cada búsqueda es independiente del tema anterior. El pasaporte argentino se consulta en el tarifario oficial actual, sin precios hardcodeados ni interpretación del modelo. No busca ni reúne datos personales en Dateas.
 

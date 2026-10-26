@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from core.assistant import Assistant, AssistantError, Settings, UsageBudget, metrics, bot_help
+from core.assistant_policy import plan_question
 
 
 class BudgetTests(unittest.TestCase):
@@ -229,7 +230,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.agent.search = AsyncMock(return_value=[{"title": "Dato", "url": "https://example.com", "content": "Dato actual confirmado"}])
         self.agent.completion = AsyncMock(side_effect=[tool_call("search_web", {}), web_answer()])
         result = await self.agent.answer("Algún dato interesante?", lambda **args: self.fail("No metrics"))
-        self.agent.search.assert_awaited_once_with("Algún dato interesante?")
+        self.agent.search.assert_awaited_once_with(plan_question("Algún dato interesante?").query)
         self.assertIn("Fuentes consultadas", result)
         names = [t["function"]["name"] for t in self.agent.completion.call_args.args[1]]
         self.assertNotIn("search_web", names)

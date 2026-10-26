@@ -81,8 +81,8 @@ class CogTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.cog.session.closed)
 
     async def test_boton_aliases_registered(self):
-        self.assertIn("boton", self.cog.ask.aliases)
-        self.assertIn("botón", self.cog.ask.aliases)
+        self.assertEqual(self.cog.ask.name, "boton")
+        self.assertEqual(self.cog.ask.aliases, ["botón"])
 
     async def test_forget_and_status_do_not_spend_model_calls(self):
         key = (10, 20, 1)
