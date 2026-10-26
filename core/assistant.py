@@ -178,7 +178,7 @@ class UsageBudget:
     Intended for the bot's single Railway replica. No cross-process shared budget.
     """
 
-    def __init__(self, path, llm_limit=40, search_limit=20, monthly_search_limit=600, ambient_limit=240):
+    def __init__(self, path, llm_limit=120, search_limit=20, monthly_search_limit=600, ambient_limit=240):
         self.path = Path(path)
         self.limits = {"llm": llm_limit, "search": search_limit, "ambient": ambient_limit}
         self.monthly_search_limit = monthly_search_limit
@@ -316,7 +316,7 @@ def bot_help(settings, topic):
     if topic == "capabilities":
         return {"name": "Botón", "metrics_enabled": settings.share_metrics,
                 "web_enabled": bool(settings.search_key), "commands": ["!boton", "!botonestado", "!olvidar"],
-                "llm_calls_per_day": 40, "cooldown_seconds": 3, "model_calls_per_question": 4,
+                "llm_calls_per_day": 120, "cooldown_seconds": 3, "model_calls_per_question": 4,
                 "max_tools_per_question": 3, "max_web_searches_per_question": 1,
                 "memory": {"messages": 10, "idle_ttl_minutes": 30, "storage": "RAM por persona y canal",
                            "reset_command": "!olvidar", "private_tool_results": False},
@@ -414,6 +414,20 @@ async def chain_post(session, entries, payload_for, base=0):
             return await post_json(session, entry.endpoint, entry.key,
                                    {**payload_for(entry), "model": entry.fallback_model})
     raise last
+
+
+def collapse_repeat(text):
+    """Weak models glue identical canned sentences together ("¿?X? ¿?X? ¿?").
+    Drop consecutive duplicate sentences, keeping wording and order."""
+    parts = re.split(r'(?<=[.!?])\s+', text)
+    out, seen = [], []
+    for part in parts:
+        key = re.sub(r'[^a-z0-9]+', '', part.lower())
+        if not key or (seen and seen[-1] == key):
+            continue
+        seen.append(key)
+        out.append(part)
+    return ' '.join(out).strip()
 
 
 class Assistant:
@@ -737,6 +751,11 @@ class Assistant:
                 # Keep provider output from linking anywhere outside the explicit source list.
                 answer = re.sub(r"https?://[^\s<>]+", "[enlace omitido]", answer[:1700])
                 answer = SECRET_PATTERN.sub("[clave omitida]", answer[:1990])
+                answer = collapse_repeat(answer)
+                if answer.startswith(("Consulté una búsqueda web", "Consulté datos privados")):
+                    # The model recited our internal memory note as the final answer.
+                    event('model', finish='meta_echo', preview='mask echoed')
+                    return 'Se me trabó la lengua; mandame la pregunta de vuelta 😅.'
                 if history_rows is not None and re.search(r"search_channel_history|historial reciente", answer, re.I):
                     # Instruction echo: the harness already read history, so reply from
                     # the rows instead of whatever procedure the model recited.

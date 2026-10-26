@@ -31,7 +31,7 @@ Las futuras herramientas deben ser funciones permitidas con argumentos validados
 
 [OpenRouter](https://openrouter.ai/docs/api_reference/limits) ofrece 50 llamadas/día
 y 20/minuto para modelos gratuitos sin compras previas; una pregunta con herramientas
-usa 2–3 llamadas, no necesariamente una. El bot limita a 40 llamadas/día compartidas
+usa 2–3 llamadas, no necesariamente una. El bot limita a 120 llamadas/día compartidas
 por todo el servidor (también cuenta los intentos fallidos). No hace fallback a modelos pagos.
 Un modelo Qwen/Kimi `:free` específico sólo debe fijarse después de confirmar que sigue
 disponible y soporta herramientas; el catálogo gratuito cambia.
@@ -63,10 +63,17 @@ Tres respuestas no dependen del modelo (los modelos free chicos fallan ahí):
   re-reads forzados (`stage=evidence status=insufficient_retry`).
 - **Partidos**: las respuestas de "¿cómo salió X?" conservan sólo la cita del
   partido más fresco (año, luego jornada/fecha; `stage=evidence status=freshest_filter`).
-  Un modelo chico que cúmplia tres partidos distintos como una sola respuesta.
-- **Jodedera** ("sos un hdp man"): respuesta determinista cero modelo; la tool de
-  aclaración sólo se ofrece si el mensaje es una pregunta real (`¿?` o palabra
-  interrogativa), porque los modelos chicos la usaban para preguntar al voleo.
+  Un modelo chico que citaba tres partidos distintos como una sola respuesta.
+- **Jodedera** ("sos un hdp man" / "destruite" / "matate" / "blowjob" / "t garch"):
+  respuesta determinista cero modelo; la tool de aclaración sólo se ofrece si el
+  mensaje es una pregunta real (`¿?` o palabra interrogativa), porque los modelos
+  chicos la usaban para preguntar al voleo. Emojis o símbolos solos (sin texto)
+  tampoco gastan modelo: se pide texto de vuelta con plantilla.
+- **Intents forzados**: "que dice X?" / "mensajes de X" van sí o sí al historial
+  del canal (ganan incluso ante "busca..."); "pasame/investigá/receta" activan web.
+- **Guardas de salida**: frases canned repetidas en una misma respuesta se
+  colapsan a la primera (`collapse_repeat`), y si el modelo recita la nota interna
+  de memoria (eco del mask) se publica "Se me trabó la lengua" en su lugar.
 - Cada model call queda en logs con `stage=model finish=... calls=... preview=...`
   (primeros 150 caracteres) para auditar la conducta del proveedor free.
 El harness normaliza sólo la consulta actual, quitando muletillas y preservando entidades,

@@ -31,11 +31,19 @@ def plan_question(question, explicit=False):
         return SearchPlan(question, reply='No busco ni reúno datos personales, domicilios, DNI o IP de personas. Sí puedo consultar información pública no sensible.')
     query = re.sub(r'^(?:che[, ]+)?(?:busca(?:me)?|busca en (?:la )?web|buscar|averigua)\s+', '', question, flags=re.I)
     query = re.sub(r'\s*(?:dale rapidito|dale rapido|por favor|porfa)[.!?\s]*$', '', query, flags=re.I).strip(' ¿?!')
+    if not re.search(r'[a-z0-9]', text):
+        # Emoji/¿?-only input: a weak model burns calls or truncates on this.
+        return SearchPlan(question, reply='Mandame texto, che; emojis y símbolos solos no me cuentan nada 😄.')
     if (not explicit and not re.search(r'\b(?:cuanto|cuando|quien|donde|como|que|cual|busca|precio|resultado|hola|novedades)\b', text)
             and re.search(r'\b(?:hdp|hij[oa]s? de puta|mal nacido|pelotud\w*|bolud\w*|puto|forro|forra|imbecil|idiota|la concha\w*|la puta)\b', text)):
         # Pure jodedera gets a zero-model deterministic reply: the clarify tool made
         # weak models interrogate the user back about nothing (friction bug).
         return SearchPlan(question, reply='Dale, tamo tranquilo 😄. Cuando me tires una pregunta de verdad, la resuelvo al toque.')
+    if (not explicit and not re.search(r'\b(?:cuanto|cuando|quien|donde|como|que|cual|hola|novedades)\b', text)
+            and re.search(r'\b(?:matate|mataste|destrui(?:te|me)|borrate|quitate|suicid\w*|blowjob|garch\w*|cogerme|t garch)\b', text)):
+        # Destruction/iono-needs and explicit junk: same zero-model banter path.
+        # north-mini answers "destruite" with a canned "serví café" joke, repeated twice.
+        return SearchPlan(question, reply='No me destruyo ni me destruyes 😄. Pregunteme algo real: métricas, historial o web.')
     if explicit and fold(query) in {'test', 'hola', 'busca', 'buscar', 'prueba'}:
         return SearchPlan(query, reply='¿Qué tema querés que busque? Pasame una consulta concreta.')
     if not explicit and re.search(r'\b(comandos?|capacidades|novedades)\b', text):
@@ -49,7 +57,8 @@ def plan_question(question, explicit=False):
         query = f'{query} blue'
     web = explicit or bool(re.search(
         r'\b(busca\w*|cuanto (?:sale|cuesta|esta)|precio|tarifa|cotizacion|dolar|cuando sale|fecha de lanzamiento|'
-        r'que paso|que sucedio|que ocurrio|quien gano|como termino|como salio|resultado|guia|mantecono)\b', text))
+        r'que paso|que sucedio|que ocurrio|quien gano|como termino|como salio|resultado|guia|mantecono|'
+        r'pasa(?:me)?|investig\w*|recetas?)\b', text))
     if 'pasaporte' in text and web:
         # Default argentino: el flujo de tarifas es del RENAPER; sin preguntas intermedias.
         return SearchPlan('pasaporte argentino tarifas vigentes regular express al instante RENAPER',
@@ -66,10 +75,14 @@ def plan_question(question, explicit=False):
         required = ('2018', 'diciembre')
     # Too-small models leak instructions instead of calling tools, so the
     # intents below are executed deterministically by the harness, not by the model.
-    if (not web and re.search(r'\b(?:por (?:sus|los) mensajes?|historial|cuando (?:hablamos|jugamos|estuvimos|mencionamos)|'
-                              r'quien (?:dijo|escribio|hablo|pregunto|menciono)|se menciona\b|'
-                              r'donde (?:aparece|se menciona))\b', text)
-            and not re.search(r'\b(?:dolar|pesos)\b', text)):
+    history_intent = (re.search(r'\b(?:por (?:sus|los) mensajes?|mensajes? de \w+|historial|'
+                                r'cuando (?:hablamos|jugamos|estuvimos|mencionamos)|'
+                                r'(?:que|q)\s+(?:dice|dijo|dijeron|opin\w*|pens\w*|comento)|'
+                                r'quien (?:dijo|escribio|hablo|pregunto|menciono)|se menciona\b|'
+                                r'donde (?:aparece|se menciona))\b', text))
+    if history_intent and not re.search(r'\b(?:dolar|pesos)\b', text):
+        # Explicit past-talk intents win even over "busca los mensajes de X": web
+        # is always the wrong route for channel messages.
         return SearchPlan(query, required=required, history=True)
     kind = 'dolar' if ('dolar' in text and web) else ('partido' if partido and web else '')
     return SearchPlan(query, web, kind=kind, extract=web, required=required)

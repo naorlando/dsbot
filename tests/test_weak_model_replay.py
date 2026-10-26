@@ -138,14 +138,51 @@ class ReplayTests(unittest.IsolatedAsyncioTestCase):
         tools = [t["function"]["name"] for t in self.agent.completion.call_args.args[1]]
         self.assertIn("ask_clarification", tools)
 
+    async def test_glued_canned_sentences_are_collapsed(self):
+        self.agent.completion = AsyncMock(return_value={
+            "content": "Por qué no intentas crear algo, como servir café? ¿Por qué no intentas crear algo, como servir café? ¿?"})
+        answer = await self.agent.answer("di algo raro para probar", lambda **a: self.fail("no metrics"))
+        self.assertEqual(answer.count('servir café'), 1)
+
+    async def test_memory_mask_echo_is_never_published(self):
+        self.agent.search = AsyncMock(return_value=[{'url': 'https://dolarhoy.test', 'content': 'Dolar blue Compra$1.5450.00%Venta$1.5650.00% Actualizado'}])
+        await self.agent.answer('cuanto esta el dolar', lambda **a: {}, web=True, conversation_key=(1, 2, 3))
+        # Next turn in the same conversation carries the internal note in history;
+        # north-mini recited it verbatim as the answer (production 11:13).
+        self.agent.completion = AsyncMock(return_value={
+            "content": "Consulté una búsqueda web: una nueva pregunta requiere evidencia nueva."})
+        answer = await self.agent.answer("cualquier otra cosa sin web", lambda **a: self.fail("no metrics"),
+                                         conversation_key=(1, 2, 3))
+        self.assertIn('trabó la lengua', answer)
+
 
 class RoutingTests(unittest.TestCase):
     def test_history_intents_bypass_model_decisions(self):
         for question in ('por sus mensajes, donde esta @Wire', 'cuando jugamos csgo?',
-                         'quien hablo de pino', 'cuando hablamos de la juntada'):
+                         'quien hablo de pino', 'cuando hablamos de la juntada',
+                         'que dice hiken?', 'q opinas de q joaco se fue a japon',
+                         'busca los mensajes de hiken que nombran one piece'):
             self.assertTrue(plan_question(question).history, question)
         self.assertFalse(plan_question('cuanto esta el dolar').history)
         self.assertFalse(plan_question('que juegos juega agu').history)
+        # Public-figure news stays on the web path.
+        self.assertFalse(plan_question('quien gano el repechage ayer').history)
+
+    def test_banter_covers_destroy_and_explicit_junk(self):
+        for question in ('destruite', 'matate', 'blowjob', 't garch?',
+                         'servime un cafe y destruite'):
+            self.assertTrue(plan_question(question).reply, question)
+        # north-mini's canned "serví café" joke never reaches production again.
+        self.assertNotIn('café', plan_question('servime un cafe y destruite').reply)
+
+    def test_emoji_only_input_is_rejected_without_model(self):
+        plan = plan_question('🎢🤸‍♂️🙃🏈👰')
+        self.assertTrue(plan.reply)
+
+    def test_new_web_verbs_route_search(self):
+        self.assertTrue(plan_question('pasame el tema mas famoso de rick astley').web)
+        self.assertTrue(plan_question('dame la receta de la coca cola').web)
+        self.assertTrue(plan_question('investiga y dame la receta de la coca cola').web)
 
     def test_pure_banter_gets_zero_model_reply(self):
         plan = plan_question('sos un hdp man dale')
