@@ -184,6 +184,20 @@ class RoutingTests(unittest.TestCase):
         self.assertTrue(plan_question('dame la receta de la coca cola').web)
         self.assertTrue(plan_question('investiga y dame la receta de la coca cola').web)
 
+    def test_cuanto_salio_con_equipo_es_web_partido(self):
+        # Deploy 18:49: "cuanto salio boca" caía por agent-route y el modelo pedía
+        # aclaraciones en tres pasos. Debe buscar en la web, en modo partido.
+        plan = plan_question('cuanto salio boca')
+        self.assertTrue(plan.web)
+        self.assertEqual(plan.kind, 'partido')
+        self.assertIn('boca', plan.required)
+        self.assertNotIn('cuanto', plan.required)
+        self.assertTrue(plan.query.endswith('ultimo partido'))
+        # Sin equipo de fútbol: web genérica, sin defaults de partido.
+        generica = plan_question('cuanto salio el ps5')
+        self.assertTrue(generica.web)
+        self.assertEqual(generica.kind, '')
+
     def test_pure_banter_gets_zero_model_reply(self):
         plan = plan_question('sos un hdp man dale')
         self.assertTrue(plan.reply)
@@ -230,3 +244,19 @@ class RoutingTests(unittest.TestCase):
         system = self.agent.completion.call_args.args[0][0]["content"]
         self.assertNotIn("Capacidades reales", system)
         self.assertIn("sólo lectura es sobre datos", system)
+
+    async def test_cuanto_salio_boca_bypasses_clarification_entirely(self):
+        # Deploy 18:49: el modelo preguntó "¿el equipo o país? ¿resultado? ¿torneo?"
+        # ante "cuanto salio boca". La frase se busca tal cual, cero aclaraciones.
+        self.agent.search = AsyncMock(return_value=[
+            {"url": "https://smsporte.test/cronica", "content": "Boca gano 2-1 a Talleres en La Bombonera"}])
+        self.agent.completion = AsyncMock(return_value={"content": json.dumps(
+            {"status": "answer", "evidence": [
+                {"source": 1, "quote": "Boca gano 2-1 a Talleres en La Bombonera"}]})})
+        answer = await self.agent.answer("cuanto salio boca", lambda **a: self.fail("no metrics"),
+                                         conversation_key=(1, 2, 3))
+        self.assertIn('2-1', answer)
+        tools = [t["function"]["name"] for t in self.agent.completion.call_args.args[1]] \
+            if self.agent.completion.call_args.args[1] else []
+        self.assertNotIn("ask_clarification", tools)
+        self.agent.search.assert_awaited_once_with("cuanto salio boca ultimo partido")

@@ -48,7 +48,17 @@ def plan_question(question, explicit=False):
         return SearchPlan(query, reply='¿Qué tema querés que busque? Pasame una consulta concreta.')
     if not explicit and re.search(r'\b(comandos?|capacidades|novedades)\b', text):
         return SearchPlan(query)
-    partido = bool(re.search(r'\b(?:como salio|resultado|quien gano|como termino|resumen del partido)\b', text))
+    # "cuanto salio boca" es una web-pregunta fresca trillada en chat argentino: con
+    # equipo de futbol nombrado es, además, caso partido (modo news). Sin equipo
+    # (ps5, la entrada, el flight) queda web genérica, nunca gasta "ultimo partido".
+    partido = False
+    if re.search(r'\bcuanto salio\b', text) and re.search(
+            r'\b(?:boca|river|racing|independiente|san lorenzo|argentina|seleccion|huracan|'
+            r'gimnasia|estudiantes|lanus|rosario central|newells|velez|banfield|boca juniors|'
+            r'toluca|monterrey|cruz azul|chivas|america|libertadores|sudamericana|'
+            r'copa argentina|liga profesional)\b', text):
+        partido = True
+    partido = partido or bool(re.search(r'\b(?:como salio|resultado|quien gano|como termino|resumen del partido)\b', text))
     if partido and not re.search(r'\b(?:hoy|ayer|ultimo|ultima|\d{1,2}[/-]\d{1,2}|\d{4}|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b', text):
         # Fewer reply prompts: an undated match defaults to the latest one. Idempotent:
         # search() re-plans the normalized query and must not append twice.
@@ -58,7 +68,7 @@ def plan_question(question, explicit=False):
         # Rioplatense default: "el dolar" sin tipo es el blue; sin preguntas intermedias.
         query = f'{query} blue'
     web = explicit or bool(re.search(
-        r'\b(busca\w*|cuanto (?:sale|cuesta|esta)|precio|tarifa|cotizacion|dolar|cuando sale|fecha de lanzamiento|'
+        r'\b(busca\w*|cuanto (?:sale|cuesta|esta|salio|salieron)|precio|tarifa|cotizacion|dolar|cuando sale|fecha de lanzamiento|'
         r'que paso|que sucedio|que ocurrio|quien gano|como termino|como salio|resultado|guia|mantecono|'
         r'pasa(?:me)?|investig\w*|recetas?)\b', text))
     if 'pasaporte' in text and web:
@@ -92,7 +102,7 @@ def plan_question(question, explicit=False):
         # resultados genéricos no nombran al equipo. Requerir su token filtra esa
         # basura antes de que el modelo la cite.
         cleaned = re.sub(r'[^a-z0-9 ]', ' ', text)
-        stripped = re.sub(r'\b(?:como|quien|salio|sale|gano|ganado|perdio|empato|resultado(?:s)?|'
+        stripped = re.sub(r'\b(?:como|cuanto|cuando|quien|salio|sale|salieron|gano|ganado|perdio|empato|resultado(?:s)?|'
                           r'resumen|ultimo|ultima|partido|encuentro|termino|jugado|juego|de|del|'
                           r'el|la|los|las|su|ayer|hoy|equivale)\b', ' ', cleaned)
         required = required + tuple(dict.fromkeys(w for w in stripped.split() if len(w) >= 4))[:2]

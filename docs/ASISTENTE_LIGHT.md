@@ -70,6 +70,19 @@ Tres respuestas no dependen del modelo (los modelos free chicos fallan ahí):
   nombrar al equipo (`required`) y toda cita publicada debe contener marcador
   (`2-1`, "ganó/perdió/empató/penales"; `status=score_filter`). Sin marcador →
   `insufficient` y re-lectura, nunca prosa de ambiente.
+- **"Cuánto salió Boca"** es web-pregunta, no aclaración: `cuanto salio` + equipo
+  de fútbol entra directo al modo partido de arriba, con default del último
+  partido y sin ofrecer `ask_clarification` (el modelo preguntaba en tres pasos).
+- **Herramientas gratis sin clave** (`core/assistant_tools.py`): `calc`
+  (aritmética exacta con evaluador propio, sin `eval`), `wiki_summary`
+  (búsqueda + resumen de Wikipedia ES, endpoints públicos) y `weather_check`
+  (Open-Meteo: geocoding + pronóstico de 3 días). No gastan presupuesto de
+  Tavily; HTTP acotado (timeout, techo de bytes, fail-closed). Se ofrecen según
+  intent detectado (quién es / clima / cuentas), no de menú en cada turno.
+- **Scaffolds generativos**: itinerarios, recetas y recomendaciones entran con
+  la estructura de respuesta pre-construida en el system prompt (ruta por días,
+  ingredientes/pasos, 3-5 opciones con por qué), así el modelo chico no niega
+  pedidos creativos ni contesta con meta del servidor.
 - **Jodedera** ("sos un hdp man" / "destruite" / "matate" / "blowjob" / "t garch"):
   respuesta determinista cero modelo; la tool de aclaración sólo se ofrece si el
   mensaje es una pregunta real (`¿?` o palabra interrogativa), porque los modelos
