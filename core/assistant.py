@@ -342,6 +342,9 @@ def bot_help(settings, topic):
 
 SYSTEM = """Sos Botón, el agente pequeño y de sólo lectura de un servidor de Discord. Respondé en español rioplatense,
 breve y útil. No podés ejecutar código, SQL, comandos, cambiar datos ni contactar personas.
+No te niegues a preguntas generales de la vida (viajes, recetas, juegos, consejos): eso respondelo
+directamente con tu propio conocimiento, sin herramientas, sin enumerar capacidades y sin advertir
+que sos un bot de servidor. La limitación de sólo lectura es sobre datos, no sobre conversar.
 Consultá get_metrics o query_stats antes de afirmar cifras del servidor; query_stats resuelve detalles por
 juego, por miembro y por día. Si no tenés datos, decilo.
 Para explicar comandos, novedades o tus capacidades, consultá get_bot_help. No inventes comandos.
@@ -495,6 +498,11 @@ class Assistant:
         payload = {"query": plan.query, "search_depth": "basic", "max_results": 5,
                    "include_answer": False, "include_raw_content": False,
                    "auto_parameters": False, "include_published_date": True, "include_usage": True}
+        if plan.kind == 'partido':
+            # Tavily en modo general devolvía resultados de Serie C italiana y club-pages
+            # sin marcador para "como salio boca". topic=news + ventana semanal + depth
+            # avanzado traen剛 crónicas del resultado real.
+            payload.update(topic="news", time_range="week", search_depth="advanced", max_results=8)
         if plan.domains:
             payload['include_domains'] = list(plan.domains)
         event('search_start', query_chars=len(plan.query), restricted_domains=len(plan.domains))
@@ -504,7 +512,7 @@ class Assistant:
         rows = data.get("results", [])
         if not isinstance(rows, list):
             raise AssistantError("El buscador devolvió resultados inválidos.")
-        for row in rows[:5]:
+        for row in rows[:8]:
             if not isinstance(row, dict) or not isinstance(row.get("url"), str):
                 continue
             url = row.get("url", "")
@@ -524,7 +532,12 @@ class Assistant:
                             "retrieved_at": datetime.now(timezone.utc).isoformat()}
             if relevant(source, plan) and url not in {s['url'] for s in sources}:
                 sources.append(source)
-        sources = sources[:3]
+        # Long pages quote better, but never reorder the dollar path: its parser
+        # reads prices from the first source that passes, in Tavily's own order.
+        if plan.kind != 'dolar':
+            sources = sorted(sources, key=lambda s: len(s['content']), reverse=True)[:3]
+        else:
+            sources = sources[:3]
         usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
         credits = usage.get("credits")
         event('search_results', candidates=len(rows), accepted=len(sources),
@@ -609,15 +622,18 @@ class Assistant:
         # Free providers may reject an assistant-first truncated history.
         while history and history[0]["role"] != "user":
             history.pop(0)
+        needs_help = bool(re.search(r"\b(comandos?|ayuda|novedades|capacidades)\b", question, re.I))
         messages = [{"role": "system", "content": SYSTEM + "\nFecha UTC: " + datetime.now(timezone.utc).isoformat()},
                     *history, {"role": "user", "content": question}]
-        messages[0]["content"] += "\nCapacidades reales: " + json.dumps(bot_help(self.settings, "capabilities"), ensure_ascii=False)
+        if needs_help:
+            # The capabilities list made a weak model answer an itinerary request with
+            # server-ad bullet points; only help intents get that context.
+            messages[0]["content"] += "\nCapacidades reales: " + json.dumps(bot_help(self.settings, "capabilities"), ensure_ascii=False)
         sources = []
         searched, used_private = False, False
         web_retries = 0
         # Help about our own commands must be grounded even if a weak free model
         # ignores the instruction to consult docs. The model still selects the topic.
-        needs_help = bool(re.search(r"\b(comandos?|ayuda|novedades|capacidades)\b", question, re.I))
         router_entry = self.settings.router
         if web:
             # Search exactly the plan query (harness normalization + defaults),
@@ -712,8 +728,25 @@ class Assistant:
                         declared = {}
                     if (plan.kind == 'partido' and isinstance(declared, dict)
                             and declared.get('status') == 'answer'
-                            and isinstance(declared.get('evidence'), list)
-                            and len(declared['evidence']) > 1):
+                            and isinstance(declared.get('evidence'), list)):
+                        # "El arquero desvió la pelota" is not a result: quotes without
+                        # a score marker (2-1, gano/perdio/empato) would be published
+                        # as if they answered. The team-required filter already keeps
+                        # unmentioning sources out; this blocks empty-result prose.
+                        scored = [it for it in declared['evidence'] if isinstance(it, dict)
+                                  and re.search(r'\d\s*[-–]\s*\d|\bgan[oó]\b|\bperdi[oó]\b|\bempat[oó]\b|\bpenales\b',
+                                                str(it.get('quote', '')), re.I)]
+                        if len(scored) < len(declared['evidence']):
+                            event('evidence', status='score_filter',
+                                  kept=len(scored), dropped=len(declared['evidence']) - len(scored))
+                            if not scored:
+                                declared = {'status': 'insufficient', 'evidence': []}
+                            else:
+                                declared['evidence'] = scored
+                            answer = json.dumps(declared)
+                    if (plan.kind == 'partido' and isinstance(declared, dict)
+                            and declared.get('status') == 'answer'
+                            and len(declared.get('evidence') or []) > 1):
                         # Three matches quoted as one answer (deploy logs 22:17):
                         # keep deterministically only the freshest quote.
                         kept = freshest_items(declared['evidence'], sources)

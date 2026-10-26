@@ -244,8 +244,8 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.agent.completion.await_count, 4)
 
     async def test_web_explicit_single_query_no_metrics(self):
-        self.agent.search = AsyncMock(return_value=[{"title": "Result", "url": "https://example.com", "content": "Dato actual confirmado"}])
-        self.agent.completion = AsyncMock(return_value=web_answer())
+        self.agent.search = AsyncMock(return_value=[{"title": "Result", "url": "https://example.com", "content": "Boca gano 2-0: Dato actual confirmado"}])
+        self.agent.completion = AsyncMock(return_value=web_answer(quote="Boca gano 2-0: Dato actual confirmado"))
         result = await self.agent.answer("Resultado de Boca hoy", lambda **args: self.fail("No metrics on web"), web=True)
         self.agent.search.assert_awaited_once_with("Resultado de Boca hoy")
         self.assertEqual(self.agent.completion.call_args.args[1], [])
@@ -381,6 +381,19 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(sources), 1)
             self.assertEqual(len(sources[0]["content"]), 1500)
 
+    async def test_partido_search_switches_to_news_mode(self):
+        # Generic Tavily search returned Serie C italiana for "como salio boca";
+        # news topic + week window + advanced depth pull real match reports.
+        with patch("core.assistant.post_json", new_callable=AsyncMock) as post:
+            post.return_value = {"results": [{"url": "https://smsporte.test/cronica", "content": "Boca gano 2-1 a Talleres en La Bombonera, " + "cronica " * 200}]}
+            sources = await self.agent.search("como salio boca")
+            payload = post.await_args_list[0].args[3]
+            self.assertEqual(payload["topic"], "news")
+            self.assertEqual(payload["time_range"], "week")
+            self.assertEqual(payload["search_depth"], "advanced")
+            self.assertEqual(payload["max_results"], 8)
+            self.assertEqual(len(sources), 1)
+
     async def test_clarification_ends_turn_without_other_tools(self):
         self.agent.search = AsyncMock()
         callback = AsyncMock()
@@ -456,8 +469,8 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         # the model to decide (weak models echo instructions instead of calling).
         self.assertNotIn("search_channel_history", tool_names)
         # A follow-up web question must not inherit anything from the history scan.
-        self.agent.search = AsyncMock(return_value=[{"title": "T", "url": "https://example.com", "content": "Dato actual confirmado"}])
-        self.agent.completion = AsyncMock(return_value=web_answer())
+        self.agent.search = AsyncMock(return_value=[{"title": "T", "url": "https://example.com", "content": "Boca gano 2-0: Dato actual confirmado"}])
+        self.agent.completion = AsyncMock(return_value=web_answer(quote="Boca gano 2-0: Dato actual confirmado"))
         await self.agent.answer("Resultado de Boca hoy", lambda **args: self.fail("No metrics on web"), web=True)
         sent = self.agent.completion.call_args.args[0]
         self.assertNotIn("csgo", json.dumps(sent, ensure_ascii=False))

@@ -194,8 +194,39 @@ class RoutingTests(unittest.TestCase):
         self.assertTrue(plan_question('que jodido estas boludo, cuanto esta el dolar').web)
 
     def test_partido_kind_marked_for_freshness_filter(self):
-        self.assertEqual(plan_question('como salio boca').kind, 'partido')
-        self.assertEqual(plan_question('quien gano river hoy').kind, 'partido')
-        self.assertEqual(plan_question('como salio boca el 27/09').kind, 'partido')
+        plan = plan_question('como salio boca')
+        self.assertEqual(plan.kind, 'partido')
+        # The sportytrader Serie C source never named the team; require its token so
+        # generic-results pages are filtered before the model quotes them.
+        self.assertIn('boca', plan.required)
+        self.assertIn('river', plan_question('quien gano river hoy').required)
+        self.assertIn('boca', plan_question('como salio boca el 27/09').required)
+        from core.assistant_policy import relevant
+        self.assertFalse(relevant({'title': 'Serie C', 'content': 'AS Cittadella FC Arzignano Valchiampo 1 0 Fin Union Brescia'}, plan))
+        self.assertTrue(relevant({'title': 'Crónica', 'content': 'Boca se impuso 2-1 ante Talleres en La Bombonera'}, plan))
         self.assertEqual(plan_question('cuanto esta el dolar').kind, 'dolar')
         self.assertEqual(plan_question('que paso el 9 de diciembre de 2018').kind, '')
+
+    async def test_partido_quote_without_result_is_never_published(self):
+        # "El arquero de Boca... se aseguró la punta" (deploy 18:42): no score, yet published.
+        self.agent.search = AsyncMock(return_value=[
+            {'url': 'https://smsport.test', 'content':
+             'Boca se aseguró la punta de la Anual a dos fechas del final. '
+             'El arquero desvió la pelota tras una media vuelta de Morales dentro del área chica. '}])
+        self.agent.completion = AsyncMock(return_value={"content": json.dumps(
+            {"status": "answer", "evidence": [
+                {"source": 1, "quote": "El arquero de Boca, en el tercer minuto de descuento, desvió la pelota tras una media vuelta de Morales"}]})})
+        answer = await self.agent.answer("como salio boca", lambda **a: {}, web=True)
+        self.assertNotIn('desv', answer)
+        self.assertIn('No pude confirmar', answer)
+
+    async def test_general_question_answered_directly_without_capabilities(self):
+        # "haceme un itinerario de 30 dias en japon" got a refusal + capability bullets.
+        self.agent.completion = AsyncMock(side_effect=[
+            {"content": "Buena meta. Día 1-7 Tokio: Asakusa..."}])
+        answer = await self.agent.answer("haceme un itinerario de 30 dias en japon",
+                                         lambda **a: self.fail("no metrics"))
+        self.assertIn('Tokio', answer)
+        system = self.agent.completion.call_args.args[0][0]["content"]
+        self.assertNotIn("Capacidades reales", system)
+        self.assertIn("sólo lectura es sobre datos", system)

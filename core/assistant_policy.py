@@ -50,8 +50,10 @@ def plan_question(question, explicit=False):
         return SearchPlan(query)
     partido = bool(re.search(r'\b(?:como salio|resultado|quien gano|como termino|resumen del partido)\b', text))
     if partido and not re.search(r'\b(?:hoy|ayer|ultimo|ultima|\d{1,2}[/-]\d{1,2}|\d{4}|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b', text):
-        # Fewer reply prompts: an undated match defaults to the latest one.
-        query = f'{query} ultimo partido'
+        # Fewer reply prompts: an undated match defaults to the latest one. Idempotent:
+        # search() re-plans the normalized query and must not append twice.
+        if not query.lower().endswith('ultimo partido'):
+            query = f'{query} ultimo partido'
     if 'dolar' in text and not re.search(r'\b(blue|oficial|mep|ccl|tarjeta|cripto|bolsa)\b', text):
         # Rioplatense default: "el dolar" sin tipo es el blue; sin preguntas intermedias.
         query = f'{query} blue'
@@ -85,6 +87,15 @@ def plan_question(question, explicit=False):
         # is always the wrong route for channel messages.
         return SearchPlan(query, required=required, history=True)
     kind = 'dolar' if ('dolar' in text and web) else ('partido' if partido and web else '')
+    if kind == 'partido':
+        # "como salio boca" trajo la Serie C italiana de sportytrader: los fences de
+        # resultados genéricos no nombran al equipo. Requerir su token filtra esa
+        # basura antes de que el modelo la cite.
+        cleaned = re.sub(r'[^a-z0-9 ]', ' ', text)
+        stripped = re.sub(r'\b(?:como|quien|salio|sale|gano|ganado|perdio|empato|resultado(?:s)?|'
+                          r'resumen|ultimo|ultima|partido|encuentro|termino|jugado|juego|de|del|'
+                          r'el|la|los|las|su|ayer|hoy|equivale)\b', ' ', cleaned)
+        required = required + tuple(dict.fromkeys(w for w in stripped.split() if len(w) >= 4))[:2]
     return SearchPlan(query, web, kind=kind, extract=web, required=required)
 
 

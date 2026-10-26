@@ -150,10 +150,10 @@ class RetrievalTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_undated_match_defaults_to_latest_without_prompting(self):
         self.agent.completion = AsyncMock(return_value={'content': json.dumps({'status': 'answer', 'evidence': [
-            {'source': 1, 'quote': 'Partido pendiente de confirmar'}]})})
-        self.agent.search = AsyncMock(return_value=[{'url': 'https://example.com', 'content': 'Partido pendiente de confirmar'}])
+            {'source': 1, 'quote': 'Boca 0-0 racing: partido pendiente de confirmar'}]})})
+        self.agent.search = AsyncMock(return_value=[{'url': 'https://example.com', 'content': 'Boca 0-0 racing: partido pendiente de confirmar'}])
         result = await self.agent.answer('como salio boca vs racing', lambda **a: {}, conversation_key=(1, 2, 3))
-        self.assertIn('Partido pendiente', result)
+        self.assertIn('0-0', result)
         # Sin fricción: la búsqueda incluyó el default "ultimo" y no se preguntó nada.
         self.agent.search.assert_awaited_once_with('como salio boca vs racing ultimo partido')
 

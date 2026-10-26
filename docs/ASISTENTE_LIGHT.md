@@ -64,11 +64,22 @@ Tres respuestas no dependen del modelo (los modelos free chicos fallan ahí):
 - **Partidos**: las respuestas de "¿cómo salió X?" conservan sólo la cita del
   partido más fresco (año, luego jornada/fecha; `stage=evidence status=freshest_filter`).
   Un modelo chico que citaba tres partidos distintos como una sola respuesta.
+- **Calidad web en partidos** (portaba la Serie C italiana de sportytrader para
+  "¿cómo salió Boca?"): la búsqueda futbolística usa modo `topic=news` de Tavily
+  con ventana de una semana y profundidad avanzada; además las fuentes deben
+  nombrar al equipo (`required`) y toda cita publicada debe contener marcador
+  (`2-1`, "ganó/perdió/empató/penales"; `status=score_filter`). Sin marcador →
+  `insufficient` y re-lectura, nunca prosa de ambiente.
 - **Jodedera** ("sos un hdp man" / "destruite" / "matate" / "blowjob" / "t garch"):
   respuesta determinista cero modelo; la tool de aclaración sólo se ofrece si el
   mensaje es una pregunta real (`¿?` o palabra interrogativa), porque los modelos
   chicos la usaban para preguntar al voleo. Emojis o símbolos solos (sin texto)
   tampoco gastan modelo: se pide texto de vuelta con plantilla.
+- **Anti-"soy un bot"**: el system prompt aclara que la sólo-lectura es de datos,
+  no de conversar; preguntas generales (viajes, recetas, juegos, consejos) se
+  responden directamente con conocimiento propio, sin herramientas. La lista de
+  capacidades se inyecta sólo cuando el pedido es de ayuda; en otra consulta el
+  modelo la recitaba como respuesta (bug del itinerario de Japón en producción).
 - **Intents forzados**: "que dice X?" / "mensajes de X" van sí o sí al historial
   del canal (ganan incluso ante "busca..."); "pasame/investigá/receta" activan web.
 - **Guardas de salida**: frases canned repetidas en una misma respuesta se
