@@ -85,13 +85,13 @@ como JSON completo, sin cortarlos a mitad de estructura.
 Los 500 MB del volumen son almacenamiento, no RAM ni presupuesto de API.
 
 Una consulta a la vez, sin cola; protección anti-spam compartida de 3 segundos por usuario entre
-todos los alias. Máximo 3 llamadas de modelo, 2 herramientas en total y 1 búsqueda por
-pregunta; 400 tokens de salida para conversación y 800 para seleccionar evidencia web,
+todos los alias. Máximo 4 llamadas de modelo, 3 herramientas en total y 1 búsqueda por
+pregunta; 600 tokens de salida para conversación y 1000 para seleccionar evidencia web,
 18 segundos de espera de API, 8 segundos para la página oficial y 60 segundos totales.
 Hasta una reparación de formato/evidencia, dentro del máximo de 3 llamadas de modelo;
 sin reintentos de red ni de HTTP 429. Hay además un máximo de 20 llamadas de modelo
 en una ventana móvil de 60 segundos. Los errores no consumen un cooldown adicional.
-Memoria conversacional: últimos 5 mensajes (usuario y Botón juntos), por persona,
+Memoria conversacional: últimos 10 mensajes (usuario y Botón juntos), por persona,
 servidor y canal, en RAM. Vence tras 30 minutos sin uso, máximo 64 conversaciones y
 800 caracteres por mensaje. Reiniciar/deployar la borra. Los resultados privados
 de métricas se reemplazan por una nota sin cifras/nombres. No persiste llamadas de
@@ -140,9 +140,15 @@ AI_ALLOW_PAID=false
 AI_GUILD_ID=id_del_unico_servidor
 AI_CHANNEL_ID=id_del_canal_habilitado
 AI_SHARE_METRICS=true
+# Opcional: modelo :free de repuesto. Si OpenRouter devuelve 429 del modelo principal,
+# reintenta UNA vez con este. No hay fallback a modelos pagos.
+AI_FALLBACK_MODEL=google/gemma-4-31b-it:free
 # Opcional: sin esta clave, Botón no tiene búsqueda web
 TAVILY_API_KEY=clave_de_tavily
 ```
+
+Sin `AI_MODEL` el código ya no usa `openrouter/free` (ID inexistente en el catálogo actual
+de OpenRouter): el default es `cohere/north-mini-code:free`, probado con API real.
 
 Cambiar a Qwen, sólo si se acepta el costo:
 
@@ -183,7 +189,8 @@ Para repetir sin datos reales: exportar claves sólo al entorno del proceso y ej
 
 `cogs/assistant.py` aplica canal/servidor permitidos, cooldown, concurrencia y límite
 total de tiempo. `core/assistant.py` mantiene el bucle pequeño de decisión → herramienta
-validada → respuesta. Las únicas herramientas son `get_metrics`, `get_bot_help`,
+validada → respuesta. Las herramientas son `get_metrics`, `query_stats` (exploración de
+juegos, miembros y días del registro propio, nombres visibles, sin IDs), `get_bot_help`,
 `search_web` y `ask_clarification`; esta última pregunta al usuario y termina el turno
 sin consultar otra herramienta. No hay shell, SQL, escritura ni rutas elegidas por el modelo. La ayuda
 sale de `docs/COMANDOS.md` y `docs/UPDATES.md`, no de una lectura arbitraria de GitHub.

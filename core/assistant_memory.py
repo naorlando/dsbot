@@ -5,7 +5,7 @@ from collections import OrderedDict, deque
 
 
 class ConversationMemory:
-    def __init__(self, max_messages=5, ttl_seconds=1800, max_sessions=64, clock=time.monotonic):
+    def __init__(self, max_messages=10, ttl_seconds=1800, max_sessions=64, clock=time.monotonic):
         self.max_messages = max_messages
         self.ttl_seconds = ttl_seconds
         self.max_sessions = max_sessions

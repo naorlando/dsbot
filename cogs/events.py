@@ -9,6 +9,7 @@ import asyncio
 from datetime import datetime
 
 from core.persistence import config, stats, save_stats, get_channel_id
+from core.commentator import maybe_compose
 from core.session_dto import (
     save_message_event, save_reaction_event, save_sticker_event,
     save_connection_event
@@ -175,7 +176,11 @@ class EventsCog(commands.Cog, name='Events'):
                         25: f"🚨 ¡ALERTA! **{username}** ya se conectó **25 veces** hoy. Alguien deténgalo. 🛑",
                         50: f"💀 **50 CONEXIONES EN UN DÍA**. {username}, sal de tu casa. 🚪"
                     }
-                    message = milestone_messages[count_today]
+                    template = milestone_messages[count_today]
+                    composed = await maybe_compose(self.bot, 'connection_milestone',
+                                                   {'member': username, 'count': count_today,
+                                                    'record_broken': bool(broke_record)})
+                    message = composed or template
                     await send_notification(message, self.bot)
                     logger.info(f'🎉 Milestone alcanzado: {username} - {count_today} conexiones')
                 

@@ -17,6 +17,7 @@ from core.persistence import stats, save_stats
 from core.session_dto import save_game_time
 from core.cooldown import check_cooldown
 from core.helpers import send_notification
+from core.commentator import maybe_compose
 
 logger = logging.getLogger('dsbot')
 
@@ -476,6 +477,16 @@ class PartySessionManager(BaseSessionManager):
             ):
                 message = self._create_party_formed_message(session.game_name, session.player_names, party_config)
                 if message:
+                    composed = await maybe_compose(self.bot, 'party_formed', {
+                        'game': session.game_name,
+                        'players': list(session.player_names),
+                        'hora': datetime.now().strftime('%H:%M'),
+                        'dia': datetime.now().strftime('%A'),
+                    })
+                    if composed:
+                        # The sanitized text carries no mentions; prepend the configured one.
+                        mention_prefix = '@here ' if party_config.get('use_here_mention', True) else ''
+                        message = f'{mention_prefix}{composed}'.strip()
                     try:
                         notification_msg = await send_notification(message, self.bot)
                         session.notification_message = notification_msg

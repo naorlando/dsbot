@@ -90,7 +90,7 @@ class CogTests(unittest.IsolatedAsyncioTestCase):
         await self.cog.forget.callback(self.cog, self.ctx)
         self.assertEqual(self.cog.agent.memory.read(key), [])
         await self.cog.status.callback(self.cog, self.ctx)
-        self.assertIn("últimos 5 mensajes", self.ctx.send.call_args.args[0])
+        self.assertIn("últimos 10 mensajes", self.ctx.send.call_args.args[0])
         self.cog.agent.answer.assert_not_called()
 
     async def test_forget_wrong_scope_does_not_clear(self):

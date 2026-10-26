@@ -8,12 +8,12 @@ class MemoryTests(unittest.TestCase):
         self.now = 0
         self.memory = ConversationMemory(max_sessions=2, clock=lambda: self.now)
 
-    def test_five_messages_bounded_and_no_disk(self):
-        for i in range(10):
+    def test_ten_messages_bounded_and_no_disk(self):
+        for i in range(20):
             self.memory.remember((1, 2, 3), str(i), "respuesta " + str(i))
         messages = self.memory.read((1, 2, 3))
-        self.assertEqual(len(messages), 5)
-        self.assertEqual(messages[-1]["content"], "respuesta 9")
+        self.assertEqual(len(messages), 10)
+        self.assertEqual(messages[-1]["content"], "respuesta 19")
 
     def test_idle_expiration(self):
         self.memory.remember((1, 2, 3), "hola", "hola")

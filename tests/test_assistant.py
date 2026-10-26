@@ -43,8 +43,78 @@ class SettingsTests(unittest.TestCase):
     def test_free_default_and_no_data_sharing(self):
         with patch.dict(os.environ, {"AI_API_KEY": "test"}, clear=True):
             settings = Settings.from_env()
-        self.assertEqual(settings.model, "openrouter/free")
+        self.assertEqual(settings.model, "cohere/north-mini-code:free")
         self.assertFalse(settings.share_metrics)
+        self.assertEqual(settings.fallback_model, "")
+
+    def test_chain_order_and_fallback_carryover(self):
+        from core.assistant import ChainEntry
+        with patch.dict(os.environ,
+                        {"AI_API_KEY": "or", "GOOGLE_API_KEY": "g", "GROQ_API_KEY": "k",
+                         "AI_FALLBACK_MODEL": "google/gemma-4-31b-it:free"}, clear=True):
+            settings = Settings.from_env()
+        self.assertEqual([e.provider for e in settings.chain], ["openrouter", "google", "groq"])
+        self.assertEqual(settings.chain[0].fallback_model, "google/gemma-4-31b-it:free")
+        self.assertEqual([e.fallback_model for e in settings.chain[1:]], ["", ""])
+
+    def test_google_primary_with_fixed_model(self):
+        with patch.dict(os.environ, {"AI_PROVIDER": "google", "GOOGLE_API_KEY": "g",
+                                     "AI_API_KEY": "or", "CEREBRAS_API_KEY": "c"}, clear=True):
+            settings = Settings.from_env()
+        self.assertEqual(settings.model, "gemini-3.5-flash-lite")
+        self.assertEqual([e.provider for e in settings.chain], ["google", "cerebras", "openrouter"])
+
+    def test_chain_providers_reject_ai_model_override(self):
+        for name in ("google", "groq", "cerebras"):
+            key = {"google": "GOOGLE_API_KEY", "groq": "GROQ_API_KEY", "cerebras": "CEREBRAS_API_KEY"}[name]
+            with patch.dict(os.environ, {"AI_PROVIDER": name, key: "k", "AI_MODEL": "m"}, clear=True):
+                with self.assertRaises(AssistantError):
+                    Settings.from_env()
+
+    def test_default_provider_picks_first_keyed_free_provider(self):
+        with patch.dict(os.environ, {"CEREBRAS_API_KEY": "c"}, clear=True):
+            self.assertEqual(Settings.from_env().provider, "cerebras")
+        with patch.dict(os.environ, {"GROQ_API_KEY": "k"}, clear=True):
+            self.assertEqual(Settings.from_env().provider, "groq")
+
+    def test_custom_provider_skips_openrouter_chain(self):
+        with patch.dict(os.environ,
+                        {"AI_PROVIDER": "custom", "AI_ENDPOINT": "https://x.test/v1", "AI_MODEL": "m",
+                         "AI_API_KEY": "k", "AI_ALLOW_PAID": "true"}, clear=True):
+            settings = Settings.from_env()
+        self.assertEqual([e.provider for e in settings.chain], ["custom"])
+        self.assertEqual(settings.key, "k")
+        self.assertEqual(settings.chain[0].endpoint, "https://x.test/v1")
+
+    def test_custom_endpoint_validation_matrix(self):
+        def attempt(**extra):
+            env = {"AI_PROVIDER": "custom", "AI_ENDPOINT": "https://good.test/v1", "AI_MODEL": "m",
+                   "AI_API_KEY": "k", "AI_ALLOW_PAID": "true", **extra}
+            with patch.dict(os.environ, env, clear=True):
+                Settings.from_env()
+        attempt()  # valid https
+        attempt(AI_ENDPOINT="http://127.0.0.1:8080/v1", AI_INSECURE_ENDPOINT="true")  # internal http
+        attempt(AI_ENDPOINT="http://192.168.5.10:8080/v1", AI_INSECURE_ENDPOINT="true")  # internal network http
+        for env in ({"AI_ENDPOINT": "http://127.0.0.1:8080/v1"},
+                    {"AI_ENDPOINT": "https://user:pw@bad.test/v1"},
+                    {"AI_ENDPOINT": "https://bad.test/v1?q=1"},
+                    {"AI_ENDPOINT": "https://bad.test/v1#f"},
+                    {"AI_ALLOW_PAID": "false"}):
+            merged = {"AI_PROVIDER": "custom", "AI_ENDPOINT": "https://good.test/v1", "AI_MODEL": "m",
+                      "AI_API_KEY": "k", **env}
+            with patch.dict(os.environ, merged, clear=True), self.assertRaises(AssistantError):
+                Settings.from_env()
+
+    def test_fallback_must_be_free_and_distinct(self):
+        with patch.dict(os.environ, {"AI_API_KEY": "test", "AI_FALLBACK_MODEL": "google/gemma-4-31b-it:free"}, clear=True):
+            self.assertEqual(Settings.from_env().fallback_model, "google/gemma-4-31b-it:free")
+        for env in ({"AI_FALLBACK_MODEL": "paid/model"}, {"AI_FALLBACK_MODEL": "cohere/north-mini-code:free"},
+                    {"AI_PROVIDER": "qwen", "AI_MODEL": "qwen3.7-flash-2026-07-15", "AI_ALLOW_PAID": "true",
+                     "AI_FALLBACK_MODEL": "google/gemma-4-31b-it:free"}):
+            merged = {"AI_API_KEY": "test", **env}
+            with patch.dict(os.environ, merged, clear=True):
+                with self.assertRaises(AssistantError):
+                    Settings.from_env()
 
     def test_paid_models_rejected(self):
         for provider, model in (("openrouter", "paid/model"), ("deepseek", "deepseek-flash"), ("qwen", "qwen-flash")):
@@ -126,10 +196,10 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             await self.agent.answer("Pregunta", lambda **args: self.fail("Should not run"))
 
     async def test_tool_loop_bounded(self):
-        self.agent.completion = AsyncMock(return_value=tool_call())
+        self.agent.completion = AsyncMock(return_value=tool_call("get_bot_help", {"topic": "commands"}))
         with self.assertRaises(AssistantError):
             await self.agent.answer("Pregunta", lambda **args: {})
-        self.assertEqual(self.agent.completion.await_count, 3)
+        self.assertEqual(self.agent.completion.await_count, 4)
 
     async def test_web_explicit_single_query_no_metrics(self):
         self.agent.search = AsyncMock(return_value=[{"title": "Result", "url": "https://example.com", "content": "Dato actual confirmado"}])
@@ -248,7 +318,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(AssistantError):
                 await self.agent.completion([], [])
             payload = post.call_args.args[3]
-            self.assertEqual(payload["max_tokens"], 400)
+            self.assertEqual(payload["max_tokens"], 600)
             self.assertFalse(payload["reasoning"]["enabled"])
         data = json.loads(self.agent.budget.path.read_text())
         self.assertEqual(data["llm"], 1)
@@ -325,6 +395,55 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                 await self.agent.search("query")
             post.return_value = {"results": [None, {"url": 123}, {"url": "https://example.com"}]}
             self.assertEqual(len(await self.agent.search("query")), 1)
+
+
+    async def test_chain_failover_and_single_budget_consumption(self):
+        from core.assistant import ChainEntry, RateLimited
+        chain = (ChainEntry("openrouter", "https://or.test", "a:free", "k1"),
+                 ChainEntry("groq", "https://gq.test", "m2", "k2"))
+        self.agent.settings = Settings("openrouter", "a:free", "k1", "https://or.test", chain=chain)
+        with patch("core.assistant.post_json", new_callable=AsyncMock) as post:
+            post.side_effect = [RateLimited("cap"), {"choices": [{"message": {"content": "Hola"}}]}]
+            message = await self.agent.completion([], [])
+        self.assertEqual(message["content"], "Hola")
+        self.assertEqual([c.args[1] for c in post.call_args_list], ["https://or.test", "https://gq.test"])
+        data = json.loads(self.agent.budget.path.read_text())
+        self.assertEqual(data["llm"], 1)  # failover must not double-charge the budget
+
+    async def test_openrouter_fallback_model_runs_last(self):
+        from core.assistant import ChainEntry, RateLimited
+        chain = (ChainEntry("openrouter", "https://or.test", "a:free", "k1", "b:free"),
+                 ChainEntry("groq", "https://gq.test", "m2", "k2"))
+        self.agent.settings = Settings("openrouter", "a:free", "k1", "https://or.test", chain=chain)
+        with patch("core.assistant.post_json", new_callable=AsyncMock) as post:
+            post.side_effect = [RateLimited("cap"), RateLimited("cap"),
+                                {"choices": [{"message": {"content": "Hola"}}]}]
+            await self.agent.completion([], [])
+        self.assertEqual([c.args[1] for c in post.call_args_list],
+                         ["https://or.test", "https://gq.test", "https://or.test"])
+        self.assertEqual(post.call_args_list[2].args[3]["model"], "b:free")
+
+    async def test_chain_rotation_starts_at_base(self):
+        from core.assistant import ChainEntry
+        chain = (ChainEntry("openrouter", "https://or.test", "a:free", "k1"),
+                 ChainEntry("google", "https://gg.test", "m2", "k2"))
+        self.agent.settings = Settings("openrouter", "a:free", "k1", "https://or.test", chain=chain)
+        with patch("core.assistant.post_json", new_callable=AsyncMock) as post:
+            post.return_value = {"choices": [{"message": {"content": "Ok"}}]}
+            for base, first_endpoint in ((0, "https://or.test"), (1, "https://gg.test"), (2, "https://or.test")):
+                await self.agent.completion([], [], base=base)
+                self.assertEqual(post.call_args.args[1], first_endpoint)
+
+    async def test_plain_custom_payload_without_openrouter_keys(self):
+        self.agent.settings = Settings("custom", "my-model", "k", "https://x.test/v1")
+        with patch("core.assistant.post_json", new_callable=AsyncMock) as post:
+            post.return_value = {"choices": [{"message": {"content": "Ok"}}]}
+            await self.agent.completion([], [])
+        payload = post.call_args.args[3]
+        self.assertEqual(payload["model"], "my-model")
+        self.assertNotIn("reasoning", payload)
+        self.assertNotIn("provider", payload)
+        self.assertNotIn("enable_thinking", payload)
 
 
 class HelpTests(unittest.TestCase):
