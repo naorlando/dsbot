@@ -31,14 +31,19 @@ def plan_question(question, explicit=False):
         return SearchPlan(question, reply='No busco ni reúno datos personales, domicilios, DNI o IP de personas. Sí puedo consultar información pública no sensible.')
     query = re.sub(r'^(?:che[, ]+)?(?:busca(?:me)?|busca en (?:la )?web|buscar|averigua)\s+', '', question, flags=re.I)
     query = re.sub(r'\s*(?:dale rapidito|dale rapido|por favor|porfa)[.!?\s]*$', '', query, flags=re.I).strip(' ¿?!')
+    if (not explicit and not re.search(r'\b(?:cuanto|cuando|quien|donde|como|que|cual|busca|precio|resultado|hola|novedades)\b', text)
+            and re.search(r'\b(?:hdp|hij[oa]s? de puta|mal nacido|pelotud\w*|bolud\w*|puto|forro|forra|imbecil|idiota|la concha\w*|la puta)\b', text)):
+        # Pure jodedera gets a zero-model deterministic reply: the clarify tool made
+        # weak models interrogate the user back about nothing (friction bug).
+        return SearchPlan(question, reply='Dale, tamo tranquilo 😄. Cuando me tires una pregunta de verdad, la resuelvo al toque.')
     if explicit and fold(query) in {'test', 'hola', 'busca', 'buscar', 'prueba'}:
         return SearchPlan(query, reply='¿Qué tema querés que busque? Pasame una consulta concreta.')
     if not explicit and re.search(r'\b(comandos?|capacidades|novedades)\b', text):
         return SearchPlan(query)
-    if re.search(r'\b(?:como salio|resultado|resumen del partido)\b', text):
-        if not re.search(r'\b(?:hoy|ayer|ultimo|ultima|\d{1,2}[/-]\d{1,2}|\d{4}|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b', text):
-            # Fewer reply prompts: an undated match defaults to the latest one.
-            query = f'{query} ultimo partido'
+    partido = bool(re.search(r'\b(?:como salio|resultado|quien gano|como termino|resumen del partido)\b', text))
+    if partido and not re.search(r'\b(?:hoy|ayer|ultimo|ultima|\d{1,2}[/-]\d{1,2}|\d{4}|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b', text):
+        # Fewer reply prompts: an undated match defaults to the latest one.
+        query = f'{query} ultimo partido'
     if 'dolar' in text and not re.search(r'\b(blue|oficial|mep|ccl|tarjeta|cripto|bolsa)\b', text):
         # Rioplatense default: "el dolar" sin tipo es el blue; sin preguntas intermedias.
         query = f'{query} blue'
@@ -66,8 +71,8 @@ def plan_question(question, explicit=False):
                               r'donde (?:aparece|se menciona))\b', text)
             and not re.search(r'\b(?:dolar|pesos)\b', text)):
         return SearchPlan(query, required=required, history=True)
-    return SearchPlan(query, web, kind='dolar' if ('dolar' in text and web) else '', extract=web,
-                      required=required)
+    kind = 'dolar' if ('dolar' in text and web) else ('partido' if partido and web else '')
+    return SearchPlan(query, web, kind=kind, extract=web, required=required)
 
 
 def relevant(source, plan):

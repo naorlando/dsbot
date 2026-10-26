@@ -78,6 +78,25 @@ class SettingsTests(unittest.TestCase):
         with patch.dict(os.environ, {"GROQ_API_KEY": "k"}, clear=True):
             self.assertEqual(Settings.from_env().provider, "groq")
 
+    def test_router_judge_is_optional_and_reuses_provider_keys(self):
+        from core.assistant import ChainEntry
+        with patch.dict(os.environ, {"AI_API_KEY": "test"}, clear=True):
+            self.assertIsNone(Settings.from_env().router)
+        with patch.dict(os.environ, {"AI_API_KEY": "test", "GROQ_API_KEY": "g",
+                                     "AI_ROUTER_PROVIDER": "groq"}, clear=True):
+            settings = Settings.from_env()
+            self.assertEqual(settings.router.provider, "groq")
+            self.assertEqual(settings.chain[0].provider, "openrouter")  # main model untouched
+        with patch.dict(os.environ, {"AI_API_KEY": "test", "AI_ROUTER_PROVIDER": "openrouter",
+                                     "AI_ROUTER_MODEL": "llama/8b:free"}, clear=True):
+            self.assertEqual(Settings.from_env().router.model, "llama/8b:free")
+        for env in ({"AI_ROUTER_PROVIDER": "openrouter"},  # sin AI_ROUTER_MODEL (:free)
+                    {"AI_ROUTER_PROVIDER": "groq"},        # sin GROQ_API_KEY
+                    {"AI_ROUTER_PROVIDER": "faceb"}):
+            with patch.dict(os.environ, {"AI_API_KEY": "test", **env}, clear=True):
+                with self.assertRaises(AssistantError):
+                    Settings.from_env()
+
     def test_custom_provider_skips_openrouter_chain(self):
         with patch.dict(os.environ,
                         {"AI_PROVIDER": "custom", "AI_ENDPOINT": "https://x.test/v1", "AI_MODEL": "m",
@@ -177,6 +196,28 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                             "search-test", True)
         self.agent = Assistant(settings, UsageBudget(Path(self.tmp.name) / "usage.json"), None)
 
+    async def test_router_judge_decides_tool_then_main_writes(self):
+        from core.assistant import ChainEntry
+        router = ChainEntry("groq", "https://api.groq.com/openai/v1/chat/completions", "llama-8b", "k")
+        self.agent.settings = Settings("openrouter", "m", "test", "https://x.test", "k2", True, "", (), True, router)
+        self.agent.completion = AsyncMock(side_effect=[tool_call(), {"content": "Jugaste 10 minutos."}])
+        answer = await self.agent.answer("Cuánto jugué?", lambda **args: {"minutes": 10})
+        self.assertEqual(answer, "Jugaste 10 minutos.")
+        first, second = self.agent.completion.await_args_list
+        self.assertEqual(first.kwargs.get("entry"), router)
+        self.assertEqual(first.kwargs.get("tool_choice"), "required")
+        self.assertIsNone(second.kwargs.get("entry"))
+
+    async def test_router_judge_fails_open_to_main_chain(self):
+        from core.assistant import ChainEntry
+        router = ChainEntry("groq", "https://api.groq.com/openai/v1/chat/completions", "llama-8b", "k")
+        self.agent.settings = Settings("openrouter", "m", "test", "https://x.test", "k2", True, "", (), True, router)
+        self.agent.completion = AsyncMock(side_effect=[
+            AssistantError("provider down"), tool_call(), {"content": "Jugaste 10 minutos."}])
+        answer = await self.agent.answer("Cuánto jugué?", lambda **args: {"minutes": 10})
+        self.assertEqual(answer, "Jugaste 10 minutos.")
+        self.assertEqual(self.agent.completion.await_count, 3)
+
     async def test_metrics_tool_roundtrip(self):
         self.agent.completion = AsyncMock(side_effect=[tool_call(), {"content": "Jugaste 10 minutos."}])
         get_metrics = lambda **args: {"minutes": 10}
@@ -271,7 +312,8 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.agent.completion = AsyncMock(return_value={"content": "Hola"})
         await self.agent.answer("Hola", lambda **args: {})
         names = [t["function"]["name"] for t in self.agent.completion.call_args.args[1]]
-        self.assertEqual(names, ["get_bot_help", "ask_clarification"])
+        # 'Hola' is not a question: the clarify tool stays out (weak models used it to interrogate back).
+        self.assertEqual(names, ["get_bot_help"])
 
     async def test_explicit_web_without_key_before_llm(self):
         self.agent.settings = Settings("openrouter", "openrouter/free", "test", "fixed")

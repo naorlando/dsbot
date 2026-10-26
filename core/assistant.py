@@ -14,7 +14,7 @@ import aiohttp
 
 from core.assistant_memory import ConversationMemory
 from core.assistant_policy import plan_question, relevant, fold
-from core.assistant_evidence import WEB_CONTRACT, render_evidence
+from core.assistant_evidence import WEB_CONTRACT, render_evidence, freshest_items
 from core.assistant_trace import event, execution
 from core.assistant_retrieval import official_passport, RENAPER_URL, dollar_answer
 from core.assistant_history import history_summary
@@ -77,6 +77,7 @@ class Settings:
     fallback_model: str = ""
     chain: tuple = ()
     history_enabled: bool = True
+    router: object = None
 
     @classmethod
     def from_env(cls):
@@ -148,9 +149,27 @@ class Settings:
         if provider != "openrouter" and openrouter_key and provider not in ("custom", "qwen", "deepseek"):
             or_endpoint, or_default = providers["openrouter"]
             chain.append(ChainEntry("openrouter", or_endpoint, or_default, openrouter_key, fallback))
+        # Optional tool-decision judge: a small model that only chooses the tool
+        # (one forced call, ~10 tokens out); the main chain still writes the answer.
+        router = None
+        router_provider = os.getenv("AI_ROUTER_PROVIDER", "")
+        if router_provider:
+            if router_provider == "openrouter":
+                router_key = openrouter_key
+                router_model = os.getenv("AI_ROUTER_MODEL", "")
+                if not router_key or not router_model.endswith(":free"):
+                    raise AssistantError("AI_ROUTER_PROVIDER=openrouter requiere AI_API_KEY y AI_ROUTER_MODEL=:free.")
+                router = ChainEntry("openrouter", providers["openrouter"][0], router_model, router_key)
+            elif router_provider in ("groq", "cerebras", "google"):
+                router_key = provider_key(router_provider)
+                if not router_key:
+                    raise AssistantError(f"AI_ROUTER_PROVIDER={router_provider} sin clave ({' o '.join(CHAIN_PROVIDERS[router_provider][2])}).")
+                router = ChainEntry(router_provider, providers[router_provider][0], providers[router_provider][1], router_key)
+            else:
+                raise AssistantError("AI_ROUTER_PROVIDER debe ser groq, cerebras, google u openrouter.")
         return cls(provider, model, key, endpoint, os.getenv("TAVILY_API_KEY", ""),
                    os.getenv("AI_SHARE_METRICS", "false").lower() == "true", fallback, tuple(chain),
-                   os.getenv("AI_HISTORY", "true").lower() != "false")
+                   os.getenv("AI_HISTORY", "true").lower() != "false", router)
 
 
 class UsageBudget:
@@ -420,7 +439,7 @@ class Assistant:
             payload["thinking"] = {"type": "disabled"}
         return payload
 
-    async def completion(self, messages, tools, tool_choice=None, base=None):
+    async def completion(self, messages, tools, tool_choice=None, base=None, entry=None):
         now = monotonic()
         while self.recent_calls and now - self.recent_calls[0] >= 60:
             self.recent_calls.popleft()
@@ -428,10 +447,10 @@ class Assistant:
             raise AssistantError("Hay muchas consultas al modelo en este minuto. Probá en unos segundos.")
         self.budget.consume("llm")
         self.recent_calls.append(now)
-        chain = self.settings.chain or (entry_from_settings(self.settings),)
+        chain = [entry] if entry is not None else (self.settings.chain or (entry_from_settings(self.settings),))
         first = (base if base is not None else 0) % len(chain)
         data = await chain_post(self.session, chain,
-                                lambda entry: self._payload(entry, messages, tools, tool_choice), first)
+                                lambda item: self._payload(item, messages, tools, tool_choice), first)
         return self._parse(data, now)
 
     def _parse(self, data, now):
@@ -585,6 +604,7 @@ class Assistant:
         # Help about our own commands must be grounded even if a weak free model
         # ignores the instruction to consult docs. The model still selects the topic.
         needs_help = bool(re.search(r"\b(comandos?|ayuda|novedades|capacidades)\b", question, re.I))
+        router_entry = self.settings.router
         if web:
             # Search exactly the plan query (harness normalization + defaults),
             # never model-generated queries that could exfiltrate server metrics.
@@ -632,7 +652,9 @@ class Assistant:
                 return 'No encontré fuentes pertinentes para confirmar eso. Probá precisar el tema o la fecha.'
             tools = []
             if turn < 3 and not web and not searched:
-                tools = [HELP_TOOL] + ([CLARIFY_TOOL] if turn == 0 else [])
+                answerable_question = bool(question.strip().endswith(('?', '¿'))
+                                           or re.search(r'\b(?:cuanto|cuando|quien|donde|como|que|cual|quien es|quien fue)\b', fold(question)))
+                tools = [HELP_TOOL] + ([CLARIFY_TOOL] if turn == 0 and answerable_question else [])
                 if self.settings.share_metrics and not used_private:
                     tools.append(METRICS_TOOL)
                     if query_data:
@@ -645,7 +667,16 @@ class Assistant:
             if choice:
                 tools = [HELP_TOOL]
             event('step', number=turn + 1, tools=','.join(t['function']['name'] for t in tools) or 'none')
-            message = await self.completion(messages, tools, tool_choice=choice, base=base)
+            if turn == 0 and router_entry is not None and tools and not searched:
+                # Tool choice delegated to the small judge; fail-open to the main chain.
+                try:
+                    message = await self.completion(messages, tools, tool_choice="required", entry=router_entry)
+                    event('router', status='decided')
+                except AssistantError:
+                    event('router', status='error', fallback='main')
+                    message = await self.completion(messages, tools, tool_choice=choice, base=base)
+            else:
+                message = await self.completion(messages, tools, tool_choice=choice, base=base)
             if not isinstance(message, dict):
                 raise AssistantError("El modelo no devolvió una respuesta válida.")
             calls = message.get("tool_calls") or []
@@ -665,6 +696,18 @@ class Assistant:
                         declared = json.loads(answer)
                     except (KeyError, IndexError, TypeError, ValueError):
                         declared = {}
+                    if (plan.kind == 'partido' and isinstance(declared, dict)
+                            and declared.get('status') == 'answer'
+                            and isinstance(declared.get('evidence'), list)
+                            and len(declared['evidence']) > 1):
+                        # Three matches quoted as one answer (deploy logs 22:17):
+                        # keep deterministically only the freshest quote.
+                        kept = freshest_items(declared['evidence'], sources)
+                        if kept and len(kept) < len(declared['evidence']):
+                            event('evidence', status='freshest_filter',
+                                  kept=len(kept), dropped=len(declared['evidence']) - len(kept))
+                            declared['evidence'] = kept
+                            answer = json.dumps(declared)
                     if (isinstance(declared, dict) and declared.get("status") == "insufficient"
                             and sources and web_retries < 2 and turn < 3):
                         # A lazy "insufficient" with sources on the table gets up to two

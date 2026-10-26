@@ -60,3 +60,20 @@ def render_evidence(content, sources, finish_reason=None):
     if len(answer + footer) > 1990:
         raise ValueError('display_limit')
     return answer + footer
+
+
+def freshest_items(items, sources):
+    """For "¿cómo salió X?" answers a weak model may quote three different
+    matches (one even years old). Deterministic pick: highest year, then
+    highest jornada/fecha number; one quote is the whole reply."""
+    def rank(item):
+        index = item.get('source')
+        content = normalize(sources[index - 1].get('content', '')) \
+            if isinstance(index, int) and 1 <= index <= len(sources) else ''
+        years = [int(y) for y in re.findall(r'\b(?:19|20)\d\d\b', content)]
+        jornadas = [int(k) for k in re.findall(r'\b(?:jornada|fecha)\s*(\d{1,2})\b', content, re.I)]
+        return (max(years) if years else 0, max(jornadas) if jornadas else 0)
+    try:
+        return sorted(items, key=rank, reverse=True)[:1]
+    except (AttributeError, TypeError, ValueError, KeyError):
+        return items

@@ -105,6 +105,39 @@ class ReplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('No pude confirmar', answer)
         self.assertEqual(self.agent.completion.await_count, 3)
 
+    async def test_three_matches_collapse_to_freshest_quote(self):
+        self.agent.search = AsyncMock(return_value=[
+            {'url': 'https://trendsmask.test', 'content': 'El ultimo partido de Boca fue un empate 0-0 contra Barracas Central, Torneo Clausura 2025.'},
+            {'url': 'https://sporting.test/sanlorenzo', 'content': 'Boca le gano 2-0 a San Lorenzo en el Nuevo Gasometro, por la fecha 10 del Clausura 2026.'},
+            {'url': 'https://sporting.test/talleres', 'content': 'Boca derroto a Talleres por 2-1 en el partido de la jornada 13 del Clausura 2026 en La Bombonera.'}])
+        self.agent.completion = AsyncMock(return_value={"content": json.dumps({"status": "answer", "evidence": [
+            {"source": 1, "quote": "El ultimo partido de Boca fue un empate 0-0 contra"},
+            {"source": 2, "quote": "Boca le gano 2-0 a San Lorenzo en el Nuevo"},
+            {"source": 3, "quote": "Boca derroto a Talleres por 2-1 en el partido"}]})})
+        answer = await self.agent.answer("como salio boca", lambda **a: {}, web=True)
+        self.assertIn('Talleres', answer)
+        self.assertIn('2-1', answer)
+        self.assertNotIn('Barracas', answer)
+        self.assertNotIn('San Lorenzo', answer)
+
+    async def test_clarification_tool_not_offered_for_non_question(self):
+        # "sos un hdp man dale" hit ask_clarification in production: pure friction.
+        plan = plan_question("sos un hdp man dale")
+        answer_produced_by_policy = plan.reply
+        self.assertIn('tranquilo', answer_produced_by_policy)
+        # A non-question with no interrogative cue never gets the clarify tool.
+        self.agent.completion = AsyncMock(side_effect=[{"content": "Tamo tranquilo."}])
+        answer = await self.agent.answer("hoy la cancha re abierta man", lambda **a: self.fail("no metrics"))
+        self.assertEqual(answer, "Tamo tranquilo.")
+        tools = [t["function"]["name"] for t in self.agent.completion.call_args.args[1]]
+        self.assertNotIn("ask_clarification", tools)
+
+    async def test_clarification_tool_still_available_for_real_questions(self):
+        self.agent.completion = AsyncMock(side_effect=[{"content": "Hola."}])
+        await self.agent.answer("cuanto jugue hoy mal", lambda **a: {"minutes": 2})
+        tools = [t["function"]["name"] for t in self.agent.completion.call_args.args[1]]
+        self.assertIn("ask_clarification", tools)
+
 
 class RoutingTests(unittest.TestCase):
     def test_history_intents_bypass_model_decisions(self):
@@ -113,3 +146,19 @@ class RoutingTests(unittest.TestCase):
             self.assertTrue(plan_question(question).history, question)
         self.assertFalse(plan_question('cuanto esta el dolar').history)
         self.assertFalse(plan_question('que juegos juega agu').history)
+
+    def test_pure_banter_gets_zero_model_reply(self):
+        plan = plan_question('sos un hdp man dale')
+        self.assertTrue(plan.reply)
+        self.assertIn('tranquilo', plan.reply)
+        self.assertFalse(plan.web)
+        # Inside a real question, insult words don't hijack the route.
+        self.assertFalse(plan_question('que jodido estas boludo, cuanto esta el dolar').reply)
+        self.assertTrue(plan_question('que jodido estas boludo, cuanto esta el dolar').web)
+
+    def test_partido_kind_marked_for_freshness_filter(self):
+        self.assertEqual(plan_question('como salio boca').kind, 'partido')
+        self.assertEqual(plan_question('quien gano river hoy').kind, 'partido')
+        self.assertEqual(plan_question('como salio boca el 27/09').kind, 'partido')
+        self.assertEqual(plan_question('cuanto esta el dolar').kind, 'dolar')
+        self.assertEqual(plan_question('que paso el 9 de diciembre de 2018').kind, '')

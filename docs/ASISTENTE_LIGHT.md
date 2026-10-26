@@ -61,6 +61,12 @@ Tres respuestas no dependen del modelo (los modelos free chicos fallan ahí):
   determinista de filas (`stage=model finish=echo_fallback`).
 - **Evidencia**: un `insufficient` perezoso con fuentes en la mesa recibe hasta 2
   re-reads forzados (`stage=evidence status=insufficient_retry`).
+- **Partidos**: las respuestas de "¿cómo salió X?" conservan sólo la cita del
+  partido más fresco (año, luego jornada/fecha; `stage=evidence status=freshest_filter`).
+  Un modelo chico que cúmplia tres partidos distintos como una sola respuesta.
+- **Jodedera** ("sos un hdp man"): respuesta determinista cero modelo; la tool de
+  aclaración sólo se ofrece si el mensaje es una pregunta real (`¿?` o palabra
+  interrogativa), porque los modelos chicos la usaban para preguntar al voleo.
 - Cada model call queda en logs con `stage=model finish=... calls=... preview=...`
   (primeros 150 caracteres) para auditar la conducta del proveedor free.
 El harness normaliza sólo la consulta actual, quitando muletillas y preservando entidades,
@@ -192,6 +198,23 @@ literal y llamando tools. El upgrade $0 real es **Google AI Studio** (free tier,
 tarjeta): cargar `GOOGLE_API_KEY` o `GEMINI_API_KEY` en Railway basta — el chain
 toma Google como principal (`AI_PROVIDER=google` o por default de claves) y OpenRouter
 queda de repuesto. La intensidad del modelo tampoco muda el presupuesto del bot.
+
+### Mini-juez de herramientas (opcional): `AI_ROUTER_PROVIDER`
+
+Los modelos free chicos no se dan cuenta de que deben llamar una herramienta.
+Opcionalmente se delega la DECISIÓN a un mini-modelo llave en mano y el principal
+sólo redacta: una llamada forzada de ~10 tokens, mismo presupuesto `llm` (cuenta
+como su llamada), y si el juez falla se usa el proveedor principal igual (fail-open).
+
+| `AI_ROUTER_PROVIDER` | Modelo del juez | Clave requerida |
+| --- | --- | --- |
+| `groq` (recomendado) | el modelo fijo del chain de Groq | `GROQ_API_KEY` |
+| `cerebras` | el modelo fijo del chain de Cerebras | `CEREBRAS_API_KEY` |
+| `google` | el modelo fijo del chain de Google | `GOOGLE_API_KEY` |
+| `openrouter` | el que indique `AI_ROUTER_MODEL` (debe ser `:free`) | `AI_API_KEY` |
+
+Sin la variable, el comportamiento queda como siempre (el principal decide las
+tools, con el blindaje determinista de arriba cubriendo los casos conocidos).
 
 ### Chain de proveedores free (verificado contra sus docs el 25/10/2026)
 
