@@ -221,6 +221,22 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(answer, "Jugaste 10 minutos.")
         self.assertEqual(self.agent.completion.await_count, 3)
 
+    async def test_google_thought_signature_roundtrips(self):
+        # google's openai-compat endpoint requires the thought_signature back inside
+        # the echoed tool call; without it the next request dies with HTTP 400
+        # (verified live against generativelanguage on 2026-10-26).
+        self.agent.completion = AsyncMock(side_effect=[
+            {"content": "", "tool_calls": [{"id": "c1", "type": "function",
+             "extra_content": {"google": {"thought_signature": "sig"}},
+             "function": {"name": "calc", "arguments": "{\"expression\": \"2+2\"}"}}]},
+            {"content": "4"}])
+        answer = await self.agent.answer("cuanto es 2+2", lambda **a: {})
+        self.assertEqual(answer, "4")
+        sent = self.agent.completion.await_args_list[1].args[0]
+        echo = sent[-2]
+        self.assertEqual(echo["tool_calls"][0]["extra_content"], {"google": {"thought_signature": "sig"}})
+        self.assertNotIn("content", echo)
+
     async def test_metrics_tool_roundtrip(self):
         self.agent.completion = AsyncMock(side_effect=[tool_call(), {"content": "Jugaste 10 minutos."}])
         get_metrics = lambda **args: {"minutes": 10}

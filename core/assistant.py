@@ -876,6 +876,26 @@ class Assistant:
                         raise ValueError
                     result = bot_help(self.settings, **args)
                     event('tool_args', name=name, topic=args['topic'])
+                elif name == "calc":
+                    if set(args) != {"expression"} or not isinstance(args.get("expression"), str):
+                        raise ValueError
+                    try:
+                        result = {"expression": args["expression"][:120], "value": calc_eval(args["expression"])}
+                        event('tool_args', name=name)
+                    except (ValueError, OverflowError):
+                        result = {"expression": args["expression"][:120], "error": "expresion invalida o demasiado grande"}
+                elif name == "wiki_summary":
+                    if (set(args) != {"topic"} or not isinstance(args.get("topic"), str)
+                            or not args["topic"].strip() or len(args["topic"]) > 80):
+                        raise ValueError
+                    result = await wiki_lookup(self.session, args["topic"])
+                    event('tool_args', name=name, topic=len(args["topic"]))
+                elif name == "weather_check":
+                    if (set(args) != {"place"} or not isinstance(args.get("place"), str)
+                            or not args["place"].strip() or len(args["place"]) > 80):
+                        raise ValueError
+                    result = await weather_check(self.session, args["place"])
+                    event('tool_args', name=name, chars=len(args["place"]))
                 elif name == "ask_clarification":
                     if (set(args) != {"question"} or not isinstance(args["question"], str)
                             or not 1 <= len(args["question"].strip()) <= 220 or turn != 0):
@@ -898,9 +918,17 @@ class Assistant:
             except (ValueError, KeyError, TypeError, AttributeError):
                 raise AssistantError("El modelo pidió una herramienta o argumentos no permitidos.") from None
             event('tool', name=name)
-            # Only known fields leave the harness; don't echo arbitrary provider metadata.
-            messages.append({"role": "assistant", "content": message.get("content"), "tool_calls": [{
-                "id": identifier, "type": "function", "function": {"name": name, "arguments": function["arguments"]}}]})
+            # Keep known fields only, but google's thought_signature must travel
+            # back verbatim inside the echoed call: the live endpoint answers
+            # HTTP 400 "missing thought_signature" without it.
+            echo_call = {"id": identifier, "type": "function",
+                         "function": {"name": name, "arguments": function["arguments"]}}
+            if isinstance(call, dict) and isinstance(call.get("extra_content"), dict):
+                echo_call["extra_content"] = call["extra_content"]
+            echo = {"role": "assistant", "tool_calls": [echo_call]}
+            if isinstance(message.get("content"), str) and message["content"]:
+                echo["content"] = message["content"]
+            messages.append(echo)
             messages.append({"role": "tool", "tool_call_id": identifier,
                              "content": json.dumps(result, ensure_ascii=False)})
         raise AssistantError("La consulta excedió el límite del asistente.")
