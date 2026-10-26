@@ -120,8 +120,12 @@ class Settings:
                 raise AssistantError("AI_PROVIDER debe ser openrouter, qwen, deepseek, groq, cerebras, google o custom.")
             endpoint, default_model = providers[provider]
             if provider in CHAIN_PROVIDERS:
+                # Railway keeps stale vars around: a leftover AI_MODEL used to crash
+                # the whole cog at import (deploy 21:55). Ignore it and warn instead.
                 if os.getenv("AI_MODEL"):
-                    raise AssistantError("AI_MODEL no aplica para groq, cerebras o google; para otro endpoint usá AI_PROVIDER=custom.")
+                    logging.getLogger(__name__).warning(
+                        "AI_MODEL ignorado: %s usa el modelo fijo %s (para otro endpoint usá AI_PROVIDER=custom).",
+                        provider, default_model)
                 model, free = default_model, True
             else:
                 model = os.getenv("AI_MODEL", default_model)

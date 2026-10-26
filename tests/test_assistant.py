@@ -65,12 +65,15 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.model, "gemini-3.5-flash-lite")
         self.assertEqual([e.provider for e in settings.chain], ["google", "cerebras", "openrouter"])
 
-    def test_chain_providers_reject_ai_model_override(self):
+    def test_chain_providers_ignore_ai_model_override(self):
+        # Stale Railway env (AI_MODEL from an old openrouter setup) crashed the
+        # whole cog at deploy; for fixed-model providers the var is ignored.
         for name in ("google", "groq", "cerebras"):
+            from core.assistant import CHAIN_PROVIDERS
             key = {"google": "GOOGLE_API_KEY", "groq": "GROQ_API_KEY", "cerebras": "CEREBRAS_API_KEY"}[name]
             with patch.dict(os.environ, {"AI_PROVIDER": name, key: "k", "AI_MODEL": "m"}, clear=True):
-                with self.assertRaises(AssistantError):
-                    Settings.from_env()
+                settings = Settings.from_env()
+            self.assertEqual(settings.model, CHAIN_PROVIDERS[name][1])
 
     def test_default_provider_picks_first_keyed_free_provider(self):
         with patch.dict(os.environ, {"CEREBRAS_API_KEY": "c"}, clear=True):
