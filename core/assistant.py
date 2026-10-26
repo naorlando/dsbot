@@ -184,7 +184,7 @@ class UsageBudget:
     Intended for the bot's single Railway replica. No cross-process shared budget.
     """
 
-    def __init__(self, path, llm_limit=120, search_limit=20, monthly_search_limit=600, ambient_limit=240):
+    def __init__(self, path, llm_limit=400, search_limit=20, monthly_search_limit=600, ambient_limit=240):
         self.path = Path(path)
         self.limits = {"llm": llm_limit, "search": search_limit, "ambient": ambient_limit}
         self.monthly_search_limit = monthly_search_limit
@@ -322,7 +322,7 @@ def bot_help(settings, topic):
     if topic == "capabilities":
         return {"name": "Botón", "metrics_enabled": settings.share_metrics,
                 "web_enabled": bool(settings.search_key), "commands": ["!boton", "!botonestado", "!olvidar"],
-                "llm_calls_per_day": 120, "cooldown_seconds": 3, "model_calls_per_question": 4,
+                "llm_calls_per_day": 400, "cooldown_seconds": 3, "model_calls_per_question": 4,
                 "max_tools_per_question": 3, "max_web_searches_per_question": 1,
                 "memory": {"messages": 10, "idle_ttl_minutes": 30, "storage": "RAM por persona y canal",
                            "reset_command": "!olvidar", "private_tool_results": False},
@@ -470,7 +470,10 @@ class Assistant:
             self.recent_calls.popleft()
         if len(self.recent_calls) >= 20:
             raise AssistantError("Hay muchas consultas al modelo en este minuto. Probá en unos segundos.")
-        self.budget.consume("llm")
+        if entry is None:
+            # The main-chain call is the budgeted unit; the router judge (~10 forced
+            # tokens on a free provider) doesn't shorten the day for the channel.
+            self.budget.consume("llm")
         self.recent_calls.append(now)
         chain = [entry] if entry is not None else (self.settings.chain or (entry_from_settings(self.settings),))
         first = (base if base is not None else 0) % len(chain)

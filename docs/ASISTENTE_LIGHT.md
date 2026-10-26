@@ -31,7 +31,7 @@ Las futuras herramientas deben ser funciones permitidas con argumentos validados
 
 [OpenRouter](https://openrouter.ai/docs/api_reference/limits) ofrece 50 llamadas/día
 y 20/minuto para modelos gratuitos sin compras previas; una pregunta con herramientas
-usa 2–3 llamadas, no necesariamente una. El bot limita a 120 llamadas/día compartidas
+usa 2–3 llamadas, no necesariamente una. El bot limita a 400 llamadas/día compartidas
 por todo el servidor (también cuenta los intentos fallidos). No hace fallback a modelos pagos.
 Un modelo Qwen/Kimi `:free` específico sólo debe fijarse después de confirmar que sigue
 disponible y soporta herramientas; el catálogo gratuito cambia.
