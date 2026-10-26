@@ -410,7 +410,9 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("jugaban csgo", answer)
         history_search.assert_awaited_once_with("¿cuándo jugamos csgo?")
         tool_names = [t["function"]["name"] for t in self.agent.completion.call_args_list[0].args[1]]
-        self.assertIn("search_channel_history", tool_names)
+        # Determinism: the scan is injected by the harness, never offered for
+        # the model to decide (weak models echo instructions instead of calling).
+        self.assertNotIn("search_channel_history", tool_names)
         # A follow-up web question must not inherit anything from the history scan.
         self.agent.search = AsyncMock(return_value=[{"title": "T", "url": "https://example.com", "content": "Dato actual confirmado"}])
         self.agent.completion = AsyncMock(return_value=web_answer())

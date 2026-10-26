@@ -50,6 +50,19 @@ pay-as-you-go ni recarga automática en el proveedor para un piloto gratis.
 
 La búsqueda ocurre con un enrutador determinista para consultas que
 necesitan evidencia, o cuando Botón elige `search_web` desde `!boton`.
+Tres respuestas no dependen del modelo (los modelos free chicos fallan ahí):
+
+- **Dólar**: el parser lee compra/venta del texto de las páginas y responde sin
+  llamadas de modelo (`stage=evidence route=official_dollar` en logs).
+- **Historial**: preguntas tipo "por sus mensajes, ¿dónde está X?" o "¿cuándo
+  hablamos de Y?" escanean el channel determinísticamente; el modelo redacta con
+  las filas dadas y las lleva injectadas como datos (log `stage=history forced=true`).
+  Si aun así suelta un eco de instrucciones, la respuesta es el resumen
+  determinista de filas (`stage=model finish=echo_fallback`).
+- **Evidencia**: un `insufficient` perezoso con fuentes en la mesa recibe hasta 2
+  re-reads forzados (`stage=evidence status=insufficient_retry`).
+- Cada model call queda en logs con `stage=model finish=... calls=... preview=...`
+  (primeros 150 caracteres) para auditar la conducta del proveedor free.
 El harness normaliza sólo la consulta actual, quitando muletillas y preservando entidades,
 versiones y fechas. El modelo no puede reescribirla.
 No se permite que el modelo genere consultas que filtren datos del servidor;
@@ -171,6 +184,14 @@ TAVILY_API_KEY=clave_de_tavily
 
 Sin `AI_MODEL` el código ya no usa `openrouter/free` (ID inexistente en el catálogo actual
 de OpenRouter): el default es `cohere/north-mini-code:free`, probado con API real.
+
+### Modelo más capaz, mismo cero pesos
+
+Los modelos free chicos de OpenRouter (north-mini) se quedan cortos citando
+literal y llamando tools. El upgrade $0 real es **Google AI Studio** (free tier, sin
+tarjeta): cargar `GOOGLE_API_KEY` o `GEMINI_API_KEY` en Railway basta — el chain
+toma Google como principal (`AI_PROVIDER=google` o por default de claves) y OpenRouter
+queda de repuesto. La intensidad del modelo tampoco muda el presupuesto del bot.
 
 ### Chain de proveedores free (verificado contra sus docs el 25/10/2026)
 

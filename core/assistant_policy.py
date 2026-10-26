@@ -18,6 +18,8 @@ class SearchPlan:
     extract: bool = False
     required: tuple = ()
     clarify: str = ''
+    history: bool = False
+    kind: str = ''
 
 
 def plan_question(question, explicit=False):
@@ -57,7 +59,15 @@ def plan_question(question, explicit=False):
     # Dates must survive normalization; do not replace a historical event by news.
     if re.search(r'9 de diciembre de 2018', text):
         required = ('2018', 'diciembre')
-    return SearchPlan(query, web, extract=web, required=required)
+    # Too-small models leak instructions instead of calling tools, so the
+    # intents below are executed deterministically by the harness, not by the model.
+    if (not web and re.search(r'\b(?:por (?:sus|los) mensajes?|historial|cuando (?:hablamos|jugamos|estuvimos|mencionamos)|'
+                              r'quien (?:dijo|escribio|hablo|pregunto|menciono)|se menciona\b|'
+                              r'donde (?:aparece|se menciona))\b', text)
+            and not re.search(r'\b(?:dolar|pesos)\b', text)):
+        return SearchPlan(query, required=required, history=True)
+    return SearchPlan(query, web, kind='dolar' if ('dolar' in text and web) else '', extract=web,
+                      required=required)
 
 
 def relevant(source, plan):

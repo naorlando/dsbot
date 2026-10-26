@@ -173,11 +173,11 @@ class RetrievalTests(unittest.IsolatedAsyncioTestCase):
         result = await self.agent.answer('dólar blue hoy', lambda **a: {}, web=True)
         self.assertIn('Blue $1.480', result)
         self.assertEqual(self.agent.completion.await_count, 2)
-        # Y si a la segunda declara insufficient de verdad, se respeta (máximo 1 reintento).
+        # Y si el modelo se rinde dos veces, se respeta el insufficient (máximo 2 re-reads).
         self.agent.completion = AsyncMock(return_value={'content': '{"status":"insufficient","evidence":[]}'})
         result = await self.agent.answer('tema sin datos', lambda **a: {}, web=True)
         self.assertIn('No pude confirmar', result)
-        self.assertEqual(self.agent.completion.await_count, 2)
+        self.assertEqual(self.agent.completion.await_count, 3)
 
     async def test_clarification_cannot_leak_between_people_or_topics(self):
         self.agent.completion = AsyncMock(return_value={'content': 'Hola'})
