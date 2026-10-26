@@ -12,9 +12,12 @@ versión opcional; sin claves y sin `AI_ENABLED=true` el bot conserva su comport
 - `!buscar ¿Cómo salió Boca contra River el 27 de septiembre de 2026?`: una búsqueda web explícita con fuentes.
 - `!buscar ¿Cuánto está el dólar blue hoy en Argentina?`: búsqueda, no recomendación financiera.
 
-No escucha conversaciones, no lee el historial del canal, no recibe audio y no responde a cada
-mensaje. Invocación por comando de texto. No hay SQL libre, ejecución de código,
-escritura de estadísticas, archivos, compras, mensajes privados ni navegación libre.
+No escucha audio y no responde a cada mensaje. Invocación por comando de texto. La única
+lectura de conversaciones es la nueva herramienta `search_channel_history`: páginas el
+historial reciente de **sólo el canal habilitado** con ventana fija (últimos 500 mensajes,
+14 días), palabras de la pregunta del usuario, sin IDs, sin adjuntos y sobre todo texto ya
+público en ese canal. No hay SQL libre, ejecución de código, escritura de estadísticas,
+archivos, compras, mensajes privados ni navegación libre.
 Las futuras herramientas deben ser funciones permitidas con argumentos validados.
 
 ## Opciones investigadas
@@ -77,7 +80,10 @@ Establecer además un límite de gasto en la cuenta/API key del proveedor.
 La inferencia ocurre fuera de Railway. No se descargan pesos ni se agregan frameworks
 de agentes, base vectorial, navegador, SDK de modelos ni nuevo proceso.
 Se reutiliza `aiohttp` (ya es dependencia de discord.py).
-Sólo se persiste `assistant_usage.json`, unos pocos cientos de bytes; no crece con chats.
+Sólo se persisten `assistant_usage.json` y `assistant_ambient.json` (comentarista y
+resumen diario), unos pocos cientos de bytes; no crecen con chats. El historial de
+conversación para la herramienta `search_channel_history` NO se persiste: se pagea el
+historial ya guardado por Discord, cero bytes propios.
 La RAM adicional no se midió en producción, pero se limita el tamaño de respuestas
 HTTP a 256 KiB y las preguntas a 800 caracteres. Cada fuente tiene hasta 4.501 caracteres
 (extracción + snippet); la sección oficial hasta 5.000. Los resultados se serializan
@@ -147,8 +153,57 @@ AI_FALLBACK_MODEL=google/gemma-4-31b-it:free
 TAVILY_API_KEY=clave_de_tavily
 ```
 
+```env
+AI_ENABLED=true
+AI_PROVIDER=openrouter
+AI_MODEL=openrouter/free
+AI_API_KEY=clave_del_proveedor
+AI_ALLOW_PAID=false
+AI_GUILD_ID=id_del_unico_servidor
+AI_CHANNEL_ID=id_del_canal_habilitado
+AI_SHARE_METRICS=true
+# Opcional: modelo :free de repuesto. Si OpenRouter devuelve 429 del modelo principal,
+# reintenta UNA vez con este. No hay fallback a modelos pagos.
+AI_FALLBACK_MODEL=google/gemma-4-31b-it:free
+# Opcional: sin esta clave, Botón no tiene búsqueda web
+TAVILY_API_KEY=clave_de_tavily
+```
+
 Sin `AI_MODEL` el código ya no usa `openrouter/free` (ID inexistente en el catálogo actual
 de OpenRouter): el default es `cohere/north-mini-code:free`, probado con API real.
+
+### Chain de proveedores free (verificado contra sus docs el 25/10/2026)
+
+Además del principal, el asistente rota ante 429 entre proveedores **que tengan clave
+configurada**; la rotación arranca en el siguiente proveedor por pregunta (round-robin)
+y el fallback `AI_FALLBACK_MODEL` de OpenRouter queda como último intento. Endpoints
+fijos en código:
+
+| Variable | Proveedor | Endpoint en código | Modelo fijo |
+| --- | --- | --- | --- |
+| `GOOGLE_API_KEY` (o `GEMINI_API_KEY`) | Google AI Studio | `generativelanguage.googleapis.com/v1beta/openai/chat/completions` | `gemini-3.5-flash-lite` |
+| `GROQ_API_KEY` | Groq | `api.groq.com/openai/v1/chat/completions` | `openai/gpt-oss-120b` |
+| `CEREBRAS_API_KEY` | Cerebras | `api.cerebras.ai/v1/chat/completions` | `gpt-oss-120b` |
+| `AI_API_KEY` | OpenRouter | `openrouter.ai/api/v1/chat/completions` | el que indique `AI_MODEL` |
+
+Reglas del chain: es un failover acotado (máximo 1 request por proveedor y por pregunta,
+presupuesto `llm` cobrado UNA vez), no hay fallback a modelos pagos y los endpoints no
+son configurables. `AI_PROVIDER=google`, `groq` o `cerebras` fijan el proveedor
+principal con modelo fijo del código (`AI_MODEL` se rechaza en ellos; para otro
+endpoint/modelo existe `AI_PROVIDER=custom` con URL OpenAI-compatible propia, que exige
+`AI_ENDPOINT` + `AI_MODEL`, https (o http sólo con `AI_INSECURE_ENDPOINT=true` para
+red interna) y `AI_ALLOW_PAID=true`). Sin `AI_PROVIDER` y sin `AI_API_KEY`, el bot elige
+el primero de google → groq → cerebras con clave cargada.
+
+### Mensajes automáticos (ambient) y resumen diario
+
+`AI_SHARE_METRICS` no influye aquí. El comentarista usa su propio presupuesto
+`assistant_ambient.json` (default 240/día, variable `AI_AMBIENT_LIMIT`); siempre cae a
+plantilla determinista si el proveedor o el presupuesto no dan, así ninguna notificación
+se marea. Se usa en milestones de reconexión (10/25/25… conexiones), party armada y el
+resumen diario nocturno del canal del asistente, a las
+`AI_DIGEST_HOUR_UTC` (default 21:00 UTC). Para apagar el historial como herramienta:
+`AI_HISTORY=false`.
 
 Cambiar a Qwen, sólo si se acepta el costo:
 
@@ -191,7 +246,10 @@ Para repetir sin datos reales: exportar claves sólo al entorno del proceso y ej
 total de tiempo. `core/assistant.py` mantiene el bucle pequeño de decisión → herramienta
 validada → respuesta. Las herramientas son `get_metrics`, `query_stats` (exploración de
 juegos, miembros y días del registro propio, nombres visibles, sin IDs), `get_bot_help`,
-`search_web` y `ask_clarification`; esta última pregunta al usuario y termina el turno
+`search_channel_history` (el historial reciente del canal habilitado, ventana fija de
+500 mensajes y 14 días, keywords tomadas de la pregunta, fecha/autor/snippet, sin IDs;
+no se pagina con args del modelo y ni mezcla resultados con métricas ni web), `search_web`
+y `ask_clarification`; esta última pregunta al usuario y termina el turno
 sin consultar otra herramienta. No hay shell, SQL, escritura ni rutas elegidas por el modelo. La ayuda
 sale de `docs/COMANDOS.md` y `docs/UPDATES.md`, no de una lectura arbitraria de GitHub.
 Después de consultar métricas se bloquea web, y viceversa, incluso si el modelo

@@ -12,6 +12,7 @@ from discord.ext import commands, tasks
 
 from core.assistant import Assistant, AssistantError, Settings, UsageBudget, metrics, bot_help
 from core.assistant_data import day_digest, query_stats as query_stats_data
+from core.assistant_history import scan_history
 from core.commentator import Commentator, maybe_compose, template_digest
 from core.persistence import DATA_DIR, stats
 
@@ -97,11 +98,14 @@ class AssistantCog(commands.Cog, name="Asistente"):
                 return metrics(stats, members, ctx.author.id, view, period)
             def query_data(query_args):
                 return query_stats_data(stats, members, query_args)
+            async def history_lookup(word):
+                return await scan_history(ctx.channel, word, now=datetime.now(timezone.utc))
             try:
                 async with ctx.typing():
                     result = await asyncio.wait_for(self.agent.answer(question, get_metrics, web,
                         conversation_key=(ctx.guild.id, ctx.channel.id, ctx.author.id),
-                        query_data=query_data), timeout=60)
+                        query_data=query_data,
+                        history_search=history_lookup if self.settings.history_enabled else None), timeout=60)
                 await ctx.send(result, allowed_mentions=discord.AllowedMentions.none())
             except AssistantError as exc:
                 self.cooldowns.get_bucket(ctx.message).reset()
@@ -146,9 +150,11 @@ class AssistantCog(commands.Cog, name="Asistente"):
             tools = ["ayuda pública", "aclaraciones"]
             if flags["metrics_enabled"]:
                 tools.append("métricas y exploración de datos (sólo lectura)")
+            if "search_channel_history" in flags["tools"]:
+                tools.append("historial del canal (sólo lectura)")
             if flags["web_enabled"]:
                 tools.append("búsqueda web con fuentes")
-            await ctx.send("Botón: " + ", ".join(tools) + ".\nWeb: citas verificadas; una búsqueda nueva no arrastra respuestas anteriores.\nMemoria: últimos 10 mensajes tuyos y míos, por persona/canal; RAM, vence tras 30 min sin uso. !olvidar la borra. No guarda resultados privados.\nLímites: anti-spam 3 segundos; hasta 4 llamadas de modelo y 3 herramientas por pregunta; 40 llamadas/día; web 20 llamadas/día y 600/mes (búsqueda y extracción cuentan por separado). Sin ejecución ni escritura de datos.\nResumen del día automático a las "
+            await ctx.send("Botón: " + ", ".join(tools) + ".\nWeb: citas verificadas; una búsqueda nueva no arrastra respuestas anteriores.\nHistorial: puedo buscar mensajes viejos de este canal (ventana fija, palabras de tu pregunta, sin IDs).\nMemoria: últimos 10 mensajes tuyos y míos, por persona/canal; RAM, vence tras 30 min sin uso. !olvidar la borra. No guarda resultados privados.\nLímites: anti-spam 3 segundos; hasta 4 llamadas de modelo y 3 herramientas por pregunta; 40 llamadas/día; web 20 llamadas/día y 600/mes (búsqueda y extracción cuentan por separado). Sin ejecución ni escritura de datos.\nResumen del día automático a las "
                            + f"{self.digest_hour:02d}:00 UTC.")
 
     async def cog_command_error(self, ctx, error):

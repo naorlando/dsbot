@@ -75,6 +75,7 @@ class Settings:
     share_metrics: bool = False
     fallback_model: str = ""
     chain: tuple = ()
+    history_enabled: bool = True
 
     @classmethod
     def from_env(cls):
@@ -147,7 +148,8 @@ class Settings:
             or_endpoint, or_default = providers["openrouter"]
             chain.append(ChainEntry("openrouter", or_endpoint, or_default, openrouter_key, fallback))
         return cls(provider, model, key, endpoint, os.getenv("TAVILY_API_KEY", ""),
-                   os.getenv("AI_SHARE_METRICS", "false").lower() == "true", fallback, tuple(chain))
+                   os.getenv("AI_SHARE_METRICS", "false").lower() == "true", fallback, tuple(chain),
+                   os.getenv("AI_HISTORY", "true").lower() != "false")
 
 
 class UsageBudget:
@@ -280,8 +282,12 @@ STATS_TOOL = {"type": "function", "function": {
         "date": {"type": "string", "pattern": "\\d{4}-\\d{2}-\\d{2}"}},
         "required": ["action"], "additionalProperties": False}}}
 
+HISTORY_TOOL = {"type": "function", "function": {
+    "name": "search_channel_history", "description": "Busca en el historial reciente de ESTE canal los mensajes que coinciden con las palabras de la pregunta, con fecha y autor. Sin argumentos.",
+    "parameters": {"type": "object", "properties": {}, "additionalProperties": False}}}
+
 TOOL_REGISTRY = {tool["function"]["name"]: tool for tool in
-                 (METRICS_TOOL, HELP_TOOL, SEARCH_TOOL, CLARIFY_TOOL, STATS_TOOL)}
+                 (METRICS_TOOL, HELP_TOOL, SEARCH_TOOL, CLARIFY_TOOL, STATS_TOOL, HISTORY_TOOL)}
 SECRET_PATTERN = re.compile(r"(?:sk-or-v1-|tvly-(?:dev|prod)-|mfa\.)[A-Za-z0-9_-]{12,}")
 
 
@@ -296,6 +302,7 @@ def bot_help(settings, topic):
                            "reset_command": "!olvidar", "private_tool_results": False},
                 "tools": ["get_bot_help", "ask_clarification"]
                          + (["get_metrics", "query_stats"] if settings.share_metrics else [])
+                         + (["search_channel_history"] if settings.history_enabled else [])
                          + (["search_web"] if settings.search_key else []),
                 "can_execute_commands": False, "can_modify_data": False,
                 "repo_access": "Sólo ayuda pública y novedades incluidas en el deploy; no código ni archivos arbitrarios."}
@@ -518,11 +525,11 @@ class Assistant:
                 event('extract', status='unavailable', fallback='search_snippets')
         return [source for source in sources if relevant(source, plan)]
 
-    async def answer(self, question, get_metrics, web=False, conversation_key=None, query_data=None):
+    async def answer(self, question, get_metrics, web=False, conversation_key=None, query_data=None, history_search=None):
         with execution(question):
-            return await self._answer(question, get_metrics, web, conversation_key, query_data)
+            return await self._answer(question, get_metrics, web, conversation_key, query_data, history_search)
 
-    async def _answer(self, question, get_metrics, web=False, conversation_key=None, query_data=None):
+    async def _answer(self, question, get_metrics, web=False, conversation_key=None, query_data=None, history_search=None):
         if not isinstance(question, str) or not question.strip() or len(question) > 800:
             raise AssistantError("Mandame una pregunta de entre 1 y 800 caracteres.")
         if SECRET_PATTERN.search(question):
@@ -599,6 +606,8 @@ class Assistant:
                     tools.append(METRICS_TOOL)
                     if query_data:
                         tools.append(STATS_TOOL)
+                if history_search and not used_private:
+                    tools.append(HISTORY_TOOL)
                 if self.settings.search_key and not used_private:
                     tools.append(SEARCH_TOOL)
             choice = "required" if needs_help and turn == 0 and not web else None
@@ -668,6 +677,13 @@ class Assistant:
                     result = query_data(args)
                     used_private = True
                     event('tool_args', name=name, action=args.get('action'))
+                elif name == "search_channel_history":
+                    if args or history_search is None:
+                        raise ValueError
+                    # The model never writes the query: the scan uses the user's own words.
+                    result = await history_search(question)
+                    used_private = True
+                    event('tool_args', name=name, matches=len(result.get('matches', [])))
                 elif name == "get_bot_help":
                     if set(args) != {"topic"} or args["topic"] not in {"commands", "updates", "capabilities"}:
                         raise ValueError

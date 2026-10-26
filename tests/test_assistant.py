@@ -397,6 +397,44 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(await self.agent.search("query")), 1)
 
 
+    async def test_history_tool_roundtrip_and_isolation(self):
+        history_search = AsyncMock(return_value={"matches": [{"fecha": "2026-10-20 22:33", "autor": "Nano",
+                                                              "texto": "ese día jugamos csgo"}],
+                                                 "scanned": 50, "window_days": 14, "note": "x"})
+        self.agent.completion = AsyncMock(side_effect=[
+            tool_call("search_channel_history", {}),
+            {"content": "Encontré la charla del 20/10: jugaban csgo."}])
+        answer = await self.agent.answer("¿cuándo jugamos csgo?", lambda **args: self.fail("No metrics"),
+                                         history_search=history_search)
+        self.assertIn("jugaban csgo", answer)
+        history_search.assert_awaited_once_with("¿cuándo jugamos csgo?")
+        tool_names = [t["function"]["name"] for t in self.agent.completion.call_args_list[0].args[1]]
+        self.assertIn("search_channel_history", tool_names)
+        # A follow-up web question must not inherit anything from the history scan.
+        self.agent.search = AsyncMock(return_value=[{"title": "T", "url": "https://example.com", "content": "Dato actual confirmado"}])
+        self.agent.completion = AsyncMock(return_value=web_answer())
+        await self.agent.answer("Resultado de Boca hoy", lambda **args: self.fail("No metrics on web"), web=True)
+        sent = self.agent.completion.call_args.args[0]
+        self.assertNotIn("csgo", json.dumps(sent, ensure_ascii=False))
+        names = [t["function"]["name"] for t in self.agent.completion.call_args.args[1]]
+        self.assertNotIn("search_channel_history", names)
+
+    async def test_history_tool_args_rejected(self):
+        history_search = AsyncMock()
+        self.agent.completion = AsyncMock(return_value=tool_call("search_channel_history", {"topic": "x"}))
+        with self.assertRaises(AssistantError):
+            await self.agent.answer("Pregunta", lambda **args: {}, history_search=history_search)
+        history_search.assert_not_called()
+
+    async def test_history_tool_absent_without_closure(self):
+        self.agent.completion = AsyncMock(side_effect=[
+            tool_call("search_channel_history", {}),
+            {"content": "Hola"}])
+        # No history_search closure: the tool is never offered, so the model may
+        # hallucinate it and the call is refused.
+        with self.assertRaises(AssistantError):
+            await self.agent.answer("¿cuándo jugamos?", lambda **args: {})
+
     async def test_chain_failover_and_single_budget_consumption(self):
         from core.assistant import ChainEntry, RateLimited
         chain = (ChainEntry("openrouter", "https://or.test", "a:free", "k1"),

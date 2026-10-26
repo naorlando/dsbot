@@ -30,7 +30,7 @@ class ConversationMemory:
             return
         _, messages = self.sessions.pop(key, (0, deque(maxlen=self.max_messages)))
         # Keep the intent, not the numbers/names received from a private tool.
-        reply = "Consulté métricas del servidor. Los datos no se conservan; hay que consultarlos otra vez." if private else answer
+        reply = "Consulté datos privados del servidor (métricas o historial). Los datos no se conservan; hay que consultarlos otra vez." if private else answer
         messages.append({"role": "user", "content": question[:800]})
         messages.append({"role": "assistant", "content": reply[:800]})
         self.sessions[key] = (self.clock(), messages)
