@@ -109,15 +109,3 @@ async def scan_history(channel, question, now=None, limit=None):
     result["matches"] = [row for _, row in scored[:MAX_ROWS]]
     event('history_scan', status='ok', scanned=result["scanned"], matches=len(result["matches"]))
     return result
-
-
-def history_summary(scan):
-    """Deterministic reply from the scan, used when a weak model echoes
-    instructions instead of answering from the rows it was given."""
-    matches = scan.get("matches", []) if isinstance(scan, dict) else []
-    if not matches:
-        return ("Busqué en el historial reciente del canal (14 días) y no encontré mensajes "
-                "que coincidan. Probá nombrar de otra forma el tema que querés ubicar.")
-    lines = [f"• {row['fecha']} — {row['autor']}: «{row['texto']}»" for row in matches[:5]]
-    return ("Esto encontré en el historial reciente del canal:\n" + "\n".join(lines)
-            + "\n(ventana de 14 días; no leo nada privado ni de otros servidores)")

@@ -283,8 +283,9 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         messages = self.agent.completion.call_args.args[0]
         self.assertIn("topvoice", messages[-1]["content"])
         first = self.agent.completion.call_args_list[0]
-        self.assertEqual(first.kwargs["tool_choice"], "required")
-        self.assertEqual([t["function"]["name"] for t in first.args[1]], ["get_bot_help"])
+        names = [t["function"]["name"] for t in first.args[1]]
+        # Agentic menu: help is offered every turn, not forced; the model picks it.
+        self.assertIn("get_bot_help", names)
 
     async def test_model_decides_web_but_cannot_rewrite_query(self):
         self.agent.search = AsyncMock(return_value=[{"title": "Dato", "url": "https://example.com", "content": "Dato actual confirmado"}])
@@ -326,13 +327,13 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.agent.completion.assert_awaited_once()
         self.agent.search.assert_awaited_once()
 
-    async def test_unconfigured_web_not_offered_and_help_always_available(self):
+    async def test_unconfigured_web_not_offered(self):
         self.agent.settings = Settings("openrouter", "openrouter/free", "test", "fixed")
         self.agent.completion = AsyncMock(return_value={"content": "Hola"})
         await self.agent.answer("Hola", lambda **args: {})
         names = [t["function"]["name"] for t in self.agent.completion.call_args.args[1]]
-        # 'Hola' is not a question: the clarify tool stays out (weak models used it to interrogate back).
-        self.assertEqual(names, ["get_bot_help"])
+        # Full agentic menu minus web (no key), metrics (off) and history (no closure).
+        self.assertEqual(names, ["get_bot_help", "ask_clarification", "weather_check", "calc"])
 
     async def test_explicit_web_without_key_before_llm(self):
         self.agent.settings = Settings("openrouter", "openrouter/free", "test", "fixed")
@@ -400,19 +401,6 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(sources), 1)
             self.assertEqual(len(sources[0]["content"]), 1500)
 
-    async def test_partido_search_switches_to_news_mode(self):
-        # Generic Tavily search returned Serie C italiana for "como salio boca";
-        # news topic + week window + advanced depth pull real match reports.
-        with patch("core.assistant.post_json", new_callable=AsyncMock) as post:
-            post.return_value = {"results": [{"url": "https://smsporte.test/cronica", "content": "Boca gano 2-1 a Talleres en La Bombonera, " + "cronica " * 200}]}
-            sources = await self.agent.search("como salio boca")
-            payload = post.await_args_list[0].args[3]
-            self.assertEqual(payload["topic"], "news")
-            self.assertEqual(payload["time_range"], "week")
-            self.assertEqual(payload["search_depth"], "advanced")
-            self.assertEqual(payload["max_results"], 8)
-            self.assertEqual(len(sources), 1)
-
     async def test_clarification_ends_turn_without_other_tools(self):
         self.agent.search = AsyncMock()
         callback = AsyncMock()
@@ -477,16 +465,15 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
                                                               "texto": "ese día jugamos csgo"}],
                                                  "scanned": 50, "window_days": 14, "note": "x"})
         self.agent.completion = AsyncMock(side_effect=[
-            tool_call("search_channel_history", {}),
+            tool_call("search_channel_history", {"query": "cuando jugamos csgo"}),
             {"content": "Encontré la charla del 20/10: jugaban csgo."}])
         answer = await self.agent.answer("¿cuándo jugamos csgo?", lambda **args: self.fail("No metrics"),
                                          history_search=history_search)
         self.assertIn("jugaban csgo", answer)
-        history_search.assert_awaited_once_with("¿cuándo jugamos csgo?")
+        history_search.assert_awaited_once_with("cuando jugamos csgo")
         tool_names = [t["function"]["name"] for t in self.agent.completion.call_args_list[0].args[1]]
-        # Determinism: the scan is injected by the harness, never offered for
-        # the model to decide (weak models echo instructions instead of calling).
-        self.assertNotIn("search_channel_history", tool_names)
+        # Agentic: the history tool is on the menu; the model writes the query.
+        self.assertIn("search_channel_history", tool_names)
         # A follow-up web question must not inherit anything from the history scan.
         self.agent.search = AsyncMock(return_value=[{"title": "T", "url": "https://example.com", "content": "Boca gano 2-0: Dato actual confirmado"}])
         self.agent.completion = AsyncMock(return_value=web_answer(quote="Boca gano 2-0: Dato actual confirmado"))
@@ -494,7 +481,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         sent = self.agent.completion.call_args.args[0]
         self.assertNotIn("csgo", json.dumps(sent, ensure_ascii=False))
         names = [t["function"]["name"] for t in self.agent.completion.call_args.args[1]]
-        self.assertNotIn("search_channel_history", names)
+        self.assertEqual(names, [])
 
     async def test_history_tool_args_rejected(self):
         history_search = AsyncMock()

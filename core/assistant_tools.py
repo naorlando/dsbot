@@ -1,11 +1,12 @@
-"""Free no-key agentic tools (arithmetic, wikipedia, weather) plus generative
-scaffolds for creative requests. Everything is read-only, bounded and fail-closed:
-no secrets, no execution, fixed timeouts and response-size ceilings."""
+"""Bounded no-key tools for the agent (arithmetic, weather) plus the Google
+grounding search call. Everything is read-only and fail-closed: no secrets,
+no execution, fixed timeouts and response-size ceilings."""
 import ast
 import json
 import operator
 import re
-from urllib.parse import quote
+import datetime
+from urllib.parse import quote, urlparse
 
 from core.assistant_trace import event
 
@@ -16,12 +17,6 @@ CALC_TOOL = {"type": "function", "function": {
     "parameters": {"type": "object", "properties": {
         "expression": {"type": "string", "description": "Expresión con números y + - * / % ( ). Ej: 375*(24000+375*20)", "maxLength": 120}},
         "required": ["expression"], "additionalProperties": False}}}
-
-WIKI_TOOL = {"type": "function", "function": {
-    "name": "wiki_summary", "description": "Resumen de Wikipedia (es) para conocimiento estable: quién es o fue alguien, qué es una cosa. No sirve para datos actuales.",
-    "parameters": {"type": "object", "properties": {
-        "topic": {"type": "string", "description": "Título del artículo o nombre, en limpio", "maxLength": 80}},
-        "required": ["topic"], "additionalProperties": False}}}
 
 WEATHER_TOOL = {"type": "function", "function": {
     "name": "weather_check", "description": "Clima actual y próximos 3 días de una ciudad, con datos reales de Open-Meteo.",
@@ -112,36 +107,80 @@ def calc_eval(expression):
     return result
 
 
-# --- wikipedia --------------------------------------------------------------
+class GroundError(Exception):
+    """Google grounding call failed; caller falls back to Tavily."""
 
-async def wiki_lookup(session, topic):
-    """Deterministic ES-wikipedia search + summary for stable knowledge."""
-    cleaned = _compact(topic, 80)
-    if not cleaned or not re.match(r'^[\w\s\-.:áéíóúñüÁÉÍÓÚÑÜ]+$', cleaned, re.I):
-        raise ValueError
-    rows = await get_json(
-        session, 'https://es.wikipedia.org/w/rest.php/v1/search/page?q='
-        + quote(cleaned) + '&limit=3')
-    pages = rows.get('pages') if isinstance(rows, dict) else []
-    if not isinstance(pages, list) or not pages:
-        return {"topic": cleaned, "status": "not_found"}
-    page = pages[0] if isinstance(pages[0], dict) else {}
-    title = _compact(page.get('title', cleaned), 80)
-    summary = await get_json(
-        session, 'https://es.wikipedia.org/api/rest_v1/page/summary/' + quote(title))
-    text = ''
-    url = ''
-    if isinstance(summary, dict):
-        text = _compact(summary.get('extract', ''), 650)
-        urls = summary.get('content_urls') if isinstance(summary.get('content_urls'), dict) else {}
-        if isinstance(urls, dict):
-            desktop = urls.get('desktop') if isinstance(urls.get('desktop'), dict) else {}
-            url = _compact(desktop.get('page', ''), 200)
+
+async def google_ground(session, key, question, model):
+    """Native Gemini call with the google_search server tool. Returns
+    (grounded_text, sources) — the text is the grounded answer; sources carry
+    the real URLs Google used (uri + title + cited segments as content)."""
+    prompt = ('Buscá en la web y respondé breve en español rioplatense, con datos concretos, '
+              'fechas y cifras. Pregunta: ' + str(question).strip()[:300])
+    body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
+            "tools": [{"google_search": {}}],
+            "generationConfig": {"maxOutputTokens": 900}}
+    url = ('https://generativelanguage.googleapis.com/v1beta/models/'
+           + quote(model or 'gemini-3.5-flash-lite') + ':generateContent')
+    event('http_start', service='ground')
+    try:
+        async with session.post(url, headers={"Content-Type": "application/json",
+                                              "x-goog-api-key": key},
+                                json=body, timeout=28) as response:
+            if response.status == 429:
+                raise GroundError("google ground rate limited")
+            if response.status != 200:
+                event('http_error', service='ground', status=response.status)
+                raise GroundError(f"google ground http {response.status}")
+            raw = await response.read()
+            if len(raw) > 900_000:
+                event('http_error', service='ground', status='too_large')
+                raise GroundError("google ground too large")
+            data = json.loads(raw.decode('utf-8', 'replace'))
+    except GroundError:
+        raise
+    except Exception as exc:  # aiohttp errors, timeouts, json errors
+        event('http_error', service='ground', status=type(exc).__name__)
+        raise GroundError("google ground unavailable") from exc
+    candidates = data.get('candidates') if isinstance(data, dict) else []
+    candidate = candidates[0] if isinstance(candidates, list) and candidates and isinstance(candidates[0], dict) else {}
+    content = candidate.get('content') if isinstance(candidate.get('content'), dict) else {}
+    parts_list = content.get('parts') if isinstance(content.get('parts'), list) else []
+    text = ''.join(str(part.get('text', '')) for part in parts_list
+                   if isinstance(part, dict) and isinstance(part.get('text'), str))[:1900].strip()
     if not text:
-        text = _compact(page.get('description', ''), 300)
-    if not text:
-        return {"topic": title, "status": "not_found"}
-    return {"topic": title, "summary": text, "url": url or '(no informada)'}
+        event('ground', status='no_text')
+        raise GroundError("google ground empty")
+    meta = candidate.get('groundingMetadata') if isinstance(candidate.get('groundingMetadata'), dict) else {}
+    chunks = [c.get('web', {}) for c in (meta.get('groundingChunks') or []) if isinstance(c, dict) and isinstance(c.get('web'), dict)]
+    citations = {}
+    for support in (meta.get('groundingSupports') or []):
+        if not isinstance(support, dict):
+            continue
+        segment = support.get('segment') if isinstance(support.get('segment'), dict) else {}
+        snippet = _compact(str(segment.get('text', '')), 400)
+        for index in support.get('groundingChunkIndices') or []:
+            if isinstance(index, int) and snippet:
+                citations.setdefault(index, []).append(snippet)
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    sources = []
+    for index, webdoc in enumerate(chunks):
+        uri = str(webdoc.get('uri', ''))[:300]
+        parsed = urlparse(uri)
+        if (parsed.scheme not in {'https', 'http'} or not parsed.netloc
+                or parsed.username or any(ch.isspace() or ch in '<>' for ch in uri)):
+            continue
+        host = parsed.hostname or ''
+        if any(host == bad or host.endswith('.' + bad) for bad in
+               ('facebook.com', 'tiktok.com', 'instagram.com', 'pinterest.com')):
+            continue
+        sources.append({"title": _compact(webdoc.get('title', ''), 120), "url": uri,
+                        "content": '\n'.join(citations.get(index, []))[:1500],
+                        "published_date": "no informada", "retrieved_at": now})
+        if len(sources) >= 5:
+            break
+    event('ground', status='ok', sources=len(sources), chars=len(text))
+    return text, sources
 
 
 # --- weather ----------------------------------------------------------------
@@ -189,39 +228,3 @@ async def weather_check(session, place):
         "temp": current.get('temperature_2m'),
         "sensacion": current.get('apparent_temperature'),
         "precipitacion_mm": current.get('precipitation')}, "dias": days}
-
-
-# --- generative scaffolds ----------------------------------------------------
-
-TRAVEL_SCAFFOLD = (
-    'Este pedido es creativo y general: respondelo completo de una sola vez, con tu propio '
-    'conocimiento, sin herramientas y SIN negarlo ni mencionar capacidades. Estructura obligatoria: '
-    '(1) ruta por ciudades o etapas con los días; (2) qué ver y comer en cada etapa; '
-    '(3) transporte y presupuesto estimado; (4) tres consejos prácticos. '
-    'Formato: títulos cortos con bullets, mensaje de a lo sumo 1200 caracteres.')
-
-RECIPE_SCAFFOLD = (
-    'Este pedido es creativo y general: entregá la receta completa de una vez, con tu propio '
-    'conocimiento, sin herramientas y SIN negarlo. Estructura obligatoria: ingredientes en lista '
-    'con cantidades, pasos numerados breves y un tip final. Máximo 900 caracteres.')
-
-RECS_SCAFFOLD = (
-    'Este pedido es de recomendaciones: respuesta de una sola vez con tu propio conocimiento, '
-    'sin herramientas y SIN pedir más datos. De 3 a 5 opciones con una línea explicando por qué '
-    'cada una. Máximo 800 caracteres.')
-
-SCAFFOLDS = (
-    (re.compile(r'\b(?:itinerario|plan de viaje|\d+\s*d[ií]as? (?:en|por) \w+|viaje de \d+ dias?)\b', re.I),
-     TRAVEL_SCAFFOLD),
-    (re.compile(r'\brecetas?\b|\bc[oó]mo se hace (?:la )?\w+\b', re.I), RECIPE_SCAFFOLD),
-    (re.compile(r'\b(?:recomend(?:a|ame|acione s?)|qu[eé] (?:veo|juego|leo|escucho|hago si))\b', re.I),
-     RECS_SCAFFOLD),
-)
-
-
-def scaffold_for(question):
-    """Creative requests need structure, or a weak model refuses or answers meta."""
-    for matcher, text in SCAFFOLDS:
-        if matcher.search(question):
-            return text
-    return None

@@ -133,8 +133,6 @@ class AssistantCog(commands.Cog, name="Asistente"):
         if self.in_scope(ctx):
             async with self.lock:
                 self.agent.memory.forget((ctx.guild.id, ctx.channel.id, ctx.author.id))
-                if hasattr(self.agent, 'pending_questions'):
-                    self.agent.pending_questions.pop((ctx.guild.id, ctx.channel.id, ctx.author.id), None)
             await ctx.send("Listo, borré tu memoria corta de Botón en este canal.")
 
     @commands.command(name="botonestado")
@@ -149,7 +147,7 @@ class AssistantCog(commands.Cog, name="Asistente"):
                 tools.append("historial del canal (sólo lectura)")
             if flags["web_enabled"]:
                 tools.append("búsqueda web con fuentes")
-            await ctx.send("Botón: " + ", ".join(tools) + ".\nWeb: citas verificadas; una búsqueda nueva no arrastra respuestas anteriores.\nHistorial: puedo buscar mensajes viejos de este canal (ventana fija, palabras de tu pregunta, sin IDs).\nMemoria: últimos 10 mensajes tuyos y míos, por persona/canal; RAM, vence tras 30 min sin uso. !olvidar la borra. No guarda resultados privados.\nLímites: anti-spam 3 segundos; hasta 4 llamadas de modelo y 3 herramientas por pregunta; 400 llamadas/día; web 20 llamadas/día y 600/mes (búsqueda y extracción cuentan por separado). Sin ejecución ni escritura de datos.\nResumen del día automático a las "
+            await ctx.send("Botón: " + ", ".join(tools) + ".\nWeb: citas verificadas; una búsqueda nueva no arrastra respuestas anteriores.\nHistorial: puedo buscar mensajes viejos de este canal (ventana fija, palabras de tu pregunta, sin IDs).\nMemoria: últimos 10 mensajes tuyos y míos, por persona/canal; RAM, vence tras 30 min sin uso. !olvidar la borra. No guarda resultados privados.\nLímites: anti-spam 3 segundos; hasta 4 llamadas de modelo y 3 herramientas por pregunta. 400 llamadas/día; web 20 llamadas/día y 600/mes. Sin ejecución ni escritura de datos.\nResumen del día automático a las "
                            + f"{self.digest_hour:02d}:00 UTC.")
 
     async def cog_command_error(self, ctx, error):

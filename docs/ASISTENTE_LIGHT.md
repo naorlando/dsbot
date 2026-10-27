@@ -36,84 +36,54 @@ por todo el servidor (también cuenta los intentos fallidos). No hace fallback a
 Un modelo Qwen/Kimi `:free` específico sólo debe fijarse después de confirmar que sigue
 disponible y soporta herramientas; el catálogo gratuito cambia.
 
-### Búsqueda web separada
+### Búsqueda web (agéntica)
 
-[Tavily](https://docs.tavily.com/documentation/api-credits) ofrece 1.000 créditos/mes
-sin tarjeta; búsqueda basic = 1 crédito. El bot pide hasta 5 candidatos y acepta hasta
-3 fuentes; excluye resultados sociales ruidosos y filtra versiones/fechas requeridas.
-Puede hacer una extracción basic de hasta 2 URLs ya aceptadas, con 5 fragmentos por fuente;
-no permite URLs elegidas por el modelo. Ambas llamadas consumen una unidad local de
-presupuesto antes de enviarse. Tope local: 20 llamadas web/día y 600/mes (hasta 10
-preguntas/día si todas requieren extracción). Sin respuesta generada por Tavily ni
-parámetros automáticos que cambien el costo. No habilitar
-pay-as-you-go ni recarga automática en el proveedor para un piloto gratis.
+La web se resuelve en dos capas, y el **modelo** decide cuándo buscar eligiendo
+`search_web` del menú (o el `!boton` explícito entra directo):
 
-La búsqueda ocurre con un enrutador determinista para consultas que
-necesitan evidencia, o cuando Botón elige `search_web` desde `!boton`.
-Tres respuestas no dependen del modelo (los modelos free chicos fallan ahí):
+1. **Google Search grounding** (primario, `GOOGLE_API_KEY`): llamada nativa a
+   `:generateContent` con el tool de servidor `google_search`; el índice real de
+   Google devuelve la respuesta ya anclada y las URLs de origen
+   (`groundingChunks`). La respuesta aterrizada se publica tal cual, con pie
+   "Fuentes consultadas" si el texto no trajo citas. Cero llamadas de modelo.
+2. **Tavily** (respaldo): sólo si no hay clave de Google o el grounding falla
+   (429/5xx/respuesta vacía). Búsqueda `basic`, hasta 5 candidatos, acepta hasta
+   3 fuentes; excluye redes ruidosas y valida que cada cita exista literalmente
+   antes de publicar (`render_evidence`). Sin extracción de URLs ni respuesta
+   generada por Tavily ni parámetros automáticos.
 
-- **Dólar**: el parser lee compra/venta del texto de las páginas y responde sin
-  llamadas de modelo (`stage=evidence route=official_dollar` en logs).
-- **Historial**: preguntas tipo "por sus mensajes, ¿dónde está X?" o "¿cuándo
-  hablamos de Y?" escanean el channel determinísticamente; el modelo redacta con
-  las filas dadas y las lleva injectadas como datos (log `stage=history forced=true`).
-  Si aun así suelta un eco de instrucciones, la respuesta es el resumen
-  determinista de filas (`stage=model finish=echo_fallback`).
-- **Evidencia**: un `insufficient` perezoso con fuentes en la mesa recibe hasta 2
-  re-reads forzados (`stage=evidence status=insufficient_retry`).
-- **Partidos**: las respuestas de "¿cómo salió X?" conservan sólo la cita del
-  partido más fresco (año, luego jornada/fecha; `stage=evidence status=freshest_filter`).
-  Un modelo chico que citaba tres partidos distintos como una sola respuesta.
-- **Calidad web en partidos** (portaba la Serie C italiana de sportytrader para
-  "¿cómo salió Boca?"): la búsqueda futbolística usa modo `topic=news` de Tavily
-  con ventana de una semana y profundidad avanzada; además las fuentes deben
-  nombrar al equipo (`required`) y toda cita publicada debe contener marcador
-  (`2-1`, "ganó/perdió/empató/penales"; `status=score_filter`). Sin marcador →
-  `insufficient` y re-lectura, nunca prosa de ambiente.
-- **"Cuánto salió Boca"** es web-pregunta, no aclaración: `cuanto salio` + equipo
-  de fútbol entra directo al modo partido de arriba, con default del último
-  partido y sin ofrecer `ask_clarification` (el modelo preguntaba en tres pasos).
+Tope local: 20 búsquedas/día y 600/mes; una investigación completa (grounding o
+Tavily) consume **una** unidad, cobrada antes de enviarse. Sin Tavily ni Google
+el bot responde que el buscador no está conectado y el resto sigue funcionando.
+
+Ya no hay rutas deterministas: dólar, pasaporte, Wikipedia, partidos, scaffolds,
+banter y ecos de historial **no tienen código aparte** — el agente resuelve todo
+con su menú de tools y su system prompt. Lo único que queda fuera del modelo es
+seguridad y límites: validación de argumentos, presupuesto, guardas de secretos/enlaces,
+`collapse_repeat` y los re-reads de evidencia (un `insufficient` perezoso con
+fuentes en la mesa recibe hasta 2 reintentos; un JSON inválido tras el segundo
+intento falla cerrado, nunca publica citas inventadas).
+
 - **Herramientas gratis sin clave** (`core/assistant_tools.py`): `calc`
-  (aritmética exacta con evaluador propio, sin `eval`), `wiki_summary`
-  (búsqueda + resumen de Wikipedia ES, endpoints públicos) y `weather_check`
-  (Open-Meteo: geocoding + pronóstico de 3 días). No gastan presupuesto de
-  Tavily; HTTP acotado (timeout, techo de bytes, fail-closed). Se ofrecen según
-  intent detectado (quién es / clima / cuentas), no de menú en cada turno.
-- **Scaffolds generativos**: itinerarios, recetas y recomendaciones entran con
-  la estructura de respuesta pre-construida en el system prompt (ruta por días,
-  ingredientes/pasos, 3-5 opciones con por qué), así el modelo chico no niega
-  pedidos creativos ni contesta con meta del servidor.
-- **Jodedera** ("sos un hdp man" / "destruite" / "matate" / "blowjob" / "t garch"):
-  respuesta determinista cero modelo; la tool de aclaración sólo se ofrece si el
-  mensaje es una pregunta real (`¿?` o palabra interrogativa), porque los modelos
-  chicos la usaban para preguntar al voleo. Emojis o símbolos solos (sin texto)
-  tampoco gastan modelo: se pide texto de vuelta con plantilla.
-- **Anti-"soy un bot"**: el system prompt aclara que la sólo-lectura es de datos,
-  no de conversar; preguntas generales (viajes, recetas, juegos, consejos) se
-  responden directamente con conocimiento propio, sin herramientas. La lista de
-  capacidades se inyecta sólo cuando el pedido es de ayuda; en otra consulta el
-  modelo la recitaba como respuesta (bug del itinerario de Japón en producción).
-- **Intents forzados**: "que dice X?" / "mensajes de X" van sí o sí al historial
-  del canal (ganan incluso ante "busca..."); "pasame/investigá/receta" activan web.
-- **Guardas de salida**: frases canned repetidas en una misma respuesta se
-  colapsan a la primera (`collapse_repeat`), y si el modelo recita la nota interna
-  de memoria (eco del mask) se publica "Se me trabó la lengua" en su lugar.
+  (aritmética exacta con evaluador propio, sin `eval`) y `weather_check`
+  (Open-Meteo: geocoding + pronóstico de 3 días). HTTP acotado (timeout, techo
+  de bytes, fail-closed). El menú completo se ofrece en cada turno sin datos
+  aún: el modelo elige; `ask_clarification` sólo en el turno 0.
+- **Jodedera / emojis / preguntas generales**: sin filtro previo — llegan al
+  modelo y se resuelven con su propio criterio (charla, viaje, receta, etc.).
+- **Anti-"soy un bot"**: el system prompt fijá que si es creativo o general se
+  responde completo con conocimiento propio, sin tools ni meta de capacidades.
+- **Guardas de salida**: frases canned repetidas se colapsan (`collapse_repeat`),
+  y si el modelo recita la nota interna de memoria se publica "Se me trabó la
+  lengua" en su lugar.
 - Cada model call queda en logs con `stage=model finish=... calls=... preview=...`
   (primeros 150 caracteres) para auditar la conducta del proveedor free.
-El harness normaliza sólo la consulta actual, quitando muletillas y preservando entidades,
-versiones y fechas. El modelo no puede reescribirla.
-No se permite que el modelo genere consultas que filtren datos del servidor;
-en una búsqueda no se exponen herramientas de métricas. Los resultados de web son
-datos no confiables; el prompt no les concede autoridad. Las respuestas web son JSON
-estructurado con IDs de fuentes y citas; el harness comprueba que cada cita existe
-literalmente en la evidencia y publica sólo esas citas, sin paráfrasis libres del modelo.
-Los enlaces los agrega el harness sólo para las fuentes usadas. Eso impide publicar
-citas inventadas, pero no garantiza que una página externa sea verdadera o pertinente.
-Para pasaportes argentinos se lee la sección PASAPORTE de una URL oficial fija de
-RENAPER: lectura HTML acotada, sin redirects ni URL configurable. El tarifario se
-presenta directamente, sin llamar al modelo ni hardcodear importes. Es una excepción
-deliberadamente pequeña a la extracción de Tavily, que omitía los precios de esa página.
-Para partidos/cotizaciones que no tengan evidencia suficiente debe pedir precisión
+El harness normaliza la consulta actual (quita muletillas, preserva entidades y
+fechas); el modelo no puede reescribirla al buscar. No se permite que consultas
+web filtren datos del servidor; métricas e historial no se mezclan con web en la
+misma respuesta. Los resultados de web son datos no confiables; el path Tavily
+sólo publica citas literales de fuentes existentes.
+Para partidos/cotizaciones sin evidencia suficiente el modelo debe pedir precisión
 o decir que no pudo confirmarlo. Conviene agregar APIs especializadas más adelante.
 
 ### Estimación de costo (no una promesa ni un presupuesto de facturación)
@@ -154,10 +124,10 @@ de métricas se reemplazan por una nota sin cifras/nombres. No persiste llamadas
 herramientas ni claves. Las búsquedas nuevas no reciben historial y sus respuestas no
 se conservan como hechos: cada consulta web requiere evidencia nueva. `!olvidar` borra
 la memoria propia sin gastar API.
-Las aclaraciones pendientes de fecha/tipo de dólar/país se guardan aparte en RAM,
-máximo 64, por la misma persona/canal y durante 30 minutos. Sólo continuaciones
-acotadas retoman la pregunta del usuario; nunca usan una respuesta del modelo como
-consulta. Cambiar de tema o `!olvidar` descarta esa aclaración.
+Las aclaraciones pendientes no se guardan aparte: `ask_clarification` es una tool
+más en el menú (sólo turno 0) y la continuidad queda en la memoria conversacional
+normal, que vence tras 30 minutos. La protección doxxing (dateas/IP/DNI/domicilio)
+es la única decisión del harness: rechaza en frío sin gastar modelo ni guardar nada.
 Los contadores se guardan atómicamente antes de enviar cada llamada. Si el archivo
 está corrupto o no se puede guardar, se bloquean nuevas llamadas. Sólo una réplica:
 el presupuesto no es un contador distribuido para varias instancias.
@@ -199,7 +169,7 @@ AI_SHARE_METRICS=true
 # Opcional: modelo :free de repuesto. Si OpenRouter devuelve 429 del modelo principal,
 # reintenta UNA vez con este. No hay fallback a modelos pagos.
 AI_FALLBACK_MODEL=google/gemma-4-31b-it:free
-# Opcional: sin esta clave, Botón no tiene búsqueda web
+# Opcional: sin Tavily ni Google, Botón no tiene búsqueda web
 TAVILY_API_KEY=clave_de_tavily
 ```
 
@@ -215,7 +185,7 @@ AI_SHARE_METRICS=true
 # Opcional: modelo :free de repuesto. Si OpenRouter devuelve 429 del modelo principal,
 # reintenta UNA vez con este. No hay fallback a modelos pagos.
 AI_FALLBACK_MODEL=google/gemma-4-31b-it:free
-# Opcional: sin esta clave, Botón no tiene búsqueda web
+# Opcional: sin Tavily ni Google, Botón no tiene búsqueda web
 TAVILY_API_KEY=clave_de_tavily
 ```
 
@@ -234,8 +204,9 @@ queda de repuesto. La intensidad del modelo tampoco muda el presupuesto del bot.
 
 Los modelos free chicos no se dan cuenta de que deben llamar una herramienta.
 Opcionalmente se delega la DECISIÓN a un mini-modelo llave en mano y el principal
-sólo redacta: una llamada forzada de ~10 tokens, mismo presupuesto `llm` (cuenta
-como su llamada), y si el juez falla se usa el proveedor principal igual (fail-open).
+sólo redacta: una llamada forzada de ~10 tokens que **no** consume el presupuesto
+`llm` (es lo más barato de todo el flujo), y si el juez falla se usa el proveedor
+principal igual (fail-open).
 
 | `AI_ROUTER_PROVIDER` | Modelo del juez | Clave requerida |
 | --- | --- | --- |
