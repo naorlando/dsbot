@@ -617,11 +617,15 @@ class Assistant:
                 # Agentic menu: every available tool while there's nothing gathered
                 # yet. Once search results are in context the model answers from them.
                 tools = [HELP_TOOL] + ([CLARIFY_TOOL] if turn == 0 else [])
-                if self.settings.share_metrics and not used_private:
+                # A private read only closes the web door, not the other private
+                # tools: get_metrics -> query_stats (or the channel history) is the
+                # natural drill-down. Mixing private data with a web search still
+                # stays blocked (no SEARCH_TOOL once private data was read).
+                if self.settings.share_metrics:
                     tools.append(METRICS_TOOL)
                     if query_data:
                         tools.append(STATS_TOOL)
-                if history_search and not used_private:
+                if history_search:
                     tools.append(HISTORY_TOOL)
                 if (self.settings.search_key or provider_key('google')) and not used_private:
                     tools.append(SEARCH_TOOL)
@@ -709,10 +713,14 @@ class Assistant:
                 self.memory.remember(conversation_key, question, answer, private=used_private)
                 return answer
             call = calls[0]
-            if turn == 3 or len(calls) != 1:
-                raise AssistantError("La consulta excedió el límite de herramientas. Probá una pregunta más simple.")
+            if len(calls) != 1:
+                if turn >= 3 or bad_calls:
+                    raise AssistantError("Se me cruzaron los cables con las herramientas; preguntame de vuelta. 😅")
+                event('tool', name='many', status='late_call', calls=len(calls))
+                _nudge(call, "Devolvé UNA sola llamada de herramienta por turno. Elegí la más pertinente.")
+                continue
             if not tools:
-                if no_tools_nudged:
+                if turn >= 3 or no_tools_nudged:
                     raise AssistantError("Se me cruzaron los cables con las herramientas; preguntame de vuelta. 😅")
                 no_tools_nudged = True
                 event('tool', name='none', status='late_call')
@@ -831,4 +839,4 @@ class Assistant:
             messages.append(echo)
             messages.append({"role": "tool", "tool_call_id": identifier,
                              "content": json.dumps(result, ensure_ascii=False)})
-        raise AssistantError("La consulta excedió el límite del asistente.")
+        raise AssistantError("Me quedé sin espacio para resolver esa pregunta; mandame la pregunta de vuelta.")

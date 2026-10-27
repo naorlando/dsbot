@@ -81,8 +81,14 @@ intento falla cerrado, nunca publica citas inventadas).
 El harness normaliza la consulta actual (quita muletillas, preserva entidades y
 fechas); el modelo no puede reescribirla al buscar. No se permite que consultas
 web filtren datos del servidor; métricas e historial no se mezclan con web en la
-misma respuesta. Los resultados de web son datos no confiables; el path Tavily
-sólo publica citas literales de fuentes existentes.
+misma respuesta — pero sí se mezclan entre sí: tras leer el servidor, el modelo
+puede seguir perforando con `get_metrics` → `query_stats` → `search_channel_history`
+(sólo `search_web` sale del menú). Las llamadas de herramienta inválidas, múltiples
+o fuera de turno no matan la pregunta: se reencaminan con un nudge y el modelo
+corrije en el mismo turno; al segundo error sale un error humano ("Se me cruzaron
+los cables con las herramientas; preguntame de vuelta. 😅"), nunca tool-speak.
+Los resultados de web son datos no confiables; el path Tavily sólo publica citas
+literales de fuentes existentes.
 Para partidos/cotizaciones sin evidencia suficiente el modelo debe pedir precisión
 o decir que no pudo confirmarlo. Conviene agregar APIs especializadas más adelante.
 

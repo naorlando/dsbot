@@ -304,6 +304,48 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             await self.agent.answer("Hola", lambda **args: {})
         self.agent.search.assert_not_called()
 
+    async def test_metrics_drilldown_keeps_private_tools_and_blocks_web(self):
+        # Production trace 87c2e29ca02e: after a get_metrics read, the model must
+        # still be able to drill down with query_stats / history; only the web
+        # tool locks out once private data is in context.
+        self.agent.completion = AsyncMock(side_effect=[
+            tool_call(),                                                 # get_metrics me/all
+            tool_call("query_stats", {"view": "game_detail", "game": "LoL"}),
+            {"content": "Wire es quien mas LoL jugo este mes."}])
+        checkbox = lambda **a: {"user": {"game_minutes": 0, "messages_lifetime": 0}}
+        stats = lambda **a: {"players": [{"name": "Wire", "minutes": 900}]}
+        history_rows = lambda q: {"matches": []}
+        answer = await self.agent.answer("quien mas jugo LoL?", checkbox, query_data=stats, history_search=history_rows)
+        self.assertIn("Wire", answer)
+        second_menu = [t["function"]["name"] for t in self.agent.completion.await_args_list[1].args[1]]
+        self.assertIn("query_stats", second_menu)
+        self.assertIn("search_channel_history", second_menu)
+        self.assertNotIn("search_web", second_menu)
+
+    async def test_multiple_tool_calls_nudged_to_pick_one(self):
+        # The model dumped two calls in one response; one nudge later it behaves.
+        self.agent.completion = AsyncMock(side_effect=[
+            {"content": None, "tool_calls": [
+                {"id": "c1", "type": "function",
+                 "function": {"name": "get_metrics", "arguments": json.dumps({"view": "me", "period": "all"})}},
+                {"id": "c2", "type": "function",
+                 "function": {"name": "calc", "arguments": json.dumps({"expression": "2+2"})}}]},
+            {"content": None, "tool_calls": [
+                {"id": "c3", "type": "function",
+                 "function": {"name": "calc", "arguments": json.dumps({"expression": "2+2"})}}]},
+            {"content": "4"}])
+        answer = await self.agent.answer("cuanto es 2+2?", lambda **a: self.fail("no metrics"))
+        self.assertEqual(answer, "4")
+        self.assertEqual(self.agent.completion.await_count, 3)
+
+    async def test_late_tool_call_at_max_turn_fails_friendly_not_tool_speak(self):
+        four_tools = [tool_call("calc", {"expression": "2+2"})] * 3
+        self.agent.completion = AsyncMock(side_effect=four_tools + [tool_call("calc", {"expression": "2+2"})])
+        with self.assertRaises(AssistantError) as ctx:
+            await self.agent.answer("cuanto es 2+2?", lambda **a: {})
+        self.assertIn("cruzaron los cables", str(ctx.exception))
+        self.assertNotIn("excedió el límite", str(ctx.exception))
+
     async def test_metrics_then_web_is_rejected(self):
         self.agent.search = AsyncMock()
         hits = []
