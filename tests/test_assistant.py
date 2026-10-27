@@ -598,7 +598,8 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_history_tool_args_rejected(self):
         history_search = AsyncMock()
-        self.agent.completion = AsyncMock(return_value=tool_call("search_channel_history", {"topic": "x"}))
+        # Empty args: the schema declares `query` required, and no alias maps.
+        self.agent.completion = AsyncMock(return_value=tool_call("search_channel_history", {}))
         with self.assertRaises(AssistantError):
             await self.agent.answer("Pregunta", lambda **args: {}, history_search=history_search)
         history_search.assert_not_called()
