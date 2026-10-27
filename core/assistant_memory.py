@@ -24,15 +24,18 @@ class ConversationMemory:
             return []
         return [dict(message) for message in self.sessions[key][1]]
 
-    def remember(self, key, question, answer, private=False):
+    def remember(self, key, question, answer=None, private=False):
         self._expire()
         if key is None:
             return
         _, messages = self.sessions.pop(key, (0, deque(maxlen=self.max_messages)))
-        # Keep the intent, not the numbers/names received from a private tool.
-        reply = "Consulté datos privados del servidor (métricas o historial). Los datos no se conservan; hay que consultarlos otra vez." if private else answer
+        # Question-only turns: web answers carry citations (not conversation)
+        # and private turns carry numbers we must not retain — the old
+        # "Se consultó la web/Consulté datos privados" notes were the exact
+        # bait the model later recited as a final answer.
         messages.append({"role": "user", "content": question[:800]})
-        messages.append({"role": "assistant", "content": reply[:800]})
+        if answer is not None and not private:
+            messages.append({"role": "assistant", "content": answer[:800]})
         self.sessions[key] = (self.clock(), messages)
         while len(self.sessions) > self.max_sessions:
             self.sessions.popitem(last=False)

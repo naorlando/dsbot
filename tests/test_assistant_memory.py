@@ -37,11 +37,25 @@ class MemoryTests(unittest.TestCase):
         self.assertEqual(self.memory.read((1, 2, 3)), [])
         self.assertEqual(self.memory.read((1, 2, 4))[0]["content"], "otro")
 
-    def test_message_size_and_private_placeholder(self):
+    def test_message_size_and_question_only_private_turn(self):
         self.memory.remember((1, 2, 3), "x" * 1000, "secret" * 1000, private=True)
         messages = self.memory.read((1, 2, 3))
         self.assertEqual(len(messages[0]["content"]), 800)
-        self.assertNotIn("secret", messages[1]["content"])
+        # Private turns are question-only: no answer, no placeholder note to recite.
+        self.assertEqual(len(messages), 1)
+        self.assertNotIn("secret", str(messages))
+
+    def test_web_turn_is_question_only(self):
+        self.memory.remember((1, 2, 3), "cuanto cerro el dolar")
+        messages = self.memory.read((1, 2, 3))
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0]["content"], "cuanto cerro el dolar")
+        # Full turns (public answers) still keep both sides of the chat, appended
+        # onto the same session: the old question-only turn leaves no fake reply.
+        self.memory.remember((1, 2, 3), "otra", "otra respuesta")
+        messages = self.memory.read((1, 2, 3))
+        self.assertEqual([m["role"] for m in messages], ["user", "user", "assistant"])
+        self.assertEqual(messages[-1]["content"], "otra respuesta")
 
     def test_unscoped_requests_not_remembered(self):
         self.memory.remember(None, "hola", "hola")

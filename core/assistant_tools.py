@@ -2,6 +2,7 @@
 grounding search call. Everything is read-only and fail-closed: no secrets,
 no execution, fixed timeouts and response-size ceilings."""
 import ast
+import asyncio
 import json
 import operator
 import re
@@ -114,7 +115,9 @@ class GroundError(Exception):
 async def google_ground(session, key, question, model):
     """Native Gemini call with the google_search server tool. Returns
     (grounded_text, sources) — the text is the grounded answer; sources carry
-    the real URLs Google used (uri + title + cited segments as content)."""
+    the real URLs Google used (uri + title + cited segments as content).
+    One retry with backoff on 429/503: the free tier shares one RPM bucket
+    between grounding and the LLM chain, so bursts overflow constantly."""
     prompt = ('Buscá en la web y respondé breve en español rioplatense, con datos concretos, '
               'fechas y cifras. Pregunta: ' + str(question).strip()[:300])
     body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -122,26 +125,30 @@ async def google_ground(session, key, question, model):
             "generationConfig": {"maxOutputTokens": 900}}
     url = ('https://generativelanguage.googleapis.com/v1beta/models/'
            + quote(model or 'gemini-3.5-flash-lite') + ':generateContent')
-    event('http_start', service='ground')
-    try:
-        async with session.post(url, headers={"Content-Type": "application/json",
-                                              "x-goog-api-key": key},
-                                json=body, timeout=28) as response:
-            if response.status == 429:
-                raise GroundError("google ground rate limited")
-            if response.status != 200:
-                event('http_error', service='ground', status=response.status)
-                raise GroundError(f"google ground http {response.status}")
-            raw = await response.read()
-            if len(raw) > 900_000:
-                event('http_error', service='ground', status='too_large')
-                raise GroundError("google ground too large")
-            data = json.loads(raw.decode('utf-8', 'replace'))
-    except GroundError:
-        raise
-    except Exception as exc:  # aiohttp errors, timeouts, json errors
-        event('http_error', service='ground', status=type(exc).__name__)
-        raise GroundError("google ground unavailable") from exc
+    headers = {"Content-Type": "application/json", "x-goog-api-key": key}
+    data = None
+    for attempt in (1, 2):
+        event('http_start', service='ground')
+        try:
+            async with session.post(url, headers=headers, json=body, timeout=28) as response:
+                if response.status in (429, 503) and attempt == 1:
+                    event('http_error', service='ground', status=response.status, retry=True)
+                    await asyncio.sleep(2.5)
+                    continue
+                if response.status != 200:
+                    event('http_error', service='ground', status=response.status)
+                    raise GroundError(f"google ground http {response.status}")
+                raw = await response.read()
+                if len(raw) > 900_000:
+                    event('http_error', service='ground', status='too_large')
+                    raise GroundError("google ground too large")
+                data = json.loads(raw.decode('utf-8', 'replace'))
+            break
+        except GroundError:
+            raise
+        except Exception as exc:  # aiohttp errors, timeouts, json errors
+            event('http_error', service='ground', status=type(exc).__name__)
+            raise GroundError("google ground unavailable") from exc
     candidates = data.get('candidates') if isinstance(data, dict) else []
     candidate = candidates[0] if isinstance(candidates, list) and candidates and isinstance(candidates[0], dict) else {}
     content = candidate.get('content') if isinstance(candidate.get('content'), dict) else {}

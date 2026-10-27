@@ -306,18 +306,29 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_metrics_then_web_is_rejected(self):
         self.agent.search = AsyncMock()
-        self.agent.completion = AsyncMock(side_effect=[tool_call(), tool_call("search_web", {})])
-        with self.assertRaises(AssistantError):
-            await self.agent.answer("Métricas y web", lambda **args: {"private": "data"})
+        hits = []
+        callback = lambda **args: (hits.append(1), {"private": "data"})[1]
+        self.agent.completion = AsyncMock(side_effect=[
+            tool_call(), tool_call("search_web", {}), {"content": "Ok"}])
+        answer = await self.agent.answer("Web y métricas", callback)
+        # The web tool leaves the menu after a private read; the model can't mix
+        # private data with a search, and a plain answer still goes out.
+        self.assertEqual(answer, "Ok")
+        self.assertEqual(hits, [1])
         self.agent.search.assert_not_called()
 
     async def test_web_then_metrics_is_rejected(self):
         self.agent.search = AsyncMock(return_value=[{'content': 'Dato actual confirmado', 'url': 'https://example.com'}])
-        self.agent.completion = AsyncMock(side_effect=[tool_call("search_web", {}), tool_call()])
-        callback = AsyncMock()
-        with self.assertRaises(AssistantError):
-            await self.agent.answer("Web y métricas", callback)
-        callback.assert_not_called()
+        self.agent.completion = AsyncMock(side_effect=[
+            tool_call("search_web", {}), tool_call(), {"content": "Ok"}])
+        hits = []
+        callback = lambda **args: (hits.append(1), {"private": "data"})[1]
+        answer = await self.agent.answer("Web y métricas", callback)
+        # After the search, private tools leave the menu; the nudged model can't
+        # publish a claim without evidence, so the unverifiable "Ok" gets the
+        # friendly verification mask instead of tool-speak or an error.
+        self.assertIn("no pasó la verificación", answer)
+        self.assertEqual(hits, [])
 
     async def test_search_cannot_repeat_even_with_empty_results(self):
         self.agent.search = AsyncMock(return_value=[])
@@ -483,6 +494,27 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         names = [t["function"]["name"] for t in self.agent.completion.call_args.args[1]]
         self.assertEqual(names, [])
 
+    async def test_invalid_tool_call_retried_inside_the_turn(self):
+        history_search = AsyncMock()
+        self.agent.completion = AsyncMock(side_effect=[
+            tool_call("search_channel_history", {}),            # invalid: no `query`
+            {"content": "El último United fue 0-3 contra Bournemouth."}])
+        answer = await self.agent.answer("y el futbol?", lambda **a: self.fail("no metrics"),
+                                         history_search=history_search)
+        self.assertIn("0-3", answer)
+        history_search.assert_not_called()
+        sent = json.dumps(self.agent.completion.call_args.args[0], ensure_ascii=False)
+        self.assertIn("Reintentá", sent)
+
+    async def test_second_invalid_tool_call_fails_friendly_not_tool_speak(self):
+        history_search = AsyncMock()
+        self.agent.completion = AsyncMock(return_value=tool_call("search_channel_history", {}))
+        with self.assertRaises(AssistantError) as ctx:
+            await self.agent.answer("Pregunta", lambda **a: {}, history_search=history_search)
+        self.assertIn("cruzaron los cables", str(ctx.exception))
+        self.assertNotIn("El modelo pidió", str(ctx.exception))
+        history_search.assert_not_called()
+
     async def test_history_tool_args_rejected(self):
         history_search = AsyncMock()
         self.agent.completion = AsyncMock(return_value=tool_call("search_channel_history", {"topic": "x"}))
@@ -493,11 +525,11 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
     async def test_history_tool_absent_without_closure(self):
         self.agent.completion = AsyncMock(side_effect=[
             tool_call("search_channel_history", {}),
-            {"content": "Hola"}])
-        # No history_search closure: the tool is never offered, so the model may
-        # hallucinate it and the call is refused.
-        with self.assertRaises(AssistantError):
-            await self.agent.answer("¿cuándo jugamos?", lambda **args: {})
+            {"content": "Te digo más o menos."}])
+        # No history_search closure: the tool is never offered, the hallucinated
+        # call is nudged and the model answers without it.
+        answer = await self.agent.answer("¿cuándo jugamos?", lambda **args: {})
+        self.assertIn("Te digo más o menos", answer)
 
     async def test_chain_failover_and_single_budget_consumption(self):
         from core.assistant import ChainEntry, RateLimited

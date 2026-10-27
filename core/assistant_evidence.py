@@ -55,7 +55,7 @@ def render_evidence(content, sources, finish_reason=None):
         lines.append(f'• «{safe}» [{index}]')
         if index not in [i for i, _ in links]:
             links.append((index, sources[index - 1]['url']))
-    answer = 'Esto encontré en las fuentes (citas textuales):\n' + '\n'.join(lines)
+    answer = '\n'.join(lines)
     footer = '\n\nFuentes consultadas:\n' + '\n'.join(f'[{i}] <{url}>' for i, url in links)
     if len(answer + footer) > 1990:
         raise ValueError('display_limit')

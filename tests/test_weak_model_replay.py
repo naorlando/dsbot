@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, patch
 
 from core.assistant import Assistant, AssistantError, Settings, UsageBudget
 from core.assistant_policy import plan_question
+from core.assistant_tools import GroundError, google_ground
 from core.assistant_tools import GroundError
 
 
@@ -152,13 +153,75 @@ class ReplayTests(unittest.IsolatedAsyncioTestCase):
             {"url": "https://example.com", "content": "Dolar blue Compra$1.545 Venta$1.565"}])
         self.agent.completion = AsyncMock(return_value=web_answer(quote="Dolar blue Compra$1.545 Venta$1.565"))
         await self.agent.answer("cuanto esta el dolar", lambda **a: {}, web=True, conversation_key=(1, 2, 3))
+        self.agent.search = AsyncMock(return_value=[
+            {"url": "https://example.com", "content": "Dolar blue Compra$1.545 Venta$1.565"}])
         # Next turn in the same conversation carries the internal note in history;
-        # north-mini recited it verbatim as the answer (production 11:13).
-        self.agent.completion = AsyncMock(return_value={
-            "content": "Consulté una búsqueda web: una nueva pregunta requiere evidencia nueva."})
-        answer = await self.agent.answer("cualquier otra cosa sin web", lambda **a: self.fail("no metrics"),
+        # north-mini recited it verbatim as the answer (production 01:15). The nudge
+        # makes it resolve for real: second try with search_web, then final answer.
+        self.agent.completion = AsyncMock(side_effect=[
+            {"content": "Se consultó la web; una nueva pregunta requiere evidencia nueva."},
+            tool_call("search_web", {}),
+            web_answer(quote="Dolar blue Compra$1.545 Venta$1.565")])
+        answer = await self.agent.answer("y el dolar cerro en cuanto?", lambda **a: self.fail("no metrics"),
                                          conversation_key=(1, 2, 3))
-        self.assertIn("trabó la lengua", answer)
+        self.assertIn("$1.565", answer)
+        self.agent.search.assert_awaited_once()
+
+
+class _FakeResponse:
+    def __init__(self, status, payload):
+        self.status = status
+        self._payload = payload
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    async def read(self):
+        return json.dumps(self._payload).encode("utf-8")
+
+
+class _FakeSession:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = 0
+
+    def post(self, url, headers=None, json=None, timeout=None):
+        self.calls += 1
+        return self.responses[min(self.calls - 1, len(self.responses) - 1)]
+
+
+def _grounded_payload(text, uri="https://sofascore.example/x"):
+    return {"candidates": [{"content": {"parts": [{"text": text}]},
+                            "groundingMetadata": {"groundingChunks": [
+                                {"web": {"uri": uri, "title": "Cronica"}}]}}]}
+
+
+class GroundingTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ground_retries_once_on_429_then_ships_sources(self):
+        # Google comparte un solo bucket RPM entre grounding y el chain LLM:
+        # un burst de preguntas lo llena y el 429 responde en ~100ms.
+        session = _FakeSession([_FakeResponse(429, {}), _FakeResponse(200, _grounded_payload("Perdio 0-3 con Bournemouth."))])
+        with patch("core.assistant_tools.asyncio.sleep", new_callable=AsyncMock) as nap:
+            text, sources = await google_ground(session, "key", "cuanto salio united", "gemini-3.5-flash-lite")
+        self.assertEqual(session.calls, 2)
+        self.assertIn("0-3", text)
+        self.assertEqual(sources[0]["url"], "https://sofascore.example/x")
+        nap.assert_awaited_once()
+
+    async def test_ground_unrecoverable_status_fails_fast_to_tavily(self):
+        session = _FakeSession([_FakeResponse(403, {}), _FakeResponse(403, {})])
+        with self.assertRaises(GroundError):
+            await google_ground(session, "key", "q", "m")
+        self.assertEqual(session.calls, 1)
+
+    async def test_ground_empty_text_is_a_failure(self):
+        session = _FakeSession([_FakeResponse(200, {"candidates": [{"content": {"parts": []}}]})])
+        with self.assertRaises(GroundError):
+            await google_ground(session, "key", "q", "m")
+        self.assertEqual(session.calls, 1)
 
 
 class RoutingTests(unittest.TestCase):
