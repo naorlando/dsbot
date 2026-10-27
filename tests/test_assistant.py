@@ -237,6 +237,21 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(echo["tool_calls"][0]["extra_content"], {"google": {"thought_signature": "sig"}})
         self.assertNotIn("content", echo)
 
+    async def test_three_private_reads_drilldown_then_answer(self):
+        # Production trace 077c6ef43b30/2890e495d31b: top_games -> top_players ->
+        # game detail (list_games) all valid; the 4th turn must still answer even
+        # though the model spent all its reads wandering.
+        self.agent.completion = AsyncMock(side_effect=[
+            tool_call("get_metrics", {"view": "top_games", "period": "all"}),
+            tool_call("get_metrics", {"view": "top_players", "period": "all"}),
+            tool_call("query_stats", {"action": "game_detail", "game": "League of Legends"}),
+            {"content": "El player de LoL mas jugado es Wire, con 1454 minutos."}])
+        metrics_cb = lambda **a: {"games": [{"game": "League of Legends", "minutes": 1454}]}
+        stats_cb = lambda **a: {"players": [{"name": "Wire", "minutes": 1454}]}
+        answer = await self.agent.answer("quien mas jugo LoL?", metrics_cb, query_data=stats_cb)
+        self.assertIn("Wire", answer)
+        self.assertEqual(self.agent.completion.await_count, 4)
+
     async def test_metrics_tool_roundtrip(self):
         self.agent.completion = AsyncMock(side_effect=[tool_call(), {"content": "Jugaste 10 minutos."}])
         get_metrics = lambda **args: {"minutes": 10}
@@ -260,7 +275,8 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.agent.completion = AsyncMock(return_value=tool_call("get_bot_help", {"topic": "commands"}))
         with self.assertRaises(AssistantError):
             await self.agent.answer("Pregunta", lambda **args: {})
-        self.assertEqual(self.agent.completion.await_count, 4)
+        # 4 valid tool calls (turns 0-3), then a one-time no-tools nudge, then friendly error.
+        self.assertEqual(self.agent.completion.await_count, 6)
 
     async def test_web_explicit_single_query_no_metrics(self):
         self.agent.search = AsyncMock(return_value=[{"title": "Result", "url": "https://example.com", "content": "Boca gano 2-0: Dato actual confirmado"}])
@@ -339,12 +355,13 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.agent.completion.await_count, 3)
 
     async def test_late_tool_call_at_max_turn_fails_friendly_not_tool_speak(self):
-        four_tools = [tool_call("calc", {"expression": "2+2"})] * 3
-        self.agent.completion = AsyncMock(side_effect=four_tools + [tool_call("calc", {"expression": "2+2"})])
+        always_tool = [tool_call("calc", {"expression": "2+2"})] * 6
+        self.agent.completion = AsyncMock(side_effect=always_tool)
         with self.assertRaises(AssistantError) as ctx:
             await self.agent.answer("cuanto es 2+2?", lambda **a: {})
         self.assertIn("cruzaron los cables", str(ctx.exception))
         self.assertNotIn("excedió el límite", str(ctx.exception))
+        self.assertEqual(self.agent.completion.await_count, 6)
 
     async def test_metrics_then_web_is_rejected(self):
         self.agent.search = AsyncMock()
@@ -362,7 +379,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
     async def test_web_then_metrics_is_rejected(self):
         self.agent.search = AsyncMock(return_value=[{'content': 'Dato actual confirmado', 'url': 'https://example.com'}])
         self.agent.completion = AsyncMock(side_effect=[
-            tool_call("search_web", {}), tool_call(), {"content": "Ok"}])
+            tool_call("search_web", {}), tool_call(), {"content": "Ok"}, {"content": "Ok"}])
         hits = []
         callback = lambda **args: (hits.append(1), {"private": "data"})[1]
         answer = await self.agent.answer("Web y métricas", callback)

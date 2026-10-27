@@ -275,7 +275,7 @@ def metrics(data, member_names, author_id, view, period="all"):
 
 
 METRICS_TOOL = {"type": "function", "function": {
-    "name": "get_metrics", "description": "Consulta métricas registradas del servidor, sólo lectura. me = quien pregunta.",
+    "name": "get_metrics", "description": "Vistas agregadas del servidor, sólo lectura: top_games y top_players son listas globales. Para saber QUIÉN mas jugó a un juego o el detalle de una persona usá query_stats (game_detail / user_detail); no repitas esta tool para perforar.",
     "parameters": {"type": "object", "properties": {
         "view": {"type": "string", "enum": ["summary", "me", "top_games", "top_players"]},
         "period": {"type": "string", "enum": ["all", "today", "week", "month"]}},
@@ -298,7 +298,7 @@ CLARIFY_TOOL = {"type": "function", "function": {
         "required": ["question"], "additionalProperties": False}}}
 
 STATS_TOOL = {"type": "function", "function": {
-    "name": "query_stats", "description": "Explora el registro del servidor: detalle de un juego o miembro y resumen de un día. Nombres visibles, sin identificadores.",
+    "name": "query_stats", "description": "Detalle del registro: list_games da los nombres EXACTOS de los juegos del server; game_detail(game=nombre exacto) da quién más lo jugó y sus minutos; user_detail(user=nombre visible) da cuánto jugó esa persona; day_summary(date) el resumen de un día. Nombres visibles, sin identificadores.",
     "parameters": {"type": "object", "properties": {
         "action": {"type": "string", "enum": ["list_games", "game_detail", "user_detail", "day_summary"]},
         "game": {"type": "string", "maxLength": 80},
@@ -349,7 +349,9 @@ no suenes a bot, no enumeres capacidades, no adviertas qué sos. Resolvés de ve
 - Noticias, resultados deportivos, cotizaciones, precios, datos de hoy o de la web → search_web.
 - Mensajes que ALGUIEN escribió en ESTE canal de Discord ("quién dijo X", "de qué hablamos",
   ubiquar a un usuario por sus mensajes) → search_channel_history, con la palabra clave en `query`.
-- Cifras de actividad del servidor → get_metrics o query_stats. Cálculos → calc.
+- Cifras de actividad del servidor → get_metrics o query_stats. Para "quién más jugó a X":
+  query_stats con list_games (te da el nombre exacto del juego) y después game_detail con ese nombre;
+  para cuánto jugó una persona, user_detail. Cálculos → calc.
 - Creativo o general (viajes, recetas, recomendaciones, opiniones) → respondelo completo con tu propio
   conocimiento, sin negarte y sin pedir herramientas.
 Cuando falte un dato imprescindible usá ask_clarification UNA vez, con pregunta corta.
@@ -608,12 +610,12 @@ class Assistant:
                              + json.dumps(sources, ensure_ascii=False)})
             messages[0]['content'] += '\n' + WEB_CONTRACT
         history_rows = None
-        for turn in range(4):  # Max 4 model requests, 3 tool calls total (one search max).
+        for turn in range(6):  # 6 model requests max, up to 4 tool calls (drill-down room).
             if searched and not sources:
                 event('evidence', status='no_sources')
                 return 'No encontré fuentes pertinentes para confirmar eso. Probá precisar el tema o la fecha.'
             tools = []
-            if turn < 3 and not web and not searched:
+            if turn < 4 and not web and not searched:
                 # Agentic menu: every available tool while there's nothing gathered
                 # yet. Once search results are in context the model answers from them.
                 tools = [HELP_TOOL] + ([CLARIFY_TOOL] if turn == 0 else [])
@@ -662,7 +664,7 @@ class Assistant:
                     except (KeyError, IndexError, TypeError, ValueError):
                         declared = {}
                     if (isinstance(declared, dict) and declared.get("status") == "insufficient"
-                            and sources and web_retries < 2 and turn < 3):
+                            and sources and web_retries < 2 and turn < 4):
                         # A lazy "insufficient" with sources on the table gets up to two
                         # forced re-reads; the final validation still rejects invented quotes.
                         web_retries += 1
@@ -675,7 +677,7 @@ class Assistant:
                         reason = str(exc) if str(exc) in {'truncated', 'schema', 'items', 'item_schema', 'source',
                             'unsupported_quote', 'unsafe_quote', 'duplicate', 'quote_limit', 'display_limit', 'status'} else 'format'
                         event('evidence', status='rejected', reason=reason, attempt=web_retries + 1)
-                        if web_retries == 0 and turn < 2:
+                        if web_retries == 0 and turn < 3:
                             web_retries += 1
                             messages.append({'role': 'user', 'content': 'Tu salida no pasó la validación. Devolvé sólo el JSON indicado, con citas LITERALES del content. Si no alcanza la evidencia, usá insufficient.'})
                             continue
@@ -694,7 +696,7 @@ class Assistant:
                 if answer.startswith(("Consulté una búsqueda web", "Consulté datos privados",
                                       "Se consultó la web", "Se consultaron datos privados")):
                     # The model recited our internal memory note as the final answer.
-                    if not meta_nudged and turn < 3:
+                    if not meta_nudged and turn < 5:
                         meta_nudged = True
                         event('model', finish='meta_echo', preview='nudge reanswer')
                         messages.append({"role": "assistant", "content": answer})
@@ -713,18 +715,21 @@ class Assistant:
                 self.memory.remember(conversation_key, question, answer, private=used_private)
                 return answer
             call = calls[0]
-            if len(calls) != 1:
-                if turn >= 3 or bad_calls:
-                    raise AssistantError("Se me cruzaron los cables con las herramientas; preguntame de vuelta. 😅")
-                event('tool', name='many', status='late_call', calls=len(calls))
-                _nudge(call, "Devolvé UNA sola llamada de herramienta por turno. Elegí la más pertinente.")
-                continue
             if not tools:
-                if turn >= 3 or no_tools_nudged:
+                # The no-tools check comes FIRST: when the menu already closed
+                # (after search or past the tool turns), that's the reason for
+                # rejecting any call, regardless of its shape.
+                if turn >= 5 or no_tools_nudged:
                     raise AssistantError("Se me cruzaron los cables con las herramientas; preguntame de vuelta. 😅")
                 no_tools_nudged = True
                 event('tool', name='none', status='late_call')
                 _nudge(call, "Ya no hay herramientas disponibles en este turno. Respondé la pregunta con la información que ya tenés, sin intentar herramientas.")
+                continue
+            if len(calls) != 1:
+                if turn >= 5 or bad_calls:
+                    raise AssistantError("Se me cruzaron los cables con las herramientas; preguntame de vuelta. 😅")
+                event('tool', name='many', status='late_call', calls=len(calls))
+                _nudge(call, "Devolvé UNA sola llamada de herramienta por turno. Elegí la más pertinente.")
                 continue
             try:
                 function = call["function"]
@@ -818,7 +823,7 @@ class Assistant:
                 # Agentic self-correction: feed the rejection back to the model and
                 # let it retry within the turn, instead of killing it.
                 bad_calls += 1
-                if bad_calls > 1 or turn >= 3:
+                if bad_calls > 1 or turn >= 5:
                     raise AssistantError("Se me cruzaron los cables con las herramientas; preguntame de vuelta. 😅") from None
                 tool_name = (call.get("function") or {}).get("name", "none") if isinstance(call, dict) else "none"
                 event('tool', name=str(tool_name)[:40], status='invalid', attempt=bad_calls, error_type=type(exc).__name__)
