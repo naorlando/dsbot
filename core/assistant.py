@@ -310,7 +310,7 @@ HISTORY_TOOL = {"type": "function", "function": {
     "name": "search_channel_history",
     "description": "Busca en el historial reciente de ESTE canal los mensajes cuyo texto contenga `query` (palabras clave de lo que preguntó el usuario) y devuelve autor y fecha de cada coincidencia.",
     "parameters": {"type": "object", "properties": {
-        "query": {"type": "string", "minLength": 1, "maxLength": 120}},
+        "query": {"type": "string", "minLength": 1, "maxLength": 400}},
         "required": ["query"], "additionalProperties": False}}}
 
 TOOL_REGISTRY = {tool["function"]["name"]: tool for tool in
@@ -794,8 +794,11 @@ class Assistant:
                         # (keyword, topic, text); accept any single string alias.
                         aliases = ("query", "keyword", "topic", "text", "search_term")
                         payload = next((args[alias] for alias in aliases if alias in args), None)
+                        # Some models pack the keywords in a list; join them.
+                        if isinstance(payload, list):
+                            payload = " ".join(p for p in payload if isinstance(p, str))
                         if (not isinstance(payload, str) or not payload.strip()
-                                or len(payload) > 120 or set(args) - set(aliases)):
+                                or len(payload) > 400 or set(args) - set(aliases)):
                             raise ValueError
                         result = await history_search(payload.strip())
                         history_rows = result

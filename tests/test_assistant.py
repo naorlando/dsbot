@@ -604,6 +604,19 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
             await self.agent.answer("Pregunta", lambda **args: {}, history_search=history_search)
         history_search.assert_not_called()
 
+    async def test_history_model_shapes_tolerated(self):
+        # Production 01:39 ("mas pollerudo"): models write essay-queries past the
+        # 120-char mark or pack keywords in a list; the tool must still scan.
+        long_q = "quien es el mas dominado por la novia en el canal, quien le dice q' si a todo, " \
+                 "según los mensajes que escribieron todos los del server en este canal"
+        rows = {"matches": [{"author": "Pino"}]}
+        self.agent.completion = AsyncMock(side_effect=[
+            tool_call("search_channel_history", {"query": [long_q, "novia"]}),
+            {"content": "Pino es el mas pollerudo, por sus mensajes."}])
+        answer = await self.agent.answer("quien es el mas pollerudo?",
+                                         lambda **a: self.fail("no metrics"), history_search=AsyncMock(return_value=rows))
+        self.assertIn("Pino", answer)
+
     async def test_history_tool_absent_without_closure(self):
         self.agent.completion = AsyncMock(side_effect=[
             tool_call("search_channel_history", {}),
