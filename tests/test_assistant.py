@@ -252,6 +252,28 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Wire", answer)
         self.assertEqual(self.agent.completion.await_count, 4)
 
+    async def test_internal_tool_complaint_never_published_as_answer(self):
+        # Production 01:55 ("quien esta en japon? basado en los mensajes"): the
+        # model paraphrased the late-call nudge ("no tengo herramientas
+        # disponibles") as its whole answer.
+        self.agent.completion = AsyncMock(side_effect=[
+            {"content": "Para decirte quién está en Japón tendría que buscar en los "
+                        "mensajes del canal, pero no tengo herramientas para hacerlo."},
+            {"content": "En el historial no veo mensajes de Japón con lo que llegó ahora."}])
+        answer = await self.agent.answer("quien esta en japon ahora mismo?",
+                                         lambda **a: self.fail("no metrics"))
+        self.assertIn("Japón", answer)
+        sent = json.dumps(self.agent.completion.call_args.args[0], ensure_ascii=False)
+        self.assertIn("No repitas esa nota interna", sent)
+
+    def test_collapse_keeps_final_emoji_and_never_publishes_empty(self):
+        from core.assistant import collapse_repeat, safe_collapse
+        self.assertEqual(collapse_repeat("Me la re banco la milanesa. 🥇"), "Me la re banco la milanesa. 🥇")
+        self.assertEqual(collapse_repeat("🔥🔥"), "🔥🔥")
+        with self.assertRaises(AssistantError):
+            safe_collapse("")
+
+
     async def test_metrics_tool_roundtrip(self):
         self.agent.completion = AsyncMock(side_effect=[tool_call(), {"content": "Jugaste 10 minutos."}])
         get_metrics = lambda **args: {"minutes": 10}
