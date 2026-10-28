@@ -1,4 +1,4 @@
-"""One-off: dump a Discord channel's history to JSON, via the BOT token.
+r"""One-off: dump a Discord channel's history to JSON, via the BOT token.
 
 Only paginated read-only GETs; no SDK. Run from the repo root:
 
