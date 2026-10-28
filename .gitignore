@@ -50,3 +50,5 @@ assistant_usage.tmp
 
 # Código viejo / Backups
 old/
+
+channel_history.json
