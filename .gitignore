@@ -48,7 +48,23 @@ config.local.json
 assistant_usage.json
 assistant_usage.tmp
 
+# Conocimiento local acumulado (no es parte del repo)
+knowledge.json
+knowledge.json.tmp
+
 # Código viejo / Backups
 old/
 
 channel_history.json
+channel_history.json.tmp
+
+scripts/.env_local
+
+# Private channel memory and local analysis (never deploy or commit transcripts)
+banter.json
+banter.json.tmp
+channel_curator.json
+channel_curator.json.tmp
+channel_curator.json.*.tmp
+data/chat_analysis.*
+data/channel_memory/

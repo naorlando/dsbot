@@ -191,6 +191,11 @@ def web_answer(quote='Dato actual confirmado', count=1):
         {'source': i, 'quote': quote} for i in range(1, count + 1)]})}
 
 
+def test_plan_banter():
+    plan = plan_question("adivina cual es el mas judio de este discord", explicit=False)
+    assert not plan.reply
+
+
 class AgentTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -462,7 +467,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_question_length_before_any_request(self):
         self.agent.completion = AsyncMock()
-        for question in ("", " " * 3, "x" * 801):
+        for question in ("", " " * 3, "x" * 4001):
             with self.assertRaises(AssistantError):
                 await self.agent.answer(question, lambda **args: {})
         self.agent.completion.assert_not_called()

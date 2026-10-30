@@ -71,7 +71,7 @@ class CogTests(unittest.IsolatedAsyncioTestCase):
     async def test_timeout_is_contained(self):
         self.cog.agent.answer.side_effect = asyncio.TimeoutError()
         await self.cog.respond(self.ctx, "hola")
-        self.assertIn("tardó demasiado", self.ctx.send.call_args.args[0])
+        self.assertIn("Se me fue la mano", self.ctx.send.call_args.args[0])
         self.assertFalse(self.cog.lock.locked())
 
     async def test_session_lifecycle_closes(self):
