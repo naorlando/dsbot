@@ -1,5 +1,16 @@
 # Updates del bot
 
+## 2026-10-30 · Deploy activo: conversación compartida y prompt nuevo
+
+- Una sola conversación por canal: mensajes humanos, llamadas a Botón, sus propias respuestas y replies, con autor y hora. Si alguien habla de un tema y después llama otra persona, Botón sigue ese hilo; no hay un chat separado por usuario.
+- `@Botón` y responder a un mensaje suyo también lo llaman. `!boton` sin texto se suma a lo que se está hablando en vez de pedir una pregunta.
+- El prompt se reestructuró en conversación, veracidad, herramientas y límites: prioridad al diálogo reciente, correcciones sin discutir y sin recetas armadas para casos puntuales.
+- Los últimos 24 turnos de la última hora pesan más; lo anterior queda como antecedente. Un canal tranquilo ya no hace pasar el tema de ayer como actual.
+- Web: el modelo elige fragmentos literales de las fuentes por número; si no puede validarlos, Botón muestra los enlaces reales en vez de pedirte que reformules una pregunta clara.
+- Guard de salida: no publica respuestas vacías, cortadas ni planificación interna. Hace un único reintento y, si falla, avisa sin inventar.
+- El curador observa también lo que se escribe dentro de `!boton` y corre hasta 24 veces por día. `!botonmemoria` muestra su uso y lo pendiente.
+- `!olvidar` ya no borra memoria: avisa que el contexto es compartido por canal.
+
 ## 2026-10-01 · Botón: búsquedas verificadas y trazas
 
 - Las consultas de precios, lanzamientos, eventos y guías se enrutan a web; se normaliza la pregunta sin perder entidades, fechas o versiones.
@@ -16,7 +27,7 @@
 - `!buscar` fuerza una búsqueda; con Tavily conectado, también puede elegir buscar desde una pregunta normal y responder con enlaces reales de las fuentes.
 - Consulta comandos, capacidades y novedades de la versión desplegada. No tiene acceso libre al código, archivos privados ni terminal.
 - Nunca mezcla métricas y web en una misma consulta. El buscador recibe sólo la pregunta original, no consultas inventadas por el modelo.
-- Pide aclaraciones cuando falta información. Mantiene un diálogo compartido por canal de hasta 100 mensajes en RAM, con autores, respuestas propias y replies; `!olvidar` ya no borra ese contexto.
+- Pide aclaraciones cuando falta información. Mantiene hasta 10 mensajes por persona/canal en RAM, con vencimiento de 30 minutos, sin guardar resultados privados de métricas; `!olvidar` los borra.
 - `!botonestado` muestra capacidades reales sin consumir el modelo. Harness con argumentos validados, tres llamadas de modelo y dos herramientas por pedido, sin fallback pago.
 
 ## 2026-10-01 · Deploy inteligente y asistente opcional
