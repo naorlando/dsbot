@@ -6,7 +6,8 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from core.assistant import AssistantError, RateLimited, Settings
-from core.commentator import Commentator, KINDS, maybe_compose, sanitize, template_digest
+from core.commentator import (COMPOSER_PROMPT, Commentator, KINDS, maybe_compose,
+                              sanitize, template_digest)
 
 
 def settings_with(chain=(), provider="openrouter", model="cohere/north-mini-code:free"):
@@ -137,6 +138,20 @@ class MaybeComposeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_writer_only_kinds(self):
         self.assertEqual(sorted(KINDS), sorted(['connection_milestone', 'party_formed', 'daily_digest']))
+
+
+class ComposerPromptTests(unittest.TestCase):
+    def test_protected_traits_and_service_scope(self):
+        lower = " ".join(COMPOSER_PROMPT.lower().split())
+        for trait in ("religión", "etnia", "género", "sexualidad", "salud"):
+            self.assertIn(trait, lower)
+        self.assertIn("avisos de servicio", lower)
+        self.assertIn("no respondas a", lower)
+        self.assertNotIn("religion", lower)
+
+    def test_does_not_call_itself_the_bot(self):
+        self.assertIn("un participante más", COMPOSER_PROMPT.lower())
+        self.assertNotIn("el bot de un servidor", COMPOSER_PROMPT.lower())
 
 
 if __name__ == "__main__":

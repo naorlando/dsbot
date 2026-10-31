@@ -10,6 +10,7 @@ import unicodedata
 from datetime import datetime, timedelta, timezone
 
 from core.assistant_trace import event
+from core.assistant_privacy import MAX_PRIVATE_CHARS, scrub_private
 
 MAX_MESSAGES = 1000
 MAX_ROWS = 12
@@ -38,7 +39,7 @@ _API_KEY = re.compile(
 _CREDENTIAL = re.compile(
     r"\b((?:api[_-]?key|access[_-]?token|discord[_-]?token|bot[_-]?token|"
     r"token|secret|password|authorization)[\"']?\s*[:=]\s*)"
-    r"(?:[\"'][^\"'\r\n]*[\"']|(?:Bearer\s+)?[^\s,;]+)", re.I
+    r"(?:(?:Bearer|Basic)\s+)?(?:[\"'][^\"'\r\n]*[\"']|[^\s,;]+)", re.I
 )
 
 
@@ -61,9 +62,13 @@ def keywords(question):
 
 def _sanitize(text):
     # Redact before truncating: cutting a credential first can expose its prefix.
-    text = _DISCORD_TOKEN.sub("[secreto]", str(text))
+    text = str(text)
+    if len(text) > MAX_PRIVATE_CHARS:
+        return scrub_private(text)
+    text = _DISCORD_TOKEN.sub("[secreto]", text)
     text = _API_KEY.sub("[secreto]", text)
     text = _CREDENTIAL.sub(lambda match: match[1] + "[secreto]", text)
+    text = scrub_private(text).replace('[secreto omitido]', '[secreto]')
     text = _URL.sub("[enlace]", text)
     text = _MENTION.sub("[mención]", text)
     text = re.sub(r"\s+", " ", text).strip()

@@ -309,28 +309,24 @@ class BanterLedgerTests(unittest.TestCase):
 
     # -- privacy scrubbing -------------------------------------------------
 
-    def test_secrets_urls_and_mentions_scrubbed(self):
+    def test_urls_and_mentions_scrubbed(self):
         self.now = 5.0
         entry = self.ledger.add(
             'wire',
-            'dijo sk-or-v1-abcdefgh123456 que mirá https://example.com/la-apuesta @everyone')
-        self.assertNotIn('sk-or-v1-abcdefgh123456', entry['what'])
+            'dijo que mirá https://example.com/la-apuesta @everyone')
         self.assertNotIn('https://', entry['what'])
         self.assertNotIn('@everyone', entry['what'])
-        self.assertIn('[clave omitida]', entry['what'])
         self.assertIn('[enlace omitido]', entry['what'])
         self.assertIn('[mención]', entry['what'])
         raw = json.loads(self.path.read_text(encoding='utf-8'))
         dumped = json.dumps(raw, ensure_ascii=False)
-        self.assertNotIn('sk-or-v1-abcdefgh123456', dumped)
         self.assertNotIn('example.com', dumped)
 
-    def test_scrubbing_survives_reload(self):
-        self.ledger.add('wire', 'clave tvly-dev-abcdefghijklmnop pegada', 'bardeo')
+    def test_secret_rejection_survives_reload(self):
+        self.assertIsNone(self.ledger.add('wire', 'clave tvly-dev-abcdefghijklmnop pegada', 'bardeo'))
+        self.assertIsNone(self.ledger.add('wire', 'sk-or-v1-abcdefgh123456'))
         reloaded = BanterLedger(path=self.path, clock=lambda: self.now)
-        recalled = reloaded.recall()[0]['what']
-        self.assertNotIn('tvly-dev-abcdefghijklmnop', recalled)
-        self.assertIn('[clave omitida]', recalled)
+        self.assertEqual(reloaded.recall(), [])
 
 
 if __name__ == '__main__':

@@ -238,9 +238,13 @@ class FakeSession:
 
 
 def grounded(text='El informe público confirmó el resultado.', uri='https://example.com/report'):
+    # URLs alone are not attribution: fixtures include Google's UTF-8 segments.
     return {'candidates': [{'finishReason': 'STOP', 'content': {'parts': [{'text': text}]},
                             'groundingMetadata': {'groundingChunks': [
-                                {'web': {'uri': uri, 'title': 'Informe público'}}]}}]}
+                                {'web': {'uri': uri, 'title': 'Informe público'}}],
+                                'groundingSupports': [{'segment': {'startIndex': 0,
+                                    'endIndex': len(text.encode('utf-8')), 'text': text},
+                                    'groundingChunkIndices': [0]}]}}]}
 
 
 class GroundRecoveryTests(unittest.IsolatedAsyncioTestCase):
@@ -283,14 +287,16 @@ class GroundRecoveryTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(GroundError):
             await google_ground(FakeSession(FakeResponse(payload=data)), 'key', 'q', 'm')
 
-    async def test_metadata_sources_without_supports_remain_valid(self):
-        session = FakeSession(FakeResponse(payload=grounded()))
-        _, sources = await google_ground(session, 'key', 'q', 'm')
-        self.assertEqual(sources[0]['content'], '')
+    async def test_metadata_sources_without_supports_fail_closed(self):
+        data = grounded()
+        data['candidates'][0]['groundingMetadata'].pop('groundingSupports')
+        with self.assertRaises(GroundError):
+            await google_ground(FakeSession(FakeResponse(payload=data)), 'key', 'q', 'm')
 
     async def test_thought_parts_never_become_output(self):
         data = grounded()
         data['candidates'][0]['content']['parts'].insert(0, {'thought': True, 'text': 'PRIVATE THOUGHT 999'})
+        data['candidates'][0]['groundingMetadata']['groundingSupports'][0]['segment']['partIndex'] = 1
         text, sources = await google_ground(FakeSession(FakeResponse(payload=data)), 'key', 'q', 'm')
         self.assertNotIn('PRIVATE', text)
         self.assertNotIn('999', json.dumps(sources))

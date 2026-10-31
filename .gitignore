@@ -47,6 +47,13 @@ Thumbs.db
 config.local.json
 assistant_usage.json
 assistant_usage.tmp
+assistant_ambient.json
+assistant_ambient.tmp
+assistant_curator_usage.json
+assistant_curator_usage.tmp
+assistant_users.json
+.assistant-quota-*.tmp
+*.privacy-blocked
 
 # Conocimiento local acumulado (no es parte del repo)
 knowledge.json

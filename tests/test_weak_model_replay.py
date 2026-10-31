@@ -194,9 +194,13 @@ class _FakeSession:
 
 
 def _grounded_payload(text, uri="https://sofascore.example/x"):
+    # Successful grounding requires actual answer-segment attribution, not URLs.
     return {"candidates": [{"content": {"parts": [{"text": text}]},
                             "groundingMetadata": {"groundingChunks": [
-                                {"web": {"uri": uri, "title": "Cronica"}}]}}]}
+                                {"web": {"uri": uri, "title": "Cronica"}}],
+                                "groundingSupports": [{"segment": {"startIndex": 0,
+                                    "endIndex": len(text.encode("utf-8")), "text": text},
+                                    "groundingChunkIndices": [0]}]}}]}
 
 
 class GroundingTests(unittest.IsolatedAsyncioTestCase):

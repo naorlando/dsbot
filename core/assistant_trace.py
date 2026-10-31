@@ -1,30 +1,46 @@
-"""Correlated stage logs, deliberately excluding conversations and tool contents."""
+"""Content-free event bridge. Operational aggregates are RAM-only, restart-cleared.
+
+Keep the historical event/execution API, but do not log arbitrary event fields,
+question hashes, provider payloads, tool arguments or conversation contents.
+"""
 import contextvars
-import hashlib
 import logging
+import re
 import time
 import uuid
 from contextlib import contextmanager
 
+from core.assistant_operations import operations
+
 logger = logging.getLogger('dsbot')
 current_trace = contextvars.ContextVar('boton_trace', default='standalone')
+_STAGES = frozenset({'start', 'end', 'provider', 'provider_failover', 'provider_error',
+                     'provider_rate_limit', 'provider_skip',
+                     'http_start', 'http_end', 'http_error', 'evidence', 'ground',
+                     'tool', 'tool_args', 'route', 'output', 'budget', 'model',
+                     'model_finish', 'model_fallback', 'knowledge', 'search_start',
+                     'search_results', 'source', 'context', 'step', 'router', 'history_scan'})
 
 
 def event(stage, **fields):
-    logger.info('Boton trace=%s stage=%s %s', current_trace.get(), stage,
-                ' '.join(f'{key}={value}' for key, value in fields.items()))
+    operations.record(stage, **fields)
+    # Preserve content-free correlated stage logs for operators and existing
+    # callers, but never format any field supplied by the caller.
+    if type(stage) is str and stage in _STAGES:
+        trace = current_trace.get()
+        trace = trace if type(trace) is str and re.fullmatch('[0-9a-f]{12}', trace) else 'standalone'
+        logger.info('Boton trace=%s stage=%s', trace, stage)
 
 
 @contextmanager
 def execution(question):
     token = current_trace.set(uuid.uuid4().hex[:12])
     start = time.monotonic()
-    event('start', question_chars=len(question) if isinstance(question, str) else 0,
-          question_hash=hashlib.sha256(str(question).encode()).hexdigest()[:12])
+    event('start')
     try:
         yield
-    except BaseException as exc:
-        event('end', status='error', error=type(exc).__name__, milliseconds=int((time.monotonic() - start) * 1000))
+    except BaseException:
+        event('end', status='error', milliseconds=int((time.monotonic() - start) * 1000))
         raise
     else:
         event('end', status='ok', milliseconds=int((time.monotonic() - start) * 1000))

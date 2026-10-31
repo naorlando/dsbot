@@ -6,15 +6,22 @@ Uso rápido: `!topvoice week` muestra el ranking de voz semanal; `!topgamers wee
 
 ## Botón (`cogs/assistant.py`)
 
-`!boton pregunta` (y `!botón`) es el único alias del agente: un solo comando para métricas, historial del canal, ayuda pública, búsqueda web o aclaración, según lo habilitado. Precios, fechas de lanzamiento, eventos, resultados y guías se enrutan a web solos; el dólar sin tipo consulta el blue y los partidos sin fecha buscan el último. Sólo responde en el servidor y canal configurados, sin audio, con protección anti-spam compartida de 3 segundos. No ejecuta comandos ni cambia datos. Las métricas requieren `AI_SHARE_METRICS=true`; web requiere clave de Tavily. `!boton novedades` consulta las novedades del deploy.
+`!boton` / `!botón` llama al agente; también se lo invoca mencionándolo o respondiendo a uno de sus mensajes. El modelo decide qué herramienta usar y cuándo, sin rutas deterministas por palabras. Sólo responde en el servidor, canal y sus hilos públicos autorizados; nunca hilos privados ni audio. Anti-spam de 3 segundos y cuota de 40 invocaciones por usuario/día. No ejecuta comandos ni modifica estadísticas. Con `AI_CHANNEL_MEMORY=true` puede anotar chistes/apuestas explícitas en un ledger acotado. Las métricas requieren `AI_SHARE_METRICS=true`. La web usa Google grounding con `GOOGLE_API_KEY` / `GEMINI_API_KEY` y Tavily como respaldo con `TAVILY_API_KEY`; no exige ambas claves. `!boton novedades` lee las novedades del deploy.
 
-Las respuestas web muestran citas textuales verificadas y sus enlaces: no se publican hechos redactados por el modelo sin soporte. Si falta fecha del partido o tipo de dólar, pregunta primero. Cada búsqueda es independiente del tema anterior. El pasaporte argentino se consulta en el tarifario oficial actual, sin precios hardcodeados ni interpretación del modelo. No busca ni reúne datos personales en Dateas.
+Las respuestas web incluyen fuentes, fecha de consulta y tipo de respuesta. Google requiere metadatos válidos de respaldo; Tavily sólo publica citas literales verificadas con enlaces. Esto valida procedencia, no garantiza la verdad de las fuentes. Si falta un dato esencial, Botón pregunta en vez de inventarlo. Cada búsqueda web queda aislada del contexto privado del canal y requiere evidencia nueva: no hay caché activa de respuestas. No busca ni reúne datos personales en Dateas.
 
 Memoria: diálogo compartido del canal, hasta 100 mensajes con autores, respuestas
 de Botón y referencias; sólo RAM, se pierde al reiniciar. No hay un chat separado
-por usuario. `!olvidar` / `!resetboton` sólo avisa que el contexto es compartido:
-no borra el diálogo ni los recuerdos del grupo. `!botonestado` muestra herramientas
+por usuario. Con `AI_CHANNEL_MEMORY=true` el modelo también puede guardar chistes
+o apuestas explícitas en un ledger acotado; eso no modifica las estadísticas.
+`!olvidar` / `!resetboton` sólo avisa que el contexto es compartido: no borra el
+diálogo ni los recuerdos del grupo. `!botonestado` muestra herramientas
 habilitadas y límites sin llamar al modelo.
+
+`!botonmemoria` muestra recuerdos y uso del curador. Sólo para `DISCORD_OWNER_ID`:
+`!botonmetricas` muestra consumo y salud operativa sin contenido privado;
+`!botonborrar ID_MENSAJE [ID_CANAL]` revoca evidencia de la memoria curada por su
+procedencia, no por nombre. No borra mensajes de Discord ni chanzas sin vínculo a esa fuente.
 
 ## Leyenda
 

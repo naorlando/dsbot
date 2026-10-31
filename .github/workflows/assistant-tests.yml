@@ -2,25 +2,35 @@ name: Lightweight assistant tests
 
 on:
   pull_request:
-    paths: ["core/assistant*.py", "core/updates.py", "cogs/assistant.py", "cogs/utility.py", "tests/test_assistant*.py", "scripts/test_assistant_live.py", "scripts/deploy/configure_assistant.py", "docs/COMANDOS.md", "docs/UPDATES.md", "bot.py", "requirements.txt", ".github/workflows/assistant-*.yml"]
+    paths: ["core/**", "cogs/**", "stats/**", "tests/**", "scripts/**", "docs/**", "bot.py", "requirements.txt", ".github/workflows/assistant-*.yml"]
   push:
     branches: [main]
-    paths: ["core/assistant*.py", "core/updates.py", "cogs/assistant.py", "cogs/utility.py", "tests/test_assistant*.py", "scripts/test_assistant_live.py", "scripts/deploy/configure_assistant.py", "docs/COMANDOS.md", "docs/UPDATES.md", "bot.py", "requirements.txt", ".github/workflows/assistant-*.yml"]
 
 permissions:
   contents: read
 
+concurrency:
+  group: boton-offline-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# Validation only. Enable Wait for CI in Railway's GitHub integration to gate
+# automatic deployment; this workflow never uses provider/deployment secrets.
+
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt
-      - run: python -m unittest discover -s tests -p 'test_assistant*.py'
-      - run: python -m compileall -q core/assistant.py core/assistant_memory.py cogs/assistant.py bot.py scripts/test_assistant_live.py scripts/deploy/configure_assistant.py
+          cache: pip
+      - name: Install runtime and test dependencies
+        run: python -m pip install -r requirements.txt pytest pytest-subtests
+      - name: Run offline test suite
+        run: python -m pytest -q tests
+      - name: Replay synthetic conversations (not a live-model evaluation)
+        run: python -m scripts.eval_boton

@@ -4,7 +4,7 @@ Caller contract: private, opt-in channel memory, not public web knowledge.
 Enable only with explicit channel opt-in and authorized access to recall/forget.
 Accept short summaries, not verbatim messages, metrics, keys or raw IDs. Never
 infer or retain religious/ethnic identity, health or sexuality about participants.
-These are caller responsibilities: shape checks and token scrubbing cannot
+These remain caller responsibilities: bounded local privacy checks cannot
 detect all private/sensitive content or decide what counts as harmless banter.
 Treat all retained text as untrusted data, never as instructions.
 
@@ -21,11 +21,21 @@ import time
 from pathlib import Path
 
 from core.assistant_trace import event
-from core.assistant_secrets import SECRET_PATTERN
+from core.assistant_privacy import has_private_data, scrub_private
 
 URL_PATTERN = re.compile(r"https?://[^\s<>]+")
 # Discord-style private payloads: recalling them could ping users back.
 PRIVATE_PATTERN = re.compile(r"@everyone|@here|<@!?\d+>")
+# No inferred/personal traits in the joke ledger either. This lexical backstop
+# is deliberately conservative, not a classifier or permission to profile.
+_TRAITS = re.compile(
+    r'\b(?:religio\w*|religi[oó]n\w*|etni\w*|ethnic\w*|racial\w*|raza|'
+    r'salud|health|diagn[oó]s\w*|enfermedad\w*|disease\w*|medicaci\w*|'
+    r'c[aá]ncer|depresi\w*|autis\w*|diabet\w*|vih|hiv|sexual\w*|gay|'
+    r'lesbian\w*|bisexual\w*|homosexual\w*|transg[eé]ner\w*|transgender\w*|'
+    r'jud[ií][oa]\w*|jewish|musulm\w*|muslim|cat[oó]lic\w*|catholic|'
+    r'cristian\w*|christian|ate[oa]\w*|atheist|perfil\w*|profiles?|'
+    r'g[eé]nero|gender|personalidad|personality|rasgos? personales?)\b', re.I)
 
 MAX_USER_CHARS = 80
 MAX_WHAT_CHARS = 300
@@ -62,7 +72,7 @@ def _sanitize(text):
     placeholders, mentions are neutralised, whitespace collapses."""
     text = str(text) if isinstance(text, str) else ''
     text = URL_PATTERN.sub('[enlace omitido]', text)
-    text = SECRET_PATTERN.sub('[clave omitida]', text)
+    text = scrub_private(text)
     text = PRIVATE_PATTERN.sub('[mención]', text)
     return _clean(text)
 
@@ -70,6 +80,22 @@ def _sanitize(text):
 def _key(text):
     """Normalised identity for dedupe, tallies and per-user caps."""
     return _clean(text).lower()
+
+
+def _sensitive(user, what, label):
+    values = (user, what, label)
+    if any(has_private_data(value) for value in values):
+        return True
+    text = ' '.join(value for value in values if isinstance(value, str))
+    if _TRAITS.search(text):
+        return True
+    if not isinstance(user, str) or not user.strip() or not isinstance(what, str):
+        return False
+    # Reject explicit persistent-character claims, not literal bets/events.
+    subject = r'(?:' + re.escape(user.strip()) + r'\s+|^)'
+    return bool(re.search(subject + r'(?:es|era|is|was|tiene|has|siempre|nunca|suele|always|never)\b',
+                          what, re.I)
+                or re.search(r'\b(?:soy|somos|i\s+am|we\s+are)\b', what, re.I))
 
 
 class BanterLedger:
@@ -130,6 +156,8 @@ class BanterLedger:
         for row in reversed(rows[-MAX_ENTRIES:]):
             if not isinstance(row, dict) or not self._fresh(row.get('ts'), now):
                 continue
+            if _sensitive(row.get('user'), row.get('what'), row.get('label')):
+                continue
             user, what = _sanitize(row.get('user'))[:MAX_USER_CHARS], _sanitize(row.get('what'))[:MAX_WHAT_CHARS]
             label = _sanitize(row.get('label'))[:MAX_LABEL_CHARS] or DEFAULT_LABEL
             if not user or not what:
@@ -179,9 +207,13 @@ class BanterLedger:
 
         Only call with a short summary in the model's own words, not raw text.
         Callers enforce opt-in, authorization, privacy and provenance; the
-        scrubber is not a privacy detector. Same (user, what): refresh instead of
+        checks are best-effort, not a complete privacy detector. Sensitive rows
+        are rejected BEFORE sanitization/truncation. Same (user, what): refresh instead of
         duplicate. Global cap 120, per-user cap 20 (oldest leaves first)."""
         if label is not None and not isinstance(label, str):
+            return None
+        if _sensitive(user, what, label):
+            event('banter', status='rejected', reason='privacy')
             return None
         user = _sanitize(user)[:MAX_USER_CHARS]
         what = _sanitize(what)[:MAX_WHAT_CHARS]

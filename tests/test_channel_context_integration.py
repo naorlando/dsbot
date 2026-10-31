@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, Mock
 
 from core.assistant import Assistant, AssistantError, Settings, UsageBudget
 from core.banter_ledger import BanterLedger
-from core.knowledge import KnowledgeStore
 
 
 def call(name, args):
@@ -116,15 +115,12 @@ class ChannelContextTests(unittest.IsolatedAsyncioTestCase):
         await self.agent.answer("como salio?", lambda **kw: {}, web=True, ambient_digest="privado")
         self.assertNotIn("dato privado", json.dumps(captured))
 
-    async def test_public_cache_handles_sources_without_title_and_write_failure(self):
-        self.agent.knowledge = KnowledgeStore(self.path / "knowledge.json")
+    async def test_web_answers_do_not_write_a_cache_that_is_never_read(self):
         self.agent.web_research = AsyncMock(return_value=("Ganó el equipo azul.", [{"url": "https://example.com"}]))
         answer = await self.agent.answer("quien gano?", lambda **kw: {}, web=True)
         self.assertIn("azul", answer)
-        self.assertEqual(len(self.agent.knowledge.entries), 1)
-        self.agent.knowledge = Mock(remember=Mock(side_effect=OSError()))
-        answer = await self.agent.answer("quien gano?", lambda **kw: {}, web=True)
-        self.assertIn("azul", answer)
+        self.assertFalse((self.path / "knowledge.json").exists())
+        self.assertFalse(hasattr(self.agent, "knowledge"))
 
     async def test_long_but_valid_question_is_not_rejected(self):
         self.agent.completion = AsyncMock(return_value={"content": "Te sigo."})

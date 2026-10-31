@@ -1,5 +1,14 @@
 # Updates del bot
 
+## 2026-10-31 · Botón: memoria trazable y límites de uso
+
+- Fecha y hora de Argentina, fuentes web con fecha/tipo de respuesta y respaldo por segmentos. Se retiró la caché web que se escribía sin consultarse.
+- Memoria curada con procedencia local: editar/borrar una fuente invalida sus resúmenes. El owner puede revocarla por ID con `!botonborrar`; no hay borrado por nombre.
+- Cuota de 40 invocaciones por persona/día, curador con presupuesto propio y enfriamiento ante límites del proveedor. `!botonmetricas` muestra salud y consumo sólo al owner, sin conversaciones.
+- Comparte el diálogo del canal y sus hilos públicos, identificados por nombre. Los hilos privados quedan fuera.
+- Filtro de datos sensibles antes del diálogo/memoria, sin convertir identidades en perfiles. Los IDs de procedencia no se envían al modelo.
+- Evaluación offline con charla sintética, controles anti-drift de docs y CI sin claves. Railway requiere activar Wait for CI para esperar estas verificaciones.
+
 ## 2026-10-30 · Deploy activo: conversación compartida y prompt nuevo
 
 - Una sola conversación por canal: mensajes humanos, llamadas a Botón, sus propias respuestas y replies, con autor y hora. Si alguien habla de un tema y después llama otra persona, Botón sigue ese hilo; no hay un chat separado por usuario.

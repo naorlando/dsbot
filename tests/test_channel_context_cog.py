@@ -89,7 +89,8 @@ class ChannelCogTests(unittest.IsolatedAsyncioTestCase):
         curator.curate.assert_awaited_once()
         callback = curator.curate.await_args.args[0]
         await callback([], [])
-        self.cog.agent.completion.assert_awaited_once_with([], [], total=18, max_tokens=1600)
+        self.cog.agent.completion.assert_awaited_once_with([], [], total=18, max_tokens=1600,
+                                                         usage_budget=self.cog.curator_budget)
 
     async def test_legacy_reset_is_a_notice_and_preserves_shared_dialogue_and_ledger(self):
         ledger = BanterLedger(self.path / "banter.json")

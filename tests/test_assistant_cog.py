@@ -1,6 +1,8 @@
 import asyncio
 import os
 import unittest
+import tempfile
+from pathlib import Path
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -75,10 +77,11 @@ class CogTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.cog.lock.locked())
 
     async def test_session_lifecycle_closes(self):
-        await self.cog.cog_load()
-        self.assertFalse(self.cog.session.closed)
-        await self.cog.cog_unload()
-        self.assertTrue(self.cog.session.closed)
+        with tempfile.TemporaryDirectory() as tmp, patch('cogs.assistant.DATA_DIR', Path(tmp)):
+            await self.cog.cog_load()
+            self.assertFalse(self.cog.session.closed)
+            await self.cog.cog_unload()
+            self.assertTrue(self.cog.session.closed)
 
     async def test_boton_aliases_registered(self):
         self.assertEqual(self.cog.ask.name, "boton")

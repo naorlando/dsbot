@@ -3,7 +3,10 @@ import ipaddress
 import json
 import re
 import unicodedata
+from core.assistant_privacy import has_private_data
 from urllib.parse import unquote, urlsplit
+
+from core.assistant_clock import _utc_now
 
 WEB_CONTRACT = '''Para esta búsqueda respondé exclusivamente JSON válido con esta forma:
 {"status":"answer","evidence":[{"source":1,"passage":2}]}
@@ -34,7 +37,7 @@ def normalize(text):
 
 
 def _unsafe(text):
-    return bool(_UNSAFE.search(text) or any(
+    return bool(has_private_data(text) or _UNSAFE.search(text) or any(
         unicodedata.category(ch) in {'Cc', 'Cf', 'Cs'} for ch in text))
 
 
@@ -192,12 +195,48 @@ def _plain(text):
     return re.sub(r'([*_`~|<>\[\]\\])', r'\\\1', text)
 
 
-def render_evidence(content, sources, finish_reason=None):
+def web_footer(links, kind, now=None):
+    """Return a leading-newline footer; callers must budget answer + footer.
+
+    links is a sequence of (positive citation number OR safe title, public URL).
+    kind is grounded/literal/unconfirmed. Grounded attribution is not a truth
+    check, nor a claim that generated text is a literal source quotation.
+    """
+    labels = {'grounded': 'respuesta anclada', 'literal': 'citas literales',
+              'unconfirmed': 'sin confirmación'}
+    if (not isinstance(kind, str) or kind not in labels
+            or not isinstance(links, (list, tuple)) or len(links) > 5):
+        raise ValueError('footer_schema')
+    lines = []
+    for link in links:
+        if not isinstance(link, (list, tuple)) or len(link) != 2:
+            raise ValueError('footer_schema')
+        label, url = link
+        if not _public_url(url):
+            raise ValueError('unsafe_source')
+        if type(label) is int and 1 <= label <= 100:
+            lines.append(f'[{label}] <{url}>')
+        elif (isinstance(label, str) and 1 <= len(label) <= 120
+              and not _unsafe(label) and not re.search(r'[@\[\]<>*_`~|\\]', label)):
+            lines.append(f'• {normalize(label)}: <{url}>')
+        else:
+            raise ValueError('footer_label')
+    if not lines:
+        return ''
+    stamp = _utc_now(now).strftime('%Y-%m-%d %H:%M:%S UTC')
+    footer = (f'\n\nFuentes consultadas · {labels[kind]}\nRecuperadas: {stamp}\n'
+              + '\n'.join(lines))
+    if len(footer) > 1990:
+        raise ValueError('display_limit')
+    return footer
+
+
+def render_evidence(content, sources, finish_reason=None, now=None):
     if finish_reason is not None and finish_reason not in ('stop', 'STOP'):
         raise ValueError('truncated_or_blocked')
     data = parse_evidence(content)
     if data['status'] == 'insufficient':
-        return 'No pude confirmar una respuesta con las fuentes encontradas.'
+        return evidence_failure(sources, now=now, insufficient=True)
     sources = prepare_sources(sources)
     lines, links, seen, words = [], [], set(), {}
     for item in data['evidence']:
@@ -229,15 +268,16 @@ def render_evidence(content, sources, finish_reason=None):
         if index not in [i for i, _ in links]:
             links.append((index, url))
     answer = '\n'.join(lines)
-    footer = '\n\nFuentes consultadas:\n' + '\n'.join(f'[{i}] <{url}>' for i, url in links)
+    footer = web_footer(links, 'literal', now)
     if len(answer + footer) > 1990:
         raise ValueError('display_limit')
     return answer + footer
 
 
-def evidence_failure(sources):
+def evidence_failure(sources, now=None, *, insufficient=False):
     """A transparent failure, with backend links only; no generated answer input."""
-    message = 'Encontré fuentes, pero no pude confirmar el dato con suficiente respaldo.'
+    message = ('No pude confirmar una respuesta con las fuentes encontradas.' if insufficient
+               else 'Encontré fuentes, pero no pude confirmar el dato con suficiente respaldo.')
     lines, seen = [], set()
     if not isinstance(sources, (list, tuple)):
         return message
@@ -258,10 +298,13 @@ def evidence_failure(sources):
             title = urlsplit(url).hostname
         if len(title) > 120:
             title = 'Fuente web'
-        lines.append(f'• {title}: <{url}>')
+        lines.append((title[:80], url))
         seen.add(url)
         if len(lines) == 3:
             break
     if lines:
-        message += '\n\nFuentes para consultar:\n' + '\n'.join(lines)
+        footer = web_footer(lines, 'unconfirmed', now)
+        if len(message + footer) > 1990:
+            raise ValueError('display_limit')
+        message += footer
     return message

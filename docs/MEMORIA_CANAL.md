@@ -7,9 +7,10 @@ Discord a producción ni se entrena ningún modelo con él.
 
 1. **Diálogo compartido del canal:** un solo timeline en RAM por servidor/canal con
    hasta 100 mensajes: charla humana, invocaciones `!boton` y las respuestas de
-   Botón, con autor, hora y referencia al mensaje respondido. No hay un chat por
+   Botón, con autor, hora, hilo público y referencia al mensaje respondido. No hay un chat por
    usuario: si alguien habla de un tema y después otra persona llama a Botón, el
-   bot ve ambos turnos. Se precarga una vez desde Discord, con timeout de 3
+   bot ve ambos turnos. Incluye hilos públicos del canal padre autorizado, nunca
+   hilos privados. Se precarga una vez por canal/hilo visitado, con timeout de 3
    segundos. El prompt recibe hasta 7000 caracteres: primero los antecedentes
    (máximo 25% del espacio) y al final los últimos 24 turnos de la última hora.
    Un canal tranquilo no convierte el tema de ayer en "actual": queda como
@@ -23,7 +24,7 @@ Discord a producción ni se entrena ningún modelo con él.
    tópicos/acuerdos con respaldo en mensajes; el ledger conserva apuestas o
    chistes explícitos que el modelo decide anotar. No son perfiles de personas
    ni una métrica objetiva de "cómo es" alguien. No se infieren religión, etnia,
-   salud o sexualidad para guardar etiquetas personales.
+   género, salud o sexualidad para guardar etiquetas personales.
 
 Los resúmenes del canal siguen siendo privados aunque no sean mensajes completos.
 Se tratan como **datos no confiables**, nunca como instrucciones del sistema.
@@ -46,16 +47,33 @@ Con `AI_CHANNEL_MEMORY=true` y el historial habilitado:
   curador puede hacer una llamada en background. Chequea elegibilidad cada 5 min.
 - Separación mínima de 15 min; máximo **24 intentos diarios**, fallidos incluidos.
   Tras un fallo espera 30 min antes de reintentar.
-  Consume además el presupuesto LLM normal de Botón, no una bolsa ilimitada.
+   Consume su propia bolsa persistida de 24 llamadas/día; no consume las 400
+   generaciones diarias reservadas a preguntas.
 - Hasta 30 bullets con TTL de 14 días. Se exige evidencia literal que exista en
   el snapshot enviado; esto valida procedencia, no prueba que la interpretación
   del resumen sea perfecta. Apuestas/chistes del ledger vencen a los 30 días.
 - `!botonmemoria` muestra resúmenes, chanzas, intentos diarios y mensajes pendientes
   sin llamar al modelo. El comando heredado `!olvidar` ya no borra nada: avisa que
-  la conversación es compartida por canal. No hay borrado persistente de
-  autoservicio hasta contar con procedencia e IDs estables. Los métodos de borrado
-  por nombre de los stores son internos, no se exponen como herramientas del
-  modelo ni como borrado automático para usuarios.
+   la conversación es compartida por canal. No hay borrado de autoservicio por nombre.
+   El owner (`DISCORD_OWNER_ID`) puede revocar evidencia con
+   `!botonborrar ID_MENSAJE [ID_CANAL]`, sin borrar el mensaje en Discord ni chanzas
+   sin vínculo de procedencia. Los métodos por nombre de los stores siguen siendo
+   internos, no herramientas del modelo ni borrado automático para usuarios.
+
+### Procedencia y datos sensibles
+
+El curador conserva IDs locales de mensaje y canal junto a la evidencia literal.
+El snapshot del LLM sigue usando fecha/autor/texto: **los IDs no salen al proveedor**.
+Los eventos recibidos de edición y borrado invalidan los bullets completos que dependan
+de esa fuente y evitan que una curación en vuelo los restaure. Las notas heredadas
+sin IDs no tienen revocación precisa por mensaje. No hay reconciliación exhaustiva de
+ediciones/borrados ocurridos mientras el bot estaba desconectado.
+
+Antes del diálogo y de la memoria se filtran secretos, emails, teléfonos y datos
+explícitos de identificación/domicilio. Curador y ledger rechazan esos datos también
+al cargar archivos. Es una barrera conservadora, no una prueba de anonimato ni un
+detector exhaustivo de datos sensibles. Los nombres visibles siguen siendo necesarios
+para atribuir turnos; no se crean perfiles de personas.
 
 La cadencia inicial se eligió con el análisis local de actividad reciente, y se
 aumentó a pedido del administrador para monitorearla, no suponiendo
@@ -74,14 +92,17 @@ Una lectura explícita de métricas, historial o ledger sí cierra la búsqueda 
 para ese turno. Las respuestas de Botón quedan en el diálogo porque ya son
 mensajes públicos del canal; no se usan como prueba de hechos.
 
-`knowledge.json` es otra cosa: una caché opcional de respuestas web verificadas,
-con fuentes, TTL y límites. No guarda la charla del canal y no sustituye una
-búsqueda nueva para datos actuales.
+`knowledge.json` ya no se usa en el camino activo: se escribía sin consultarse.
+No se guardan nuevas respuestas web. Archivos anteriores no se importan ni se borran
+automáticamente; `core/knowledge.py` queda como utilidad legada, fuera del runtime.
 
 ## Operación y validación
 
 - Preguntas de hasta 4000 caracteres; error visible por encima de ese límite.
 - Hasta 6 pasos del modelo por pregunta; no se aumenta la bolsa diaria existente.
+- Hasta 4 herramientas; 400 llamadas/día interactivas, 240/día ambientales por
+  defecto y 24/día del curador. Además, 40 invocaciones por usuario/día, con cuotas
+  seudonimizadas; no son chats por usuario ni se envían esos IDs al LLM.
 - Proveedor: timeout por intento 25 s; router 10 s; respuesta completa 60 s.
 - El límite global cancela la tarea y libera el lock. Es contención del fallo,
   **no** ejecución durable ni garantía de finalizar consultas de varios minutos.

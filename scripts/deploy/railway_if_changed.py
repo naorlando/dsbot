@@ -61,6 +61,17 @@ def decision(instance, target):
     return "deploy", "The current main commit is not deployed successfully"
 
 
+def successful_ci(data, target):
+    """The latest push run for this exact SHA must finish successfully."""
+    runs = data.get("workflow_runs") if isinstance(data, dict) else None
+    if not isinstance(runs, list) or not runs or not isinstance(runs[0], dict):
+        return False
+    run = runs[0]
+    return (run.get("head_sha") == target and run.get("head_branch") == "main"
+            and run.get("event") == "push" and run.get("status") == "completed"
+            and run.get("conclusion") == "success")
+
+
 def off_peak(now=None):
     now = now or datetime.now(ZoneInfo("America/New_York"))
     return now.hour < 8 or now.hour >= 20
@@ -107,6 +118,13 @@ def main():
     }""", variables)["serviceInstance"]
     if decision(fresh, target)[0] == "skip":
         report("Railway changed while checking; no duplicate deployment created.")
+        return
+    checks = request_json(
+        f"https://api.github.com/repos/{repository}/actions/workflows/assistant-tests.yml/runs"
+        f"?branch=main&head_sha={target}&event=push&per_page=1",
+        {"Authorization": f"Bearer {os.environ['GH_TOKEN']}"})
+    if not successful_ci(checks, target):
+        report("Offline CI is missing, pending or failed for this exact SHA; no deployment created.")
         return
     deployment_id = graphql("""mutation($serviceId: String!, $environmentId: String!, $commitSha: String!) {
         serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId, commitSha: $commitSha)

@@ -1,6 +1,7 @@
 """Explicit invocation only. Disabled unless owner configures provider and scope."""
 
 import asyncio
+import json
 import logging
 import os
 from types import SimpleNamespace
@@ -13,11 +14,13 @@ from discord.ext import commands, tasks
 
 from core.assistant import Assistant, AssistantError, Settings, UsageBudget, metrics, bot_help
 from core.channel_dialogue import ChannelDialogue
+from core.assistant_scope import channel_in_scope, public_thread
+from core.assistant_quota import UserDailyQuota, QuotaError
+from core.assistant_operations import operations, provider_health
 from core.assistant_data import day_digest, query_stats as query_stats_data
 from core.assistant_history import scan_history, _row_from
 from core.banter_ledger import BanterLedger
 from core.channel_curator import ChannelCurator
-from core.knowledge import KnowledgeStore
 from core.commentator import Commentator, maybe_compose, template_digest
 from core.persistence import DATA_DIR, stats
 
@@ -39,6 +42,11 @@ class AssistantCog(commands.Cog, name="Asistente"):
         # curated durable notes remain a separate, opt-in subsystem.
         self.dialogue = ChannelDialogue(self.guild_id, self.channel_id)
         self.warm_started = False
+        self.warm_channels = set()
+        self.thread_ids = set()
+        self.user_quota = None  # Created only on cog_load, never during pure tests.
+        self.curator_budget = None
+        self.last_curator_attempt = None
         self.channel_memory_enabled = os.getenv("AI_CHANNEL_MEMORY", "false").lower() == "true"
         self.curator = None
         self.cooldowns = commands.CooldownMapping.from_cooldown(1, 3, commands.BucketType.user)
@@ -55,8 +63,9 @@ class AssistantCog(commands.Cog, name="Asistente"):
         channel_data = DATA_DIR / "channel_memory" / f"{self.guild_id}_{self.channel_id}"
         self.agent = Assistant(self.settings, UsageBudget(DATA_DIR / "assistant_usage.json"), self.session,
                                banter=BanterLedger(channel_data / "banter.json")
-                               if self.channel_memory_enabled and self.settings.history_enabled else None,
-                               knowledge=KnowledgeStore())
+                               if self.channel_memory_enabled and self.settings.history_enabled else None)
+        self.user_quota = UserDailyQuota(DATA_DIR / "assistant_users.json")
+        self.curator_budget = UsageBudget(DATA_DIR / "assistant_curator_usage.json", llm_limit=24)
         if self.channel_memory_enabled and self.settings.history_enabled:
             self.curator = ChannelCurator(channel_data / "channel_curator.json", min_messages=40,
                 interval_seconds=2 * 3600, temporal_min_messages=10,
@@ -112,7 +121,7 @@ class AssistantCog(commands.Cog, name="Asistente"):
         try:
             if (message.guild is None
                     or message.guild.id != self.guild_id or len(self.bot.guilds) != 1
-                    or message.channel.id != self.channel_id):
+                    or not self._channel_allowed(message.channel)):
                 return
             self._sync_dialogue_bot()
             accepted = self.dialogue.observe(message) if self.settings.history_enabled else False
@@ -126,6 +135,9 @@ class AssistantCog(commands.Cog, name="Asistente"):
                                              content=parts[1] if len(parts) > 1 else "")
                 row = _row_from(source)
                 if row:
+                    # Internal provenance only. The curator strips these IDs from
+                    # its LLM snapshot and reattaches them after literal matching.
+                    row.update(message_id=str(message.id), channel_id=str(message.channel.id))
                     self.curator.observe(row)
             if message.author.bot or message.content.lstrip().startswith("!"):
                 return
@@ -145,6 +157,41 @@ class AssistantCog(commands.Cog, name="Asistente"):
         bot_id = getattr(getattr(self.bot, "user", None), "id", None)
         if isinstance(bot_id, int) and not isinstance(bot_id, bool):
             self.dialogue.bot_id = bot_id
+
+    def _channel_allowed(self, channel):
+        if not channel_in_scope(channel, self.channel_id):
+            return False
+        if public_thread(channel, self.channel_id):
+            if len(self.thread_ids) >= 128 and channel.id not in self.thread_ids:
+                return False
+            self.thread_ids.add(channel.id)
+        return True
+
+    def _raw_in_scope(self, payload):
+        if getattr(payload, "guild_id", None) != self.guild_id:
+            return False
+        channel_id = getattr(payload, "channel_id", None)
+        if channel_id == self.channel_id or channel_id in self.thread_ids:
+            return True
+        lookup = getattr(self.bot, "get_channel", None)
+        channel = lookup(channel_id) if callable(lookup) else None
+        return channel is not None and self._channel_allowed(channel)
+
+    def _invalidate_source(self, message_id, channel_id):
+        if self.curator is not None:
+            # Cold-cache deletes from a previously visited public thread still
+            # revoke stored evidence. Unrelated channels must not continually
+            # invalidate snapshots or trigger privacy-marker disk writes.
+            known = channel_id == self.channel_id or channel_id in self.thread_ids
+            if not known:
+                metadata = getattr(self.curator, 'metadata', None)
+                known = callable(metadata) and any(
+                    str(source.get('message_id')) == str(message_id)
+                    and str(source.get('channel_id')) == str(channel_id)
+                    for bullet in metadata() for source in bullet['sources'])
+            if not known:
+                return
+            self.curator.invalidate_message(message_id, channel_id)
 
     def _invocation_message(self, ctx, question):
         """Use the actual Discord message; tolerate minimal command test contexts."""
@@ -169,39 +216,51 @@ class AssistantCog(commands.Cog, name="Asistente"):
 
     @commands.Cog.listener()
     async def on_message_delete(self, message):
-        if getattr(message.channel, "id", None) == self.channel_id:
+        if (self.settings.history_enabled and getattr(message.guild, "id", None) == self.guild_id
+                and self._channel_allowed(message.channel)):
             self.dialogue.remove(message.id)
+            self._invalidate_source(message.id, message.channel.id)
 
     @commands.Cog.listener()
     async def on_message_edit(self, before, after):
-        if self.settings.history_enabled and getattr(after.channel, "id", None) == self.channel_id:
+        if (self.settings.history_enabled and getattr(after.guild, "id", None) == self.guild_id
+                and self._channel_allowed(after.channel)):
+            self._invalidate_source(after.id, after.channel.id)
             self._sync_dialogue_bot()
             self.dialogue.observe(after)
 
     @commands.Cog.listener()
     async def on_raw_message_delete(self, payload):
-        if (self.settings.history_enabled and payload.guild_id == self.guild_id
-                and payload.channel_id == self.channel_id):
+        if self.settings.history_enabled and payload.guild_id == self.guild_id:
+            self._invalidate_source(payload.message_id, payload.channel_id)
+        if self.settings.history_enabled and self._raw_in_scope(payload):
             self.dialogue.remove(payload.message_id)
 
     @commands.Cog.listener()
     async def on_raw_bulk_message_delete(self, payload):
-        if (self.settings.history_enabled and payload.guild_id == self.guild_id
-                and payload.channel_id == self.channel_id):
+        if self.settings.history_enabled and payload.guild_id == self.guild_id:
+            for message_id in payload.message_ids:
+                self._invalidate_source(message_id, payload.channel_id)
+        if self.settings.history_enabled and self._raw_in_scope(payload):
             for message_id in payload.message_ids:
                 self.dialogue.remove(message_id)
 
     @commands.Cog.listener()
     async def on_raw_message_edit(self, payload):
         if (self.settings.history_enabled and payload.guild_id == self.guild_id
-                and payload.channel_id == self.channel_id
+                and isinstance(payload.data, dict) and isinstance(payload.data.get('content'), str)):
+            self._invalidate_source(payload.message_id, payload.channel_id)
+        if (self.settings.history_enabled and self._raw_in_scope(payload)
                 and isinstance(payload.data, dict) and isinstance(payload.data.get('content'), str)):
             self.dialogue.edit(payload.message_id, payload.data['content'], payload.data.get('mentions', ()))
 
     async def _warm_start(self, channel):
         """One bounded warm start; failure never blocks a question or triggers retries."""
-        if self.warm_started or not self.settings.history_enabled:
+        channel_id = getattr(channel, "id", self.channel_id)
+        if (channel_id in self.warm_channels or not self.settings.history_enabled
+                or len(self.warm_channels) >= 129):
             return
+        self.warm_channels.add(channel_id)
         self.warm_started = True
         if not callable(getattr(channel, "history", None)):
             return
@@ -217,19 +276,21 @@ class AssistantCog(commands.Cog, name="Asistente"):
 
     @tasks.loop(minutes=5)
     async def curator_loop(self):
-        """Background only, sharing the normal daily LLM budget."""
+        """Background only, with its own persisted 24-call daily budget."""
         if (self.curator is None or self.lock.locked() or len(self.bot.guilds) != 1
                 or not self.curator.due()):
             return
         try:
             async def summarize(messages, tools):
-                return await self.agent.completion(messages, tools, total=18, max_tokens=1600)
+                self.last_curator_attempt = datetime.now(timezone.utc).isoformat()
+                return await self.agent.completion(messages, tools, total=18, max_tokens=1600,
+                                                   usage_budget=self.curator_budget)
             await self.curator.curate(summarize)
         except Exception as exc:
             logger.info("Curator skipped (%s)", type(exc).__name__)
 
     async def respond(self, ctx, question, web=False):
-        if ctx.author.bot or not ctx.guild or ctx.guild.id != self.guild_id or ctx.channel.id != self.channel_id:
+        if not self.in_scope(ctx):
             return
         # Existing stats are global by user, not guild-scoped. Refuse multi-server
         # installations until the persistence model can guarantee isolation.
@@ -252,6 +313,8 @@ class AssistantCog(commands.Cog, name="Asistente"):
             async def history_lookup(word):
                 return await scan_history(ctx.channel, word, now=datetime.now(timezone.utc))
             try:
+                if self.user_quota is not None:
+                    self.user_quota.consume(ctx.author.id)
                 async with ctx.typing():
                     await self._warm_start(ctx.channel)
                     self._sync_dialogue_bot()
@@ -270,7 +333,7 @@ class AssistantCog(commands.Cog, name="Asistente"):
                         ambient_digest=notes, dialogue_context=channel_context, invocation=invocation),
                         timeout=self.answer_timeout)
                 await self._reply(ctx, result)
-            except AssistantError as exc:
+            except (AssistantError, QuotaError) as exc:
                 self.cooldowns.get_bucket(ctx.message).reset()
                 await ctx.send(str(exc), allowed_mentions=discord.AllowedMentions.none())
             except asyncio.TimeoutError:
@@ -292,7 +355,65 @@ class AssistantCog(commands.Cog, name="Asistente"):
 
     def in_scope(self, ctx):
         return (not ctx.author.bot and ctx.guild and ctx.guild.id == self.guild_id
-                and ctx.channel.id == self.channel_id)
+                and self._channel_allowed(ctx.channel))
+
+    def _is_owner(self, ctx):
+        owner = os.getenv("DISCORD_OWNER_ID", "")
+        return bool(owner and str(ctx.author.id) == owner and self.in_scope(ctx))
+
+    @commands.command(name="botonmetricas")
+    async def operational_status(self, ctx):
+        """Owner-only aggregates: no questions, answers, names or user identifiers."""
+        if not self._is_owner(ctx):
+            return
+        try:
+            counters = self.agent.budget.snapshot()
+            ambient = getattr(self.bot, "commentator", None)
+            ambient_counters = ambient.budget.snapshot() if ambient is not None else None
+            report = {"preguntas": counters, "avisos": ambient_counters,
+                      "curador": self.curator_budget.snapshot() if self.curator_budget is not None else None,
+                      "cuota_usuarios": self.user_quota.snapshot() if self.user_quota is not None else None,
+                      "ultimo_intento_curador_utc_desde_reinicio": self.last_curator_attempt,
+                      "operacion_desde_reinicio": operations.snapshot(),
+                      "proveedores": provider_health.snapshot()}
+        except (AssistantError, QuotaError):
+            await ctx.send("No puedo verificar los contadores; las llamadas se bloquean por seguridad.")
+            return
+        # Snapshots contain only bounded operational counters. Keep payloads out
+        # of trace logs, and split Discord output without cutting JSON strings.
+        for section, values in report.items():
+            text = section + ": " + json.dumps(values, ensure_ascii=False, separators=(",", ":"))
+            for start in range(0, len(text), 1900):
+                await ctx.send(text[start:start + 1900], allowed_mentions=discord.AllowedMentions.none())
+
+    @commands.command(name="botonborrar")
+    async def remove_source(self, ctx, message_id: str, channel_id: str = ""):
+        """Revoke curated evidence by source ID, not a mutable display name."""
+        if not self._is_owner(ctx):
+            return
+        source_channel = channel_id or str(ctx.channel.id)
+        if not (message_id.isdecimal() and source_channel.isdecimal()
+                and 0 < int(message_id) < 2**64 and 0 < int(source_channel) < 2**64):
+            await ctx.send("Usá !botonborrar ID_MENSAJE [ID_CANAL], con IDs válidos.")
+            return
+        if self.curator is None:
+            await ctx.send("La memoria curada está desactivada.")
+            return
+        try:
+            result = self.curator.invalidate_message(message_id, source_channel)
+        except OSError:
+            await ctx.send("Quité los recuerdos de RAM, pero no pude asegurar el borrado en disco. "
+                           "La memoria quedó bloqueada: revisá el almacenamiento antes de reiniciar.")
+            return
+        self.dialogue.remove(message_id)
+        status = self.curator.status()
+        if not status['persisted']:
+            await ctx.send("La fuente quedó revocada en RAM y la memoria bloqueada por seguridad; "
+                           "no pude completar la escritura en disco. Revisá el almacenamiento.")
+            return
+        await ctx.send(f"Revocación de esa fuente aplicada a la memoria curada ({result}). "
+                       "No borra mensajes de Discord ni usa nombres para borrar chanzas.",
+                       allowed_mentions=discord.AllowedMentions.none())
 
     @commands.command(name="olvidar", aliases=["resetboton"])
     async def forget(self, ctx):
@@ -342,7 +463,10 @@ class AssistantCog(commands.Cog, name="Asistente"):
                 "No hay sesiones separadas por usuario: todos comparten el contexto de este canal.\n"
                 f"Memoria persistente del canal: {persistent}. !botonmemoria muestra recuerdos y uso del curador.\n"
                 "Límites: anti-spam 3 segundos; hasta 6 pasos de modelo y 4 herramientas por pregunta. "
-                "400 llamadas/día; web 20/día y 600/mes. Sin ejecutar código ni cambiar estadísticas.\n"
+                "400 llamadas/día para preguntas + 240/día por defecto para avisos + 24/día del curador; "
+                "40 invocaciones por usuario/día; web 20/día y 600/mes. "
+                "Sin ejecutar código ni cambiar estadísticas; con memoria opt-in anota chanzas o apuestas "
+                "explícitas en un ledger acotado. Incluye hilos públicos del canal; privados no.\n"
                 f"Resumen del día automático a las {self.digest_hour:02d}:00 UTC.",
                 allowed_mentions=discord.AllowedMentions.none())
 

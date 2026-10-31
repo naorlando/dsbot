@@ -111,6 +111,8 @@ class ChannelCuratorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(messages[0]['content'], SYSTEM_PROMPT)
         self.assertEqual(json.loads(messages[1]['content'])['messages'], rows)
         self.assertIn('NO CONFIABLES', SYSTEM_PROMPT)
+        for trait in ('religión', 'etnia', 'género', 'salud', 'sexualidad'):
+            self.assertIn(trait, SYSTEM_PROMPT)
         self.assertEqual(self.curator.pending_count, 0)
         self.assertEqual(len(self.curator._pending), 0)
         self.assertEqual(self.curator.bullets[0]['evidence'], rows[:2])
@@ -405,7 +407,7 @@ class ChannelCuratorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.curator.pending_count, 1)
         self.assertNotIn('Ana', self.path.read_text(encoding='utf-8'))
 
-    async def test_synthetic_secrets_discord_tokens_urls_mentions_scrubbed_everywhere(self):
+    async def test_synthetic_secrets_rejected_before_model_or_persistence(self):
         # All synthetic fixtures: no environment variables, secret files or network.
         fake_discord = 'A' * 24 + '.' + 'B' * 6 + '.' + 'C' * 30
         fake_mfa = 'mfa.' + 'D' * 60
@@ -415,12 +417,21 @@ class ChannelCuratorTests(unittest.IsolatedAsyncioTestCase):
                   'api_key=fixture123', 'Bearer fixture123456',
                   'DISCORD_TOKEN=shortfixture', 'client_secret=anotherfixture',
                   'AWS_SECRET_ACCESS_KEY=fixturekey', '"token": "jsonfixture"',
-                  'https://example.invalid/private?q=fixture', 'www.example.invalid',
-                  'discord.gg/fixture', '<@12345>', '<@!12345>', '<@&12345>',
-                  '<#12345>', '@everyone', '@here', '@someone',
                   '-----BEGIN PRIVATE KEY-----\nfixture only\n-----END PRIVATE KEY-----']
-        row = self.row(text='Apuesto por rojo. ' + ' '.join(values))
-        self.curator.observe(row)
+        for value in values:
+            with self.subTest(value=value):
+                self.assertFalse(self.curator.observe(self.row(text='Apuesto por rojo. ' + value)))
+        complete = AsyncMock()
+        self.assertFalse(await self.curator.curate(complete))
+        complete.assert_not_called()
+        self.assertFalse(self.path.exists())
+        self.assertEqual(self.curator.pending_count, 0)
+
+    async def test_urls_and_mentions_scrubbed_everywhere(self):
+        values = ['https://example.invalid/private?q=fixture', 'www.example.invalid',
+                  'discord.gg/fixture', '<@12345>', '<@!12345>', '<@&12345>',
+                  '<#12345>', '@everyone', '@here', '@someone']
+        self.assertTrue(self.curator.observe(self.row(text='Apuesto por rojo. ' + ' '.join(values))))
 
         async def complete(messages, tools):
             payload = messages[1]['content']
@@ -431,7 +442,6 @@ class ChannelCuratorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(await self.curator.curate(complete))
         persisted = self.path.read_text(encoding='utf-8')
-        self.assertIn('[secreto omitido]', persisted)
         self.assertIn('[enlace omitido]', persisted)
         self.assertIn('[mención omitida]', persisted)
         for value in values:

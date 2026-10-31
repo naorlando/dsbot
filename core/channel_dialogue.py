@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from core.assistant_secrets import SECRET_PATTERN
+from core.assistant_scope import channel_in_scope, public_thread
+from core.assistant_privacy import scrub_private
 
 
 _URL = re.compile(r"(?:[a-z][a-z0-9+.-]{0,20}://|www\.|discord\.gg/|discord(?:app)?\.com/invite/)\S+", re.I)
@@ -57,7 +59,7 @@ def _plain(value):
 
 
 def _clean(value, mentions=None, limit=800):
-    value = SECRET_PATTERN.sub("[secreto]", _plain(value))
+    value = SECRET_PATTERN.sub("[secreto]", scrub_private(_plain(value))).replace("[secreto omitido]", "[secreto]")
     value = _URL.sub("[enlace]", value)
     value = _OTHER_MENTION.sub("[mención]", value)
     value = _USER_MENTION.sub(
@@ -91,6 +93,8 @@ class _Turn:
     author: str
     text: str
     reply: "_Turn | None" = None
+    channel_id: int = 0
+    thread: str = ""
 
 
 class ChannelDialogue:
@@ -116,15 +120,17 @@ class ChannelDialogue:
 
     def _in_scope(self, message):
         guild = _id(getattr(getattr(message, "guild", None), "id", None))
-        channel = _id(getattr(getattr(message, "channel", None), "id", None))
+        channel_object = getattr(message, "channel", None)
+        channel = _id(getattr(channel_object, "id", None))
         # Also accept explicit scope fields in lightweight message adapters.
         guild_field = _id(getattr(message, "guild_id", None))
         channel_field = _id(getattr(message, "channel_id", None))
         return (self.guild_id is not None and self.channel_id is not None
                 and (guild or guild_field) == self.guild_id
-                and (channel or channel_field) == self.channel_id
+                and (channel_in_scope(channel_object, self.channel_id)
+                     or (channel is None and channel_field == self.channel_id))
                 and guild_field in (None, self.guild_id)
-                and channel_field in (None, self.channel_id))
+                and channel_field in (None, channel or self.channel_id))
 
     def _timestamp(self, message, now):
         created = getattr(message, "created_at", None)
@@ -162,8 +168,12 @@ class ChannelDialogue:
         if not text:
             return None
         name = _clean(getattr(author, "display_name", ""), limit=80)
+        channel = getattr(message, "channel", None)
         return _Turn(message_id, created, "asistente" if own else "humano",
-                     name or ("Botón" if own else "Persona"), text)
+                     name or ("Botón" if own else "Persona"), text,
+                     channel_id=_id(getattr(channel, "id", None)) or self.channel_id,
+                     thread=_clean(getattr(channel, "name", ""), limit=80)
+                     if public_thread(channel, self.channel_id) else "")
 
     def _prune(self, now):
         for key, row in list(self._rows.items()):
@@ -182,7 +192,8 @@ class ChannelDialogue:
         reference = getattr(message, "reference", None)
         if reference is None:
             return None
-        for field, expected in (("guild_id", self.guild_id), ("channel_id", self.channel_id)):
+        origin_channel = _id(getattr(getattr(message, "channel", None), "id", None)) or self.channel_id
+        for field, expected in (("guild_id", self.guild_id), ("channel_id", origin_channel)):
             value = getattr(reference, field, None)
             if value is not None and _id(value) != expected:
                 return None
@@ -190,10 +201,12 @@ class ChannelDialogue:
         if parent_id in self._blocked:
             return None
         if parent_id in self._rows:
-            return self._reply_copy(self._rows[parent_id])
+            parent = self._rows[parent_id]
+            return self._reply_copy(parent) if parent.channel_id == origin_channel else None
         for field in ("resolved", "cached_message"):
             parent = self._clone(getattr(reference, field, None), now, text_limit=500)
-            if parent and (parent_id is None or parent.message_id == parent_id):
+            if (parent and parent.channel_id == origin_channel
+                    and (parent_id is None or parent.message_id == parent_id)):
                 return parent
         return None
 
@@ -300,6 +313,8 @@ class ChannelDialogue:
         if not current:
             result = (f"{handles[row.message_id]} | {self._stamp(row)} | {row.role} | "
                       f"autor={_quote(row.author)}: {_quote(row.text[:text_limit])}")
+            if row.thread:
+                result += " | hilo=" + _quote(row.thread)
         if parent:
             prefix = "Referencia del mensaje actual" if current else "  Responde"
             reply = (f"{prefix} a {handles[parent.message_id]} | {self._stamp(parent)} | {parent.role} | "
@@ -404,6 +419,9 @@ class ChannelDialogue:
         author = _clean(getattr(getattr(message, "author", None), "display_name", ""), limit=80) or "Persona"
         text = _clean(question, _mentions(message), limit=4000) or _EMPTY_QUESTION
         lines = [f"Autor actual: {author}"]
+        channel = getattr(message, "channel", None)
+        if public_thread(channel, self.channel_id):
+            lines.append("Hilo actual: " + _clean(getattr(channel, "name", ""), limit=80))
         parent = self._resolve_reply(message, now)
         if parent:
             name = "Botón" if parent.role == "asistente" else parent.author
