@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import os
-from collections import deque
+from types import SimpleNamespace
 
 from datetime import datetime, timezone
 
@@ -12,7 +12,7 @@ import discord
 from discord.ext import commands, tasks
 
 from core.assistant import Assistant, AssistantError, Settings, UsageBudget, metrics, bot_help
-from core.ambient import ambient
+from core.channel_dialogue import ChannelDialogue
 from core.assistant_data import day_digest, query_stats as query_stats_data
 from core.assistant_history import scan_history, _row_from
 from core.banter_ledger import BanterLedger
@@ -35,11 +35,10 @@ class AssistantCog(commands.Cog, name="Asistente"):
         # per-provider hard cuts in core.assistant (PROVIDER_TIMEOUT/ROUTER_TIMEOUT);
         # both layers must fire before Discord looks dead.
         self.answer_timeout = 60.0
-        # Rolling buffer of recent channel messages: the raw material for the
-        # ambient digest passed to the agent each question. RAM only, never
-        # persisted (same contract as the conversation memory).
-        self.ambient_rows = deque(maxlen=100)
-        self.ambient_loaded = False
+        # Shared channel dialogue includes summons and our own replies. RAM only;
+        # curated durable notes remain a separate, opt-in subsystem.
+        self.dialogue = ChannelDialogue(self.guild_id, self.channel_id)
+        self.warm_started = False
         self.channel_memory_enabled = os.getenv("AI_CHANNEL_MEMORY", "false").lower() == "true"
         self.curator = None
         self.cooldowns = commands.CooldownMapping.from_cooldown(1, 3, commands.BucketType.user)
@@ -70,7 +69,9 @@ class AssistantCog(commands.Cog, name="Asistente"):
                         ambient_limit=int(os.getenv("AI_AMBIENT_LIMIT", "240"))),
             self.settings)
         self.digest_loop.start()
-        logger.info("Boton ready tools=%s metrics=%s web=%s memory_messages=10", ",".join(bot_help(self.settings, "capabilities")["tools"]), self.settings.share_metrics, bool(self.settings.search_key))
+        logger.info("Boton ready tools=%s metrics=%s web=%s dialogue_messages=100",
+                    ",".join(bot_help(self.settings, "capabilities")["tools"]),
+                    self.settings.share_metrics, bool(self.settings.search_key))
 
     async def cog_unload(self):
         self.digest_loop.cancel()
@@ -107,47 +108,110 @@ class AssistantCog(commands.Cog, name="Asistente"):
 
     @commands.Cog.listener()
     async def on_message(self, message):
-        """Maintain the rolling ambient buffer for the assistant channel."""
+        """Capture scoped dialogue; a direct mention/reply is also an invocation."""
         try:
-            if (not self.settings.history_enabled or message.guild is None
+            if (message.guild is None
                     or message.guild.id != self.guild_id or len(self.bot.guilds) != 1
-                    or message.author.bot or message.channel.id != self.channel_id
-                    or not message.content.strip() or message.content.lstrip().startswith("!")):
+                    or message.channel.id != self.channel_id):
                 return
-            self.ambient_rows.append(message)
-            if self.curator is not None:
-                row = _row_from(message)
+            self._sync_dialogue_bot()
+            accepted = self.dialogue.observe(message) if self.settings.history_enabled else False
+            if accepted and not message.author.bot and self.curator is not None:
+                # A statement inside !boton is still something a human said.
+                # Do not exclude the entire conversation just because it invoked us.
+                source = message
+                if message.content.lstrip().startswith("!"):
+                    parts = message.content.split(maxsplit=1)
+                    source = SimpleNamespace(author=message.author, created_at=message.created_at,
+                                             content=parts[1] if len(parts) > 1 else "")
+                row = _row_from(source)
                 if row:
                     self.curator.observe(row)
+            if message.author.bot or message.content.lstrip().startswith("!"):
+                return
+            bot_id = self.dialogue.bot_id
+            mentions = getattr(message, "mentions", [])
+            mentioned = bot_id is not None and any(getattr(who, "id", None) == bot_id for who in mentions)
+            # Use one resolver for invocation and rendering, including deleted-parent tombstones.
+            replied = self.dialogue.reply_is_own(message)
+            if mentioned or replied:
+                text = message.content.replace(f"<@{bot_id}>", "").replace(f"<@!{bot_id}>", "").strip()
+                ctx = await self.bot.get_context(message)
+                await self.respond(ctx, text)
         except (AttributeError, TypeError):
             return
+
+    def _sync_dialogue_bot(self):
+        bot_id = getattr(getattr(self.bot, "user", None), "id", None)
+        if isinstance(bot_id, int) and not isinstance(bot_id, bool):
+            self.dialogue.bot_id = bot_id
+
+    def _invocation_message(self, ctx, question):
+        """Use the actual Discord message; tolerate minimal command test contexts."""
+        message = ctx.message
+        if getattr(message, "guild", None) is not None and getattr(message, "channel", None) is not None:
+            return message
+        return SimpleNamespace(id=getattr(message, "id", None), guild=ctx.guild, channel=ctx.channel,
+            author=ctx.author, created_at=datetime.now(timezone.utc), content="!boton " + question,
+            mentions=getattr(message, "mentions", []), reference=getattr(message, "reference", None))
+
+    async def _reply(self, ctx, text):
+        """Link outputs to the actual request and immediately capture our answer."""
+        reply = getattr(ctx, "reply", None)
+        if callable(reply):
+            sent = await reply(text, mention_author=False, allowed_mentions=discord.AllowedMentions.none())
+        else:
+            sent = await ctx.send(text, allowed_mentions=discord.AllowedMentions.none())
+        self._sync_dialogue_bot()
+        if self.settings.history_enabled:
+            self.dialogue.observe(sent)
+        return sent
 
     @commands.Cog.listener()
     async def on_message_delete(self, message):
         if getattr(message.channel, "id", None) == self.channel_id:
-            self.ambient_rows = deque((row for row in self.ambient_rows
-                                       if row.id != message.id), maxlen=100)
+            self.dialogue.remove(message.id)
 
     @commands.Cog.listener()
     async def on_message_edit(self, before, after):
-        if getattr(after.channel, "id", None) == self.channel_id:
-            self.ambient_rows = deque((after if row.id == after.id else row
-                                       for row in self.ambient_rows), maxlen=100)
+        if self.settings.history_enabled and getattr(after.channel, "id", None) == self.channel_id:
+            self._sync_dialogue_bot()
+            self.dialogue.observe(after)
 
-    async def _load_ambient(self, channel):
+    @commands.Cog.listener()
+    async def on_raw_message_delete(self, payload):
+        if (self.settings.history_enabled and payload.guild_id == self.guild_id
+                and payload.channel_id == self.channel_id):
+            self.dialogue.remove(payload.message_id)
+
+    @commands.Cog.listener()
+    async def on_raw_bulk_message_delete(self, payload):
+        if (self.settings.history_enabled and payload.guild_id == self.guild_id
+                and payload.channel_id == self.channel_id):
+            for message_id in payload.message_ids:
+                self.dialogue.remove(message_id)
+
+    @commands.Cog.listener()
+    async def on_raw_message_edit(self, payload):
+        if (self.settings.history_enabled and payload.guild_id == self.guild_id
+                and payload.channel_id == self.channel_id
+                and isinstance(payload.data, dict) and isinstance(payload.data.get('content'), str)):
+            self.dialogue.edit(payload.message_id, payload.data['content'], payload.data.get('mentions', ()))
+
+    async def _warm_start(self, channel):
         """One bounded warm start; failure never blocks a question or triggers retries."""
-        if self.ambient_loaded or not self.settings.history_enabled:
+        if self.warm_started or not self.settings.history_enabled:
             return
-        self.ambient_loaded = True
+        self.warm_started = True
         if not callable(getattr(channel, "history", None)):
             return
         try:
             async def collect():
                 return [row async for row in channel.history(limit=100, oldest_first=False)]
             rows = await asyncio.wait_for(collect(), timeout=3)
-            # Preserve messages delivered while the REST request was in flight.
-            merged = {row.id: row for row in rows + list(self.ambient_rows)}
-            self.ambient_rows = deque(sorted(merged.values(), key=lambda row: row.id)[-100:], maxlen=100)
+            self._sync_dialogue_bot()
+            for row in reversed(rows):
+                self.dialogue.observe(row, historical=True)
         except Exception as exc:
             logger.info("Ambient warm start skipped (%s)", type(exc).__name__)
 
@@ -189,19 +253,23 @@ class AssistantCog(commands.Cog, name="Asistente"):
                 return await scan_history(ctx.channel, word, now=datetime.now(timezone.utc))
             try:
                 async with ctx.typing():
-                    await self._load_ambient(ctx.channel)
-                    channel_context = ambient(list(self.ambient_rows), now=datetime.now(timezone.utc),
-                                              max_chars=6000, window=100, max_age_days=3) \
+                    await self._warm_start(ctx.channel)
+                    self._sync_dialogue_bot()
+                    message = self._invocation_message(ctx, question)
+                    # The current invocation is separate, not duplicated as old chat.
+                    if self.settings.history_enabled:
+                        self.dialogue.observe(message)
+                    channel_context = self.dialogue.render(current_message=message) \
                         if self.settings.history_enabled and not web else ""
-                    if self.curator is not None and not web:
-                        channel_context += "\n" + self.curator.digest()
+                    invocation = self.dialogue.invocation(message, question) if not web else None
+                    notes = self.curator.digest() if self.curator is not None and not web else ""
                     result = await asyncio.wait_for(self.agent.answer(question, get_metrics, web,
-                        conversation_key=(ctx.guild.id, ctx.channel.id, ctx.author.id),
+                        conversation_key=(ctx.guild.id, ctx.channel.id),
                         query_data=query_data,
                         history_search=history_lookup if self.settings.history_enabled else None,
-                        ambient_digest=channel_context),
+                        ambient_digest=notes, dialogue_context=channel_context, invocation=invocation),
                         timeout=self.answer_timeout)
-                await ctx.send(result, allowed_mentions=discord.AllowedMentions.none())
+                await self._reply(ctx, result)
             except AssistantError as exc:
                 self.cooldowns.get_bucket(ctx.message).reset()
                 await ctx.send(str(exc), allowed_mentions=discord.AllowedMentions.none())
@@ -228,16 +296,10 @@ class AssistantCog(commands.Cog, name="Asistente"):
 
     @commands.command(name="olvidar", aliases=["resetboton"])
     async def forget(self, ctx):
-        """Reset opcional de RAM por ID; no borra recuerdos compartidos por nombre."""
+        """Compatibility notice: there are no individual Discord chat sessions."""
         if self.in_scope(ctx):
-            if self.lock.locked():
-                # Never hang !olvidar behind an in-flight query: it just waits on
-                # the same lock today, which looks like "the bot is stuck".
-                await ctx.send("Tengo una consulta en curso; mandá !olvidar de nuevo en un momento.")
-                return
-            async with self.lock:
-                self.agent.memory.forget((ctx.guild.id, ctx.channel.id, ctx.author.id))
-            await ctx.send("Reinicié sólo tu conversación corta en RAM. No borré el contexto ni los recuerdos del canal.",
+            await ctx.send("Ahora la conversación es compartida por canal, no un chat por usuario. "
+                           "Este comando antiguo no borra el diálogo ni los recuerdos del grupo.",
                            allowed_mentions=discord.AllowedMentions.none())
 
     @commands.command(name="botonmemoria")
@@ -275,8 +337,9 @@ class AssistantCog(commands.Cog, name="Asistente"):
             await ctx.send("Botón: " + ", ".join(tools) + ".\n"
                 "Web: fuentes verificadas; no recibe el contexto privado del canal.\n"
                 "Historial: hasta 1000 mensajes / 30 días, 12 coincidencias; puedo reformular la búsqueda.\n"
-                "Contexto: hasta 100 mensajes recientes, compactados; no sólo menciones.\n"
-                "Memoria corta: últimos 10 mensajes, por persona/canal; RAM, vence tras 30 min.\n"
+                "Diálogo compartido: hasta 100 mensajes, con autores, nuestras respuestas y replies. "
+                "Prioridad a los últimos 24 turnos de la última hora.\n"
+                "No hay sesiones separadas por usuario: todos comparten el contexto de este canal.\n"
                 f"Memoria persistente del canal: {persistent}. !botonmemoria muestra recuerdos y uso del curador.\n"
                 "Límites: anti-spam 3 segundos; hasta 6 pasos de modelo y 4 herramientas por pregunta. "
                 "400 llamadas/día; web 20/día y 600/mes. Sin ejecutar código ni cambiar estadísticas.\n"

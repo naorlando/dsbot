@@ -10,7 +10,11 @@ Uso rápido: `!topvoice week` muestra el ranking de voz semanal; `!topgamers wee
 
 Las respuestas web muestran citas textuales verificadas y sus enlaces: no se publican hechos redactados por el modelo sin soporte. Si falta fecha del partido o tipo de dólar, pregunta primero. Cada búsqueda es independiente del tema anterior. El pasaporte argentino se consulta en el tarifario oficial actual, sin precios hardcodeados ni interpretación del modelo. No busca ni reúne datos personales en Dateas.
 
-Memoria: últimos 10 mensajes de la conversación con cada persona en cada canal; sólo RAM, vence tras 30 minutos sin uso y se pierde al reiniciar. No guarda resultados privados de métricas. `!olvidar` / `!resetboton` borra tu memoria. `!botonestado` muestra herramientas habilitadas y límites sin llamar al modelo.
+Memoria: diálogo compartido del canal, hasta 100 mensajes con autores, respuestas
+de Botón y referencias; sólo RAM, se pierde al reiniciar. No hay un chat separado
+por usuario. `!olvidar` / `!resetboton` sólo avisa que el contexto es compartido:
+no borra el diálogo ni los recuerdos del grupo. `!botonestado` muestra herramientas
+habilitadas y límites sin llamar al modelo.
 
 ## Leyenda
 

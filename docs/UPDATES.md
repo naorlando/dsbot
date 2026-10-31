@@ -16,7 +16,7 @@
 - `!buscar` fuerza una búsqueda; con Tavily conectado, también puede elegir buscar desde una pregunta normal y responder con enlaces reales de las fuentes.
 - Consulta comandos, capacidades y novedades de la versión desplegada. No tiene acceso libre al código, archivos privados ni terminal.
 - Nunca mezcla métricas y web en una misma consulta. El buscador recibe sólo la pregunta original, no consultas inventadas por el modelo.
-- Pide aclaraciones cuando falta información. Mantiene hasta 10 mensajes por persona/canal en RAM, con vencimiento de 30 minutos, sin guardar resultados privados de métricas; `!olvidar` los borra.
+- Pide aclaraciones cuando falta información. Mantiene un diálogo compartido por canal de hasta 100 mensajes en RAM, con autores, respuestas propias y replies; `!olvidar` ya no borra ese contexto.
 - `!botonestado` muestra capacidades reales sin consumir el modelo. Harness con argumentos validados, tres llamadas de modelo y dos herramientas por pedido, sin fallback pago.
 
 ## 2026-10-01 · Deploy inteligente y asistente opcional

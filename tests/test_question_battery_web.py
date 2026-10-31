@@ -191,7 +191,7 @@ class QuestionBatteryTests(unittest.IsolatedAsyncioTestCase):
         with patch("core.assistant.provider_key", return_value=""):
             answer = await self.agent.answer("a que esta el dolar oficial",
                                              lambda **a: self.fail("no metrics"), web=True)
-        self.assertIn("no pasó la verificación", answer)
+        self.assertIn("fuentes", answer.lower())
         self.assertNotIn("$1.240", answer)
         self.assertNotIn("$1.180", answer)
         self.assertEqual(self.agent.completion.await_count, 2)

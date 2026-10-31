@@ -146,7 +146,8 @@ class RetrievalTests(unittest.IsolatedAsyncioTestCase):
             {'content': 'Argentina ganó Mundial 2018'},
             {'content': 'Argentina ganó Mundial 2018'}])
         result = await self.agent.answer('que paso el 9 de diciembre de 2018', lambda **a: {})
-        self.assertIn('no voy a publicar datos inventados', result)
+        self.assertIn('fuentes', result.lower())
+        self.assertIn('https://example.com', result)
         self.assertNotIn('Argentina ganó', result)
         self.assertEqual(self.agent.completion.await_count, 3)
         self.agent.search.assert_awaited_once()

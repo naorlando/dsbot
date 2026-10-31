@@ -51,7 +51,7 @@ class CogTests(unittest.IsolatedAsyncioTestCase):
         await self.cog.respond(self.ctx, "hola")
         await self.cog.respond(self.ctx, "web", web=True)
         self.cog.agent.answer.assert_awaited_once()
-        self.assertEqual(self.cog.agent.answer.call_args.kwargs["conversation_key"], (10, 20, 1))
+        self.assertEqual(self.cog.agent.answer.call_args.kwargs["conversation_key"], (10, 20))
         allowed = self.ctx.send.call_args_list[0].kwargs["allowed_mentions"]
         self.assertFalse(allowed.everyone)
         self.assertFalse(allowed.users)
@@ -88,9 +88,11 @@ class CogTests(unittest.IsolatedAsyncioTestCase):
         key = (10, 20, 1)
         self.cog.agent.memory.remember(key, "hola", "hola")
         await self.cog.forget.callback(self.cog, self.ctx)
-        self.assertEqual(self.cog.agent.memory.read(key), [])
+        # The legacy per-user reset is a notice now: shared dialogue is untouched.
+        self.assertTrue(self.cog.agent.memory.read(key))
+        self.assertIn("compartida por canal", self.ctx.send.call_args.args[0])
         await self.cog.status.callback(self.cog, self.ctx)
-        self.assertIn("últimos 10 mensajes", self.ctx.send.call_args.args[0])
+        self.assertIn("todos comparten el contexto", self.ctx.send.call_args.args[0])
         self.cog.agent.answer.assert_not_called()
 
     async def test_forget_wrong_scope_does_not_clear(self):

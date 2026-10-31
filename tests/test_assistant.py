@@ -213,7 +213,7 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(answer, "Jugaste 10 minutos.")
         first, second = self.agent.completion.await_args_list
         self.assertEqual(first.kwargs.get("entry"), router)
-        self.assertEqual(first.kwargs.get("tool_choice"), "required")
+        self.assertEqual(first.kwargs.get("tool_choice"), "auto")
         self.assertIsNone(second.kwargs.get("entry"))
 
     async def test_router_judge_fails_open_to_main_chain(self):
@@ -413,7 +413,8 @@ class AgentTests(unittest.IsolatedAsyncioTestCase):
         # After the search, private tools leave the menu; the nudged model can't
         # publish a claim without evidence, so the unverifiable "Ok" gets the
         # friendly verification mask instead of tool-speak or an error.
-        self.assertIn("no pasó la verificación", answer)
+        self.assertIn("fuentes", answer.lower())
+        self.assertIn("https://example.com", answer)
         self.assertEqual(hits, [])
 
     async def test_search_cannot_repeat_even_with_empty_results(self):

@@ -27,8 +27,38 @@ class PersonaStyleTests(unittest.TestCase):
         self.assertTrue(hits, "El SYSTEM debería mencionar banter/juego/bardeo en alguna forma")
 
     def test_bans_internal_state_talk(self):
-        # Prohibición explícita de hablar de estado interno / herramientas.
-        self.assertIn("no tengo herramientas", SYSTEM)
+        # Prohibición de hablar de estado interno / herramientas / planificación.
+        lower = SYSTEM.lower()
+        hits = [w for w in ("estado interno", "planificación", "planificacion", "proceso",
+                            "planificar") if w in lower]
+        self.assertTrue(hits, "El SYSTEM debería prohibir hablar de estado interno o planificación")
+        self.assertIn("no anuncies", lower)
+
+    def test_prompt_is_one_shared_conversation_not_per_user_chats(self):
+        lower = SYSTEM.lower()
+        self.assertIn("diálogo", lower)
+        self.assertIn("reciente", lower)
+        for phrase in ("tu conversación con", "cada persona tiene su", "sesión por usuario",
+                       "chat individual"):
+            self.assertNotIn(phrase, lower)
+
+    def test_prompt_has_no_case_recipes_or_hardcoded_examples(self):
+        lower = SYSTEM.lower()
+        for phrase in ("cumpleaños", "cumpleanos", "dólar", "dolar", "boca", "river",
+                       "league of legends", "wire", "tomi", "pino"):
+            self.assertNotIn(phrase, lower)
+
+    def test_prompt_keeps_privacy_and_web_boundaries(self):
+        lower = SYSTEM.lower()
+        self.assertIn("no reveles secretos", lower)
+        self.assertIn("pedido público", lower)
+        self.assertIn("no ejecutás", lower)
+
+    def test_prompt_forbids_targeting_protected_traits(self):
+        lower = SYSTEM.lower()
+        for trait in ("religión", "etnia", "género", "sexualidad", "salud"):
+            self.assertIn(trait, lower)
+        self.assertIn("identidades", lower)
 
     def test_asks_for_corazonada_when_no_data(self):
         self.assertIn("corazonada", SYSTEM.lower())
@@ -48,9 +78,8 @@ class PersonaStyleTests(unittest.TestCase):
         )
 
     def test_prompt_reasonable_length(self):
-        # Hoy el SYSTEM mide ~2228 chars. Empado el test en 2500 para que corra HOY
-        # y que un patch de voz exageradamente largo quede detectado igual.
-        self.assertLessEqual(len(SYSTEM), 2500)
+        # Presupuesto del SYSTEM: compacto para dejar lugar al diálogo real.
+        self.assertLessEqual(len(SYSTEM), 2400)
         self.assertGreaterEqual(len(SYSTEM), 200)
 
 

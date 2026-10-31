@@ -123,16 +123,16 @@ pregunta; 600 tokens de salida para conversación y 1000 para seleccionar eviden
 Hasta una reparación de formato/evidencia, dentro del máximo de 3 llamadas de modelo;
 sin reintentos de red ni de HTTP 429. Hay además un máximo de 20 llamadas de modelo
 en una ventana móvil de 60 segundos. Los errores no consumen un cooldown adicional.
-Memoria conversacional: últimos 10 mensajes (usuario y Botón juntos), por persona,
-servidor y canal, en RAM. Vence tras 30 minutos sin uso, máximo 64 conversaciones y
-800 caracteres por mensaje. Reiniciar/deployar la borra. Los resultados privados
-de métricas se reemplazan por una nota sin cifras/nombres. No persiste llamadas de
-herramientas ni claves. Las búsquedas nuevas no reciben historial y sus respuestas no
-se conservan como hechos: cada consulta web requiere evidencia nueva. `!olvidar` borra
-la memoria propia sin gastar API.
+Memoria conversacional: un diálogo compartido por servidor y canal, con hasta 100
+mensajes (humanos, invocaciones y respuestas de Botón), autor, hora y referencia
+al mensaje respondido, en RAM. Los últimos 24 turnos de la última hora tienen
+prioridad; lo anterior queda como antecedente. Reiniciar/deployar la borra. No hay
+un chat separado por persona. Las búsquedas nuevas no reciben ese historial y sus
+respuestas no se conservan como hechos: cada consulta web requiere evidencia nueva.
+`!olvidar` ya no borra memoria; sólo avisa que el contexto es compartido.
 Las aclaraciones pendientes no se guardan aparte: `ask_clarification` es una tool
-más en el menú (sólo turno 0) y la continuidad queda en la memoria conversacional
-normal, que vence tras 30 minutos. La protección doxxing (dateas/IP/DNI/domicilio)
+más en el menú (sólo turno 0) y la continuidad queda en el diálogo compartido
+del canal. La protección doxxing (dateas/IP/DNI/domicilio)
 es la única decisión del harness: rechaza en frío sin gastar modelo ni guardar nada.
 Los contadores se guardan atómicamente antes de enviar cada llamada. Si el archivo
 está corrupto o no se puede guardar, se bloquean nuevas llamadas. Sólo una réplica:

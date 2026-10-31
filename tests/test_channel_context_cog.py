@@ -31,28 +31,29 @@ class ChannelCogTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_every_human_message_can_enter_context_without_a_mention(self):
         for i in range(130):
-            await self.cog.on_message(self.message(id=i))
-        self.assertEqual(len(self.cog.ambient_rows), 100)
-        self.assertEqual(self.cog.ambient_rows[0].id, 30)
+            await self.cog.on_message(self.message(id=i + 1, content=f"turno_{i}_completo"))
+        text = self.cog.dialogue.render()
+        self.assertIn("turno_129_completo", text)
+        self.assertNotIn("turno_0_completo", text)
         self.assertIsNone(self.cog.curator)
         self.assertFalse(self.cog.channel_memory_enabled)
 
-    async def test_commands_bots_and_other_scopes_never_enter_context(self):
-        for msg in [self.message(content="!boton hola"), self.message(bot=True),
+    async def test_admin_commands_other_bots_and_other_scopes_never_enter_context(self):
+        for msg in [self.message(content="!olvidar"), self.message(bot=True),
                     self.message(guild=99), self.message(channel=99)]:
             await self.cog.on_message(msg)
-        self.assertFalse(self.cog.ambient_rows)
+        self.assertFalse(self.cog.dialogue.render())
         self.bot.guilds.append(SimpleNamespace(id=11))
         await self.cog.on_message(self.message())
-        self.assertFalse(self.cog.ambient_rows)
+        self.assertFalse(self.cog.dialogue.render())
 
     async def test_edit_and_delete_update_the_prompt_buffer(self):
         await self.cog.on_message(self.message())
         updated = self.message(content="nuevo texto")
         await self.cog.on_message_edit(self.message(), updated)
-        self.assertEqual(self.cog.ambient_rows[0].content, "nuevo texto")
+        self.assertIn("nuevo texto", self.cog.dialogue.render())
         await self.cog.on_message_delete(updated)
-        self.assertFalse(self.cog.ambient_rows)
+        self.assertFalse(self.cog.dialogue.render())
 
     async def test_warm_start_fetches_at_most_100_once_and_merges_live_messages(self):
         rows = [self.message(id=i) for i in range(100)]
@@ -63,12 +64,12 @@ class ChannelCogTests(unittest.IsolatedAsyncioTestCase):
                 yield row
 
         channel.history = Mock(side_effect=history)
-        await self.cog.on_message(self.message(id=101))
-        await self.cog._load_ambient(channel)
-        await self.cog._load_ambient(channel)
+        await self.cog.on_message(self.message(id=101, content="mensaje_en_vivo"))
+        await self.cog._warm_start(channel)
+        await self.cog._warm_start(channel)
         channel.history.assert_called_once_with(limit=100, oldest_first=False)
-        self.assertEqual(len(self.cog.ambient_rows), 100)
-        self.assertEqual(self.cog.ambient_rows[-1].id, 101)
+        self.assertTrue(self.cog.dialogue.contains(101))
+        self.assertIn("mensaje_en_vivo", self.cog.dialogue.render())
 
     async def test_opt_in_curator_observes_messages_and_is_not_run_in_listener(self):
         self.cog.curator = ChannelCurator(self.path / "curator.json", min_messages=2)
@@ -90,7 +91,7 @@ class ChannelCogTests(unittest.IsolatedAsyncioTestCase):
         await callback([], [])
         self.cog.agent.completion.assert_awaited_once_with([], [], total=18, max_tokens=1600)
 
-    async def test_legacy_reset_only_clears_id_scoped_short_memory_not_shared_context(self):
+    async def test_legacy_reset_is_a_notice_and_preserves_shared_dialogue_and_ledger(self):
         ledger = BanterLedger(self.path / "banter.json")
         ledger.add("Jugador1", "apostó al equipo azul")
         ledger.add("Jugador2", "apostó al equipo verde")
@@ -103,8 +104,9 @@ class ChannelCogTests(unittest.IsolatedAsyncioTestCase):
         await self.cog.forget.callback(self.cog, ctx)
         self.assertTrue(ledger.recall("Jugador1"))
         self.assertTrue(ledger.recall("Jugador2"))
-        self.assertFalse(self.cog.agent.memory.read((10, 20, 1)))
-        self.assertTrue(self.cog.ambient_rows)
+        # There is no per-user chat to erase: the shared pool survives the old command.
+        self.assertTrue(self.cog.agent.memory.read((10, 20, 1)))
+        self.assertTrue(self.cog.dialogue.render())
         self.assertEqual(self.cog.curator.pending_count, 1)
 
     async def test_saved_notes_command_is_scoped_and_does_not_call_a_model(self):

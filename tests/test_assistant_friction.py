@@ -226,11 +226,11 @@ class FrictionTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.wait_for(first, timeout=5)     # would hang forever on deadlock
         self.assertFalse(self.cog.lock.locked())
 
-    async def test_forget_does_not_hang_behind_inflight_query(self):
+    async def test_forget_never_waits_on_inflight_query_and_does_not_clear_shared_state(self):
         self.cog.agent = SimpleNamespace(answer=AsyncMock(), memory=SimpleNamespace(forget=lambda key: None))
         async with self.cog.lock:
-            await self.cog.forget.callback(self.cog, self.ctx)
-        self.assertIn("consulta en curso", self.ctx.send.call_args.args[0])
+            await asyncio.wait_for(self.cog.forget.callback(self.cog, self.ctx), timeout=1)
+        self.assertIn("compartida por canal", self.ctx.send.call_args.args[0])
         self.assertFalse(self.cog.lock.locked())
 
     async def test_fence_coherent_with_provider_caps(self):
