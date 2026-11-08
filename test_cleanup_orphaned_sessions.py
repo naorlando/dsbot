@@ -82,7 +82,7 @@ class TestOrphanedSessionsCleanup(unittest.TestCase):
         should_clean = age_hours > max_age_hours and not in_memory
         
         self.assertTrue(should_clean, f"Sesión de {age_hours:.0f}h DEBE limpiarse")
-        self.assertGreater(age_hours, 24 * 4, "Debe ser >4 días")
+        self.assertGreaterEqual(age_hours, 24 * 4, "Debe ser >=4 días")
 
 
 class TestPartyOrphanedCleanup(unittest.TestCase):

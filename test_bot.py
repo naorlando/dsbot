@@ -852,7 +852,7 @@ class TestCommandProcessing(unittest.TestCase):
         
         # Leer el archivo directamente sin importarlo
         events_path = os.path.join(os.path.dirname(__file__), 'cogs', 'events.py')
-        with open(events_path, 'r') as f:
+        with open(events_path, 'r', encoding='utf-8') as f:
             source = f.read()
         
         # Verificar que NO contiene process_commands en on_message
@@ -884,7 +884,7 @@ class TestCommandProcessing(unittest.TestCase):
         
         # Leer el archivo
         events_path = os.path.join(os.path.dirname(__file__), 'cogs', 'events.py')
-        with open(events_path, 'r') as f:
+        with open(events_path, 'r', encoding='utf-8') as f:
             source = f.read()
         
         # Verificar que existe @commands.Cog.listener() antes de on_message
@@ -1116,7 +1116,7 @@ class TestConnectionTracking(unittest.TestCase):
         
         # Leer events.py
         events_path = os.path.join(os.path.dirname(__file__), 'cogs', 'events.py')
-        with open(events_path, 'r') as f:
+        with open(events_path, 'r', encoding='utf-8') as f:
             source = f.read()
         
         # Verificar que tiene los milestones definidos
@@ -1134,7 +1134,7 @@ class TestConnectionTracking(unittest.TestCase):
         import os
         
         dto_path = os.path.join(os.path.dirname(__file__), 'core', 'session_dto.py')
-        with open(dto_path, 'r') as f:
+        with open(dto_path, 'r', encoding='utf-8') as f:
             source = f.read()
         
         self.assertIn('save_connection_event', source,
@@ -1148,7 +1148,7 @@ class TestConnectionTracking(unittest.TestCase):
         
         # Leer embeds.py
         embeds_path = os.path.join(os.path.dirname(__file__), 'stats', 'embeds.py')
-        with open(embeds_path, 'r') as f:
+        with open(embeds_path, 'r', encoding='utf-8') as f:
             source = f.read()
         
         # Verificar que existe la función
@@ -1162,7 +1162,7 @@ class TestConnectionTracking(unittest.TestCase):
         import os
         
         commands_path = os.path.join(os.path.dirname(__file__), 'stats', 'commands', 'user.py')
-        with open(commands_path, 'r') as f:
+        with open(commands_path, 'r', encoding='utf-8') as f:
             source = f.read()
         
         self.assertIn("@bot.command(name='stats'", source, "Debe existir comando stats")
@@ -1591,7 +1591,7 @@ class TestVoiceMoveNotificationLogic(unittest.TestCase):
         from core.voice_session import VoiceSession
         
         # Simular sesión no confirmada
-        session = VoiceSession('123', 'TestUser', 'Channel A', 1)
+        session = VoiceSession('123', 'TestUser', channel_id=1, channel_name='Channel A', guild_id=10)
         session.is_confirmed = False
         
         # Verificar que la sesión no está confirmada
@@ -1612,7 +1612,7 @@ class TestVoiceMoveNotificationLogic(unittest.TestCase):
         from datetime import datetime, timedelta
         
         # Simular sesión confirmada (más de 10s)
-        session = VoiceSession('123', 'TestUser', 'Channel A', 1)
+        session = VoiceSession('123', 'TestUser', channel_id=1, channel_name='Channel A', guild_id=10)
         session.is_confirmed = True
         session.start_time = datetime.now() - timedelta(seconds=15)
         
@@ -1630,7 +1630,7 @@ class TestVoiceMoveNotificationLogic(unittest.TestCase):
         from core.voice_session import VoiceSession
         
         # Simular sesión confirmada
-        session = VoiceSession('123', 'TestUser', 'Channel A', 1)
+        session = VoiceSession('123', 'TestUser', channel_id=1, channel_name='Channel A', guild_id=10)
         session.is_confirmed = True
         
         # Capturar estado antes de "finalizar"
