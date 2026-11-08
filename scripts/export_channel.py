@@ -83,12 +83,26 @@ async def main():
                         break
                 content = message.get("content") or ""
                 author = message.get("author") or {}
-                if content.strip():
+                reference = message.get("message_reference") or {}
+                if content.strip() or message.get("embeds") or message.get("attachments"):
                     out.append({
+                        "id": str(message.get("id") or ""),
                         "ts": message.get("timestamp"),
+                        "edited_ts": message.get("edited_timestamp"),
                         "author": author.get("username"),
+                        "author_id": str(author.get("id") or ""),
                         "bot": bool(author.get("bot")),
                         "content": content,
+                        "reply_to": str(reference.get("message_id") or "") or None,
+                        "mentions": [str(user.get("id")) for user in message.get("mentions", [])
+                                     if isinstance(user, dict) and user.get("id")],
+                        "embeds": [{"type": embed.get("type"), "url": embed.get("url"),
+                                    "title": embed.get("title")}
+                                   for embed in message.get("embeds", []) if isinstance(embed, dict)],
+                        "attachments": [{"filename": item.get("filename"),
+                                         "content_type": item.get("content_type"),
+                                         "size": item.get("size")}
+                                        for item in message.get("attachments", []) if isinstance(item, dict)],
                     })
             if days_limit is not None and len(batch) > 0:
                 first_ms = ((int(batch[-1]["id"]) >> 22) + 1420070400000) / 1000
