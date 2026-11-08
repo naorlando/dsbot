@@ -77,6 +77,14 @@ class PersonaStyleTests(unittest.TestCase):
             "El SYSTEM debería tener voz rioplatense (voseo o 'rioplatense')",
         )
 
+    def test_prompt_forbids_false_actions_and_requires_history_tool(self):
+        lower = SYSTEM.lower()
+        self.assertIn("ya lo hice", lower)
+        self.assertIn("search_channel_history", lower)
+        self.assertIn("insulto", lower)
+        self.assertIn("autor", lower)
+        self.assertIn("no atribuyas", lower)
+
     def test_prompt_reasonable_length(self):
         # Presupuesto del SYSTEM: compacto para dejar lugar al diálogo real.
         self.assertLessEqual(len(SYSTEM), 2400)

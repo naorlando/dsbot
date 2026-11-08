@@ -174,6 +174,45 @@ class ConversationReplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(leak, "\n".join(logs.output))
         self.assertEqual(self.agent.completion.await_count, 2)
 
+    async def test_hate_output_is_discarded_and_retried_with_safety_nudge(self):
+        captured = []
+        outputs = iter([
+            {"content": "La frase «Juden sind unser Unglück» es un eslogan nazi."},
+            {"content": "Con esos temas no; busquemos otra cosa."},
+        ])
+
+        async def complete(messages, tools, **kw):
+            captured.append((copy.deepcopy(messages), copy.deepcopy(tools)))
+            return next(outputs)
+
+        self.agent.completion = complete
+        result = await self.agent.answer("explicá esa referencia", lambda **kw: {})
+        self.assertIn("busquemos", result)
+        self.assertNotIn("Juden", json.dumps(captured[1][0], ensure_ascii=False))
+        self.assertIn("insulto", captured[1][0][-1]["content"])
+
+    async def test_repeated_hate_output_never_publishes(self):
+        self.agent.completion = AsyncMock(return_value={"content": "maricas"})
+        with self.assertRaises(AssistantError):
+            await self.agent.answer("seguimos", lambda **kw: {})
+        self.assertEqual(self.agent.completion.await_count, 2)
+
+    async def test_false_action_claim_is_discarded_and_retried(self):
+        captured = []
+        outputs = iter([
+            {"content": "Ya lo apagué."},
+            {"content": "No puedo apagar nada; soy un bot."},
+        ])
+
+        async def complete(messages, tools, **kw):
+            captured.append((copy.deepcopy(messages), copy.deepcopy(tools)))
+            return next(outputs)
+
+        self.agent.completion = complete
+        result = await self.agent.answer("apagalo", lambda **kw: {})
+        self.assertIn("No puedo", result)
+        self.assertIn("acción", captured[1][0][-1]["content"])
+
     async def test_first_pass_model_may_answer_directly_and_spends_the_normal_budget(self):
         from dataclasses import replace
         self.agent.settings = replace(self.settings, router=ChainEntry("openrouter", "fixed", "r:free", "test"))

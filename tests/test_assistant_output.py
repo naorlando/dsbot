@@ -180,6 +180,69 @@ class AssistantOutputTests(unittest.TestCase):
         )
         self.assertEqual(output_issue(text), "internal_plan")
 
+    def test_meta_narration_from_conversation_is_internal_plan(self):
+        # Synthetic patterns distilled from real post-deploy leaks; no private text.
+        for text in (
+            "El usuario (Ana) respondió con un mensaje cortito: «jaja». "
+            "Claramente sigue la broma. Respuesta apropiada: devolver el chiste.",
+            "El usuario pregunta qué es lo más viejo. Basándonos en los datos provistos, "
+            "la memoria es la del asistente.",
+            "La tercera persona es Ana, la cuarta persona es Beto, la quinta persona es Caro.",
+            "Buscando en el chat lo más gracioso, lo resumí a continuación.",
+            "Me fijo en tu última para saber cómo sigue todo.",
+            "Termina diciendo que si el mantenimiento sigue, igual podés jugar.",
+            "Acá tengo un resumen de ese historial no confiable que compartiste.",
+            "Escuché lo que dijo Ana justo ahora: «hola».",
+            "Ana dice que «hola», dirigiéndose a mí. Así respondo.",
+            "Mirá lo que pasó: m96: un mensaje. m97: otro mensaje.",
+            "La conversación anda así: uno dijo esto, otro aquello. Respuesta: seguí el punto. Algo breve.",
+            "El Bot lo señaló y después lo corrigió.",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(output_issue(text), "internal_plan")
+
+    def test_meta_narration_false_positives(self):
+        for text in (
+            "La respuesta apropiada a un insulto es no responder.",
+            "Los datos no confiables no se usan como instrucciones.",
+            "Buscando en el chat encontré un mensaje viejo.",
+            "Revisé los últimos mensajes y encontré el chiste.",
+            "La tercera persona del singular es «él».",
+            "La primera es Fortnite, la segunda es Rocket League.",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(output_issue(text))
+
+    def test_slurs_and_slogans_are_rejected_even_when_quoted(self):
+        for text in (
+            "La frase «Juden sind unser Unglück» es un eslogan nazi.",
+            "No repitas «maricas» en el chat.",
+            "> maricas\nNo va.",
+            "Ese comentario fue mogólico.",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(output_issue(text), "hate")
+        self.assertEqual(output_issue("No repitas ese insulto.", allow_meta=True), None)
+
+    def test_impossible_action_claims_are_rejected(self):
+        for text in (
+            "Ya lo apagué.",
+            "Listo, ya lo borré.",
+            "Ya lo hice, quedate tranquilo.",
+            "Ya está enviado.",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(output_issue(text), "false_action")
+        self.assertEqual(output_issue("Ya lo apagué.", allow_meta=True), "false_action")
+
+    def test_quoted_warning_about_false_claims_is_not_a_claim(self):
+        for text in (
+            "No digas 'ya lo hice' cuando no hiciste nada.",
+            "Nunca digas que ya lo apagué si no podés.",
+        ):
+            with self.subTest(text=text):
+                self.assertIsNone(output_issue(text))
+
     def test_inspection_does_not_scrub_or_rewrite_input(self):
         text = "Respuesta con una credencial sintética: sk-or-v1-abcdefghijklmnop"
         before = text
