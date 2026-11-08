@@ -75,26 +75,34 @@ def _game_records(data, member_uids):
     return index
 
 
-def day_digest(data, member_names, now=None):
+def day_digest(data, member_names, now=None, day=None):
     """Facts for the nightly digest; same privacy rules as query_stats.
 
-    Returns None when nothing was tracked that day, so the caller can skip.
+    `day` is the stats bucket to summarize (usually a UTC date), while `now`
+    supplies the weekday label. Returns None when nothing was tracked that day.
     """
     if not isinstance(data, dict) or not isinstance(member_names, dict):
         raise ValueError
     now = now or datetime.now()
-    day = now.strftime("%Y-%m-%d")
+    day = now.strftime("%Y-%m-%d") if day is None else day
+    if not isinstance(day, str) or not _DATE_PATTERN.fullmatch(day):
+        raise ValueError
+    datetime.strptime(day, "%Y-%m-%d")  # reject impossible dates such as 2026-13-40
     member_uids = {str(uid) for uid in member_names if str(uid) in data.get("users", {})}
     display = {uid: str(member_names[uid])[:64] for uid in member_uids}
     users = data.get("users", {})
-    games, voice_rows, connection_rows, voice_total, game_total = {}, {}, [], 0.0, 0.0
+    games, game_players, voice_rows, connection_rows = {}, {}, [], []
+    voice_total, game_total = 0.0, 0.0
     for uid in member_uids:
         user = users.get(uid, {})
         for name, record in (user.get("games", {}) if isinstance(user.get("games"), dict) else {}).items():
             if isinstance(name, str) and isinstance(record, dict):
                 minutes = _day_minutes(record, day)
                 if minutes > 0:
-                    games[name[:80]] = games.get(name[:80], 0.0) + minutes
+                    name = name[:80]
+                    games[name] = games.get(name, 0.0) + minutes
+                    game_players.setdefault(name, []).append(
+                        {"member": display[uid], "minutes": minutes})
                     game_total += minutes
         voice = user.get("voice", {})
         if isinstance(voice, dict):
@@ -111,10 +119,16 @@ def day_digest(data, member_names, now=None):
         return None
     top_games = [{"game": name, "minutes": round(minutes, 1)}
                  for name, minutes in sorted(games.items(), key=lambda row: row[1], reverse=True)[:3]]
+    players_by_game = []
+    for row in top_games:
+        players = sorted(game_players.get(row["game"], []),
+                         key=lambda player: player["minutes"], reverse=True)[:3]
+        players_by_game.append({"game": row["game"], "players": players})
     return {"fecha": day,
             "dia": ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")[now.weekday()],
             "minutos_totales_juegos": round(game_total, 1) or "cero",
             "juegos_del_dia": top_games or "ninguno",
+            "jugadores_por_juego": players_by_game or "nadie",
             "minutos_totales_voz": round(voice_total, 1) or "cero",
             "voz_por_miembro": sorted(voice_rows, key=lambda row: row["minutes"], reverse=True)[:3] or "nadie",
             "conexiones_de_hoy": sorted(connection_rows, key=lambda row: row["connections"], reverse=True)[:3] or "nadie se reconectó"}

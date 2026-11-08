@@ -1,7 +1,7 @@
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
-from core.assistant_data import query_stats
+from core.assistant_data import day_digest, query_stats
 
 
 class DataLoader(unittest.TestCase):
@@ -73,6 +73,45 @@ class DataLoader(unittest.TestCase):
                      {"action": "list_games", "date": "2026-10-25"}):
             with self.assertRaises(ValueError):
                 query_stats(self.data, self.member, args, now=self.now)
+
+
+class DigestFactsTests(unittest.TestCase):
+    def setUp(self):
+        # 21:00 ART on Sunday 25 is 00:00 UTC on Monday 26; the digest must read
+        # the UTC bucket 2026-10-25 and label it with the ART weekday.
+        self.now = datetime(2026, 10, 25, 21, 0, tzinfo=timezone(timedelta(hours=-3)))
+        self.member = {"1": "Wire", "2": "Pino"}
+        self.data = {"users": {
+            "1": {"games": {"LoL": {"daily_minutes": {"2026-10-25": 60, "2026-10-26": 5}},
+                            "CS": {"daily_minutes": {"2026-10-25": 20}}}},
+            "2": {"games": {"LoL": {"daily_minutes": {"2026-10-25": 30}}},
+                  "voice": {"daily_minutes": {"2026-10-25": 45}}},
+            "3": {"games": {"LoL": {"daily_minutes": {"2026-10-25": 999}}}},
+            "999": {"games": {"Hidden": {"daily_minutes": {"2026-10-25": 5000}}}}}}
+
+    def test_explicit_day_bucket_and_weekday_from_now(self):
+        facts = day_digest(self.data, self.member, now=self.now, day="2026-10-25")
+        self.assertEqual(facts["fecha"], "2026-10-25")
+        self.assertEqual(facts["dia"], "domingo")
+        self.assertEqual(facts["juegos_del_dia"],
+                         [{"game": "LoL", "minutes": 90.0}, {"game": "CS", "minutes": 20.0}])
+        self.assertEqual(facts["minutos_totales_juegos"], 110.0)
+
+    def test_digest_names_who_played_each_game(self):
+        facts = day_digest(self.data, self.member, now=self.now, day="2026-10-25")
+        players = {row["game"]: row["players"] for row in facts["jugadores_por_juego"]}
+        self.assertEqual(players["LoL"], [{"member": "Wire", "minutes": 60.0},
+                                          {"member": "Pino", "minutes": 30.0}])
+        self.assertEqual(players["CS"], [{"member": "Wire", "minutes": 20.0}])
+        dump = str(facts)
+        self.assertNotIn("999", dump)  # unknown user never enters the digest
+        self.assertNotIn("Hidden", dump)
+
+    def test_no_activity_or_invalid_day(self):
+        self.assertIsNone(day_digest(self.data, self.member, now=self.now, day="2026-10-20"))
+        for day in ("25-10-2026", "2026-13-40", ""):
+            with self.assertRaises(ValueError):
+                day_digest(self.data, self.member, now=self.now, day=day)
 
 
 if __name__ == "__main__":

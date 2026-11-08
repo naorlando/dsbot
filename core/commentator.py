@@ -10,10 +10,9 @@ import json
 import logging
 import re
 
-from datetime import datetime
-
 from core.assistant import (AssistantError, SECRET_PATTERN, chain_post,
                             entry_from_settings)
+from core.assistant_clock import argentina_now
 from core.assistant_trace import event
 
 logger = logging.getLogger("dsbot")
@@ -21,7 +20,7 @@ logger = logging.getLogger("dsbot")
 KINDS = {
     "connection_milestone": "Sepas cuánto se reenganchó a Discord hoy; burlate amistosamente de la cantidad de reconexiones.",
     "party_formed": "Party armada; comentá la hora, el día y el juego con ironía (temprano entre semana, noche de los días, domingo).",
-    "daily_digest": "Resumen del día del servidor: un dato destacado y una lectura libre de la situación, siempre con humor amistoso.",
+    "daily_digest": "Resumen del día del servidor: un dato destacado y una lectura libre de la situación, siempre con humor amistoso. Si los datos traen jugadores, nombralos con el juego y los minutos.",
 }
 
 COMPOSER_PROMPT = """Sos Botón, un participante más de un servidor de amigos en Discord. Redactás avisos de
@@ -48,7 +47,7 @@ def sanitize(text):
     return text[:400] or None
 
 
-TEMPLATE_DIGEST = "📋 Resumen de {dia}: {juegos_min} de juegos ({juegos}) y {voz_min} de voz."
+TEMPLATE_DIGEST = "📋 Resumen de {dia}: {juegos_min} de juegos ({juegos}) y {voz_min} de voz.{jugadores}"
 
 def template_digest(facts):
     """Deterministic fallback when the composer is unavailable. Never invents data."""
@@ -58,9 +57,20 @@ def template_digest(facts):
             games = ", ".join(str(item.get("game", "?")) for item in games[:3])
         if not isinstance(games, str):
             games = ""
+        players = facts.get("jugadores_por_juego") if isinstance(facts, dict) else None
+        lines = []
+        if isinstance(players, list):
+            for row in players[:3]:
+                if not isinstance(row, dict) or not isinstance(row.get("players"), list):
+                    continue
+                names = [str(player.get("member"))[:64] for player in row["players"][:3]
+                         if isinstance(player, dict) and player.get("member")]
+                if names:
+                    lines.append(f" {str(row.get('game', '?'))[:80]}: {', '.join(names)}.")
         return TEMPLATE_DIGEST.format(
             dia=facts.get("dia", "hoy"), juegos_min=facts.get("minutos_totales_juegos", "?"),
-            juegos=games or "sin partidas", voz_min=facts.get("minutos_totales_voz", "?"))[:300]
+            juegos=games or "sin partidas", voz_min=facts.get("minutos_totales_voz", "?"),
+            jugadores="".join(lines))[:300]
     except (AttributeError, KeyError, TypeError, ValueError):
         return "Resumen del día: los datos no pudieron leerse."
 
@@ -73,11 +83,11 @@ class Commentator:
         return self.settings.chain or (entry_from_settings(self.settings),)
 
     def _facts(self, kind, facts, now):
-        now = now or datetime.now()
+        now = argentina_now(now)
         hour = now.strftime("%H:%M")
         weekday = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")[now.weekday()]
         return (f"Tipo de mensaje: {kind}. {KINDS[kind]}\n"
-                f"Hora local: {hour} ({weekday}).\n"
+                f"Hora en Argentina: {hour} ({weekday}).\n"
                 f"Datos reales: {json.dumps(facts, ensure_ascii=False)}")
 
     async def compose(self, kind, facts, now=None):
@@ -89,7 +99,7 @@ class Commentator:
         except AssistantError:
             event('ambient', kind=kind, status='budget')
             return None
-        now = now or datetime.now()
+        now = argentina_now(now)
         payload_for = lambda entry: {  # noqa: E731 - one line per entry, same shape as the assistant
             "model": entry.model, "messages": [
                 {"role": "system", "content": COMPOSER_PROMPT},

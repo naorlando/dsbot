@@ -127,6 +127,24 @@ class TemplateDigestTests(unittest.TestCase):
             except Exception:  # noqa: BLE001
                 self.fail("template_digest must never raise")
 
+    def test_template_names_players_per_game(self):
+        facts = {"dia": "domingo", "minutos_totales_juegos": 110.0,
+                 "juegos_del_dia": [{"game": "LoL", "minutes": 90}],
+                 "jugadores_por_juego": [{"game": "LoL", "players": [
+                     {"member": "Wire", "minutes": 60}, {"member": "Pino", "minutes": 30}]}],
+                 "minutos_totales_voz": 45}
+        text = template_digest(facts)
+        self.assertIn("LoL: Wire, Pino.", text)
+        self.assertLessEqual(len(text), 300)
+
+    def test_template_ignores_malformed_player_rows(self):
+        facts = {"dia": "domingo", "jugadores_por_juego": [
+            "basura", {"game": "LoL", "players": "no"}, {"game": "CS", "players": [
+                {"member": "Wire"}, {"member": None}]}]}
+        text = template_digest(facts)
+        self.assertIn("CS: Wire.", text)
+        self.assertNotIn("None", text)
+
 
 class MaybeComposeTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_or_broken_commentator_returns_none(self):

@@ -160,7 +160,10 @@ Volumen persistente necesario para conservar JSON entre redeploys.
 La telemetría es acotada y desde el último reinicio, no un historial durable.
 Los avisos automáticos son mensajes de servicio (milestones, party, resumen diario),
 no participación en la charla; conservan plantillas si falla el proveedor.
-Resumen diario a `AI_DIGEST_HOUR_UTC` (por defecto 21:00 UTC).
+Resumen diario a `AI_DIGEST_HOUR_ART` (por defecto 21:00 de Argentina). El horario
+se evalúa cada minuto; un reinicio dentro de esa hora puede reenviarlo. La variable
+legada `AI_DIGEST_HOUR_UTC` ya no se usa. El resumen incluye juegos, minutos y, cuando
+los datos lo permiten, qué miembros jugaron cada juego.
 
 ## Verificación sin costo
 

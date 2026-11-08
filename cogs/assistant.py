@@ -13,6 +13,7 @@ import discord
 from discord.ext import commands, tasks
 
 from core.assistant import Assistant, AssistantError, Settings, UsageBudget, metrics, bot_help
+from core.assistant_clock import argentina_now
 from core.channel_dialogue import ChannelDialogue
 from core.assistant_scope import channel_in_scope, public_thread
 from core.assistant_quota import UserDailyQuota, QuotaError
@@ -52,7 +53,9 @@ class AssistantCog(commands.Cog, name="Asistente"):
         self.cooldowns = commands.CooldownMapping.from_cooldown(1, 3, commands.BucketType.user)
         self.session = None
         try:
-            self.digest_hour = int(os.getenv("AI_DIGEST_HOUR_UTC", "21"))
+            # Argentina time, not the host's UTC clock. The old UTC variable is
+            # intentionally ignored: it used to fire at 18:00/18:22 local.
+            self.digest_hour = int(os.getenv("AI_DIGEST_HOUR_ART", "21"))
         except ValueError:
             self.digest_hour = 21
         self.digest_hour = self.digest_hour % 24
@@ -89,9 +92,9 @@ class AssistantCog(commands.Cog, name="Asistente"):
         if self.session:
             await self.session.close()
 
-    @tasks.loop(minutes=30)
+    @tasks.loop(minutes=1)
     async def digest_loop(self):
-        now = datetime.now(timezone.utc)
+        now = argentina_now()
         if now.hour != self.digest_hour:
             return
         key = now.strftime("%Y-%m-%d")
@@ -103,7 +106,11 @@ class AssistantCog(commands.Cog, name="Asistente"):
             return
         members = {str(m.id): m.display_name for m in guild.members if not m.bot}
         try:
-            facts = day_digest(stats, members, now)
+            # Stats buckets are UTC calendar days. The ART date names the bucket
+            # that covers the elapsed ART day; the just-started UTC day would
+            # contain almost no ART activity and make the digest look empty.
+            day = now.strftime("%Y-%m-%d")
+            facts = day_digest(stats, members, now=now, day=day)
             if not facts:
                 self.digest_last = key  # nothing tracked: no digest, no retry noise
                 return
@@ -467,7 +474,7 @@ class AssistantCog(commands.Cog, name="Asistente"):
                 "40 invocaciones por usuario/día; web 20/día y 600/mes. "
                 "Sin ejecutar código ni cambiar estadísticas; con memoria opt-in anota chanzas o apuestas "
                 "explícitas en un ledger acotado. Incluye hilos públicos del canal; privados no.\n"
-                f"Resumen del día automático a las {self.digest_hour:02d}:00 UTC.",
+                f"Resumen del día automático a las {self.digest_hour:02d}:00 (hora de Argentina).",
                 allowed_mentions=discord.AllowedMentions.none())
 
     async def cog_command_error(self, ctx, error):

@@ -28,6 +28,10 @@ _RECENT = "DIÁLOGO RECIENTE (prioridad)\n"
 _BACKGROUND = "ANTECEDENTES (menor prioridad)\n"
 _EMPTY_QUESTION = "Te llaman para sumarte a la conversación actual."
 RECENT_SECONDS = 3600
+# Discord timestamps and the local clock can disagree by fractions of a second.
+# Clamping a live message to "now" made it sort *before* the warm-start rows
+# observed microseconds later, dropping the newest turn from the prompt.
+FUTURE_TOLERANCE_SECONDS = 60
 
 
 def _limit(value, default, maximum, minimum=0):
@@ -142,8 +146,10 @@ class ChannelDialogue:
             if created.tzinfo is None:
                 created = created.replace(tzinfo=timezone.utc)
             timestamp = created.timestamp()
-            # Future-dated input must not retain content indefinitely.
-            return min(timestamp, now) if math.isfinite(timestamp) else None
+            # Future-dated input must not retain content indefinitely, but a
+            # small skew is normal and must not reorder the dialogue.
+            return (timestamp if timestamp <= now + FUTURE_TOLERANCE_SECONDS
+                    else now) if math.isfinite(timestamp) else None
         except (ValueError, OverflowError, OSError):
             return None
 

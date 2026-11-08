@@ -11,6 +11,15 @@ def _utc_now(now=None):
     return instant.astimezone(timezone.utc)
 
 
+def argentina_now(now=None):
+    """Return the same instant in Argentina time, with a deterministic fallback."""
+    utc = _utc_now(now)
+    try:
+        return utc.astimezone(ZoneInfo('America/Argentina/Buenos_Aires'))
+    except ZoneInfoNotFoundError:
+        return utc.astimezone(timezone(timedelta(hours=-3)))
+
+
 def clock_context(now=None):
     """Spanish clock string suitable for SYSTEM and grounded-search prompts.
 
@@ -18,11 +27,7 @@ def clock_context(now=None):
     requires no tzdata dependency (and does not infer the machine timezone).
     """
     utc = _utc_now(now)
-    try:
-        argentina = ZoneInfo('America/Argentina/Buenos_Aires')
-    except ZoneInfoNotFoundError:
-        argentina = timezone(timedelta(hours=-3))
-    local = utc.astimezone(argentina)
+    local = argentina_now(utc)
     weekdays = ('lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo')
     months = ('enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
               'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre')
