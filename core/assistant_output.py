@@ -70,6 +70,7 @@ _META_STRONG = re.compile(
     r"|\b(?:appropriate|suggested)\s+(?:response|reply)\s*:"
     r"|\bthe\s+(?:tone|thread)\s+(?:is|shows|suggests)\b"
     r"|\bm\d{1,3}\s*[|:]"
+    r"|\bm\d{1,3}\b(?=\s+(?:viene|dice|dijo|habla|escribe|responde|menciona|cont[oó]|tira|repite))"
     r"|\brespuesta\s*:"
     r"|\bla\s+conversaci[oó]n\s+anda\s+as[ií]\b"
     r"|\balgo\s+breve\.?\s*$"
@@ -149,6 +150,24 @@ def _message_envelope(text: str) -> bool:
         or isinstance(data.get("function_call"), dict)
         or (data.get("role") == "assistant" and "content" in data)
     )
+
+
+def _normalized_words(text: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9áéíóúñü]+", text.lower()))
+
+
+def echoes_question(answer: object, question: object) -> bool:
+    """True when the model returned the question instead of answering it.
+
+    This is a format check, not a relevance judge: it only catches the exact
+    question (or a near-exact prefix/suffix) coming back as the final message.
+    """
+    if not isinstance(answer, str) or not isinstance(question, str):
+        return False
+    spoken, asked = _normalized_words(answer), _normalized_words(question)
+    if len(asked) < 12 or not spoken:
+        return False
+    return spoken == asked or (len(spoken) <= len(asked) * 1.25 and (spoken in asked or asked in spoken))
 
 
 def output_issue(

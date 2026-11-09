@@ -73,8 +73,9 @@ class ConversationReplayTests(unittest.IsolatedAsyncioTestCase):
         payload = json.dumps(captured[0], ensure_ascii=False)
         self.assertIn("hoy celebramos", payload)
         self.assertIn("¡Feliz cumple! Prendan stream.", payload)
-        self.assertIn("asistente", payload)
+        self.assertIn("Botón", payload)
         self.assertIn("Alba", payload)
+        self.assertIn("PERSONAS DEL CANAL", payload)
         self.assertIn("Bruno", captured[0][-1]["content"])
         self.assertIn("no lo saludaste", captured[0][-1]["content"])
 
@@ -174,6 +175,28 @@ class ConversationReplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(leak, "\n".join(logs.output))
         self.assertEqual(self.agent.completion.await_count, 2)
 
+    async def test_question_echo_is_retried_then_answered(self):
+        question = "busca quien es el mas pollera del discord"
+        captured = []
+        outputs = iter([{"content": question},
+                        {"content": "El más pollera es Pino, sin dudas."}])
+
+        async def complete(messages, tools, **kw):
+            captured.append(copy.deepcopy(messages))
+            return next(outputs)
+
+        self.agent.completion = complete
+        result = await self.agent.answer(question, lambda **kw: {})
+        self.assertIn("Pino", result)
+        self.assertIn("pregunta repetida", captured[1][-1]["content"])
+
+    async def test_repeated_question_echo_never_publishes(self):
+        question = "quien es el mas pollera del discord"
+        self.agent.completion = AsyncMock(return_value={"content": question})
+        with self.assertRaises(AssistantError):
+            await self.agent.answer(question, lambda **kw: {})
+        self.assertEqual(self.agent.completion.await_count, 2)
+
     async def test_hate_output_is_discarded_and_retried_with_safety_nudge(self):
         captured = []
         outputs = iter([
@@ -236,13 +259,14 @@ class ConversationReplayTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([m["role"] for m in wire["messages"]], ["system", "user", "user"])
         self.assertNotIn("Terminó la reunión", wire["messages"][0]["content"])
         data = wire["messages"][1]["content"]
-        self.assertIn("humano", data)
-        self.assertIn("asistente", data)
+        self.assertIn("Alba", data)
+        self.assertIn("Botón", data)
+        self.assertNotIn("humano", data)
         self.assertIn("Terminó la reunión", data)
         self.assertIn("Banco, lo hacemos después de cenar", data)
         current = wire["messages"][-1]["content"]
-        self.assertIn("Autor actual: Bruno", current)
-        self.assertTrue(current.endswith("Mensaje actual: opina"))
+        self.assertIn("Bruno", current)
+        self.assertTrue(current.endswith("opina"))
         self.assertNotIn("!boton opina", data)
         self.assertEqual(wire["tool_choice"], "auto")
         self.assertNotIn("Authorization", wire)

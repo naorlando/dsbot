@@ -154,8 +154,8 @@ async def context_priority():
                 "Recent multi-party dialogue lost authors or content")
         require(all(m["role"] == "user" for m in messages[1:]), "Dialogue must remain quoted user data")
         require("SESION_PERSONAL_VIEJA" not in serialized(messages), "Personal session overrode shared dialogue")
-        require("Autor actual: Bruno" in messages[-1]["content"]
-                and messages[-1]["content"].endswith("Mensaje actual: opina"), "Current invocation must be last")
+        require("Bruno" in messages[-1]["content"]
+                and messages[-1]["content"].endswith("opina"), "Current invocation must be last")
         replay.finished()
 
 
@@ -187,9 +187,9 @@ async def explicit_topic_switch():
         question = "Cambiemos de tema: ¿cuánto es dos más dos?"
         await replay.send(question, "Celia")
         messages = replay.models[-1]["messages"]
-        require(messages[-1]["content"].endswith("Mensaje actual: " + question),
+        require(messages[-1]["content"].endswith(question),
                 "Explicit switch was replaced by a previous task")
-        require("Autor actual: Celia" in messages[-1]["content"], "Switch lost the current speaker")
+        require("Celia" in messages[-1]["content"], "Switch lost the current speaker")
         require("nuevo" in SYSTEM.lower() and "tema" in SYSTEM.lower(), "Prompt lost topic-switch guidance")
         require("Después de cenar sirve." in serialized(messages[:-1]), "Switch erased conversation continuity")
         replay.finished()
@@ -208,8 +208,9 @@ async def own_replies_across_people():
         data = serialized(messages)
         require("Hoy cumple mi amigo" in data and "¡Feliz cumple!" in data,
                 "Second author did not receive the actual preceding bot reply")
-        require("asistente" in data and "Alba" in data and "Bruno" in data, "Roles/authors were lost")
-        require("Responde a Botón: ¡Feliz cumple!" in messages[-1]["content"], "Scoped reply reference was lost")
+        require("Botón" in data and "Alba" in data and "Bruno" in data, "Roles/authors were lost")
+        require("responde a Botón" in messages[-1]["content"]
+                and "¡Feliz cumple!" in messages[-1]["content"], "Scoped reply reference was lost")
         replay.finished()
 
 

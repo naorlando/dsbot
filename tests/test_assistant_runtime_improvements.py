@@ -36,10 +36,10 @@ class ThreadScopeTests(unittest.TestCase):
             self.assertFalse(self.dialogue.observe(message(3, ch, "dato fuera de alcance")))
         text = self.dialogue.render()
         self.assertIn("Nos juntamos", text)
-        self.assertIn("hilo=", text)
+        self.assertIn("[hilo: ", text)
         self.assertIn("partida del viernes", text)
         self.assertNotIn("fuera de alcance", text)
-        self.assertIn("Hilo actual:", self.dialogue.invocation(public, "opiná"))
+        self.assertIn("[hilo: partida del viernes]", self.dialogue.invocation(public, "opiná"))
 
     def test_references_must_stay_inside_actual_thread(self):
         self.dialogue.observe(message(10, content="Botón en el padre", user=99, bot=True))

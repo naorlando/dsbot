@@ -15,6 +15,7 @@ from discord.ext import commands, tasks
 from core.assistant import Assistant, AssistantError, Settings, UsageBudget, metrics, bot_help
 from core.assistant_clock import argentina_now
 from core.channel_dialogue import ChannelDialogue
+from core.member_roster import build_roster, load_aliases
 from core.assistant_scope import channel_in_scope, public_thread
 from core.assistant_quota import UserDailyQuota, QuotaError
 from core.assistant_operations import operations, provider_health
@@ -42,6 +43,9 @@ class AssistantCog(commands.Cog, name="Asistente"):
         # Shared channel dialogue includes summons and our own replies. RAM only;
         # curated durable notes remain a separate, opt-in subsystem.
         self.dialogue = ChannelDialogue(self.guild_id, self.channel_id)
+        # Alias map for real names the group uses ("nico", "nano") that never
+        # appear in Discord. Missing/malformed config simply means no roster.
+        self.member_aliases = load_aliases()
         self.warm_started = False
         self.warm_channels = set()
         self.thread_ids = set()
@@ -331,6 +335,11 @@ class AssistantCog(commands.Cog, name="Asistente"):
                         self.dialogue.observe(message)
                     channel_context = self.dialogue.render(current_message=message) \
                         if self.settings.history_enabled and not web else ""
+                    # Who-is-who is private data too: never mix it with web search.
+                    roster = build_roster(getattr(ctx.guild, "members", ()), self.member_aliases) \
+                        if not web else ""
+                    if roster:
+                        channel_context = roster + ("\n\n" + channel_context if channel_context else "")
                     invocation = self.dialogue.invocation(message, question) if not web else None
                     notes = self.curator.digest() if self.curator is not None and not web else ""
                     result = await asyncio.wait_for(self.agent.answer(question, get_metrics, web,

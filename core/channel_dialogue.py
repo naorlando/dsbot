@@ -2,7 +2,9 @@
 
 Hard bounds: 100 turns, three days, 800 text characters per turn, 500 per reply
 excerpt, 80 per author, and 7,000 per render. Caller limits can lower these.
-Wall-clock expiry never goes backwards, even if the supplied clock does.
+Rendered as a readable Argentina-time chat: recent turns first, then whatever
+older context fits without half-sentences. Wall-clock expiry never goes
+backwards, even if the supplied clock does.
 """
 
 import json
@@ -18,6 +20,7 @@ from types import SimpleNamespace
 from core.assistant_secrets import SECRET_PATTERN
 from core.assistant_scope import channel_in_scope, public_thread
 from core.assistant_privacy import scrub_private
+from core.assistant_clock import argentina_now
 
 
 _URL = re.compile(r"(?:[a-z][a-z0-9+.-]{0,20}://|www\.|discord\.gg/|discord(?:app)?\.com/invite/)\S+", re.I)
@@ -310,59 +313,71 @@ class ChannelDialogue:
         return self._reply_copy(self._rows.get(row.reply.message_id, row.reply))
 
     @staticmethod
-    def _stamp(row):
-        return datetime.fromtimestamp(row.created_at, timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    def _name(row):
+        # The bot is one participant, not the account name it happens to use.
+        return "Botón" if row.role == "asistente" else row.author
 
-    def _block(self, row, handles, text_limit=48, reply_limit=48, current=False):
-        parent = row if current else self._parent(row)
-        result = ""
-        if not current:
-            result = (f"{handles[row.message_id]} | {self._stamp(row)} | {row.role} | "
-                      f"autor={_quote(row.author)}: {_quote(row.text[:text_limit])}")
-            if row.thread:
-                result += " | hilo=" + _quote(row.thread)
-        if parent:
-            prefix = "Referencia del mensaje actual" if current else "  Responde"
-            reply = (f"{prefix} a {handles[parent.message_id]} | {self._stamp(parent)} | {parent.role} | "
-                     f"autor={_quote(parent.author)}: {_quote(parent.text[:reply_limit])}")
-            result += ("\n" if result else "") + reply
-        return result
+    @staticmethod
+    def _stamp(row, now):
+        """Short Argentina-time stamp: only the date when it is not today."""
+        moment = argentina_now(datetime.fromtimestamp(row.created_at, timezone.utc))
+        today = argentina_now(datetime.fromtimestamp(now, timezone.utc)).date()
+        return moment.strftime("%H:%M") if moment.date() == today else moment.strftime("%d/%m %H:%M")
 
-    def _pack(self, blocks, handles, budget):
-        """Keep a chronological suffix, then spend spare space newest-first."""
-        selected = []
-        used = 0
-        for row, current in reversed(blocks):
-            text = self._block(row, handles, current=current)
+    def _block(self, row, now, text_limit=800, reply_limit=200, include_reply=True):
+        name = self._name(row)
+        stamp = self._stamp(row, now)
+        text = _quote(row.text[:text_limit])
+        if include_reply and row.reply:
+            parent = self._parent(row) or row.reply
+            line = (f"{stamp} {name} (responde a {self._name(parent)}: "
+                    f"{_quote(parent.text[:reply_limit])}): {text}")
+        else:
+            line = f"{stamp} {name}: {text}"
+        if row.thread:
+            line += " [hilo: " + _quote(row.thread) + "]"
+        return line
+
+    def _pack(self, rows, budget, now, min_text=120, include_reply=True):
+        """Keep a chronological suffix and spend spare space newest-first.
+
+        A row is only included if it fits with at least ``min_text`` characters:
+        half-sentences confuse a small model more than an absent old turn.
+        """
+        selected, used = [], 0
+        for row in reversed(rows):
+            text = self._block(row, now, min_text, 80 if include_reply else 0, include_reply)
             cost = len(text) + bool(selected)
             if used + cost > budget:
                 break
-            selected.append([row, current, 48, 48, text])
+            selected.append([row, min_text, 80 if include_reply else 0, text])
             used += cost
         for block in selected:
-            row, current = block[:2]
-            for field, maximum in ((2, 800), (3, 500)):
+            row = block[0]
+            fields = ((1, 800),) + (((2, 200),) if include_reply else ())
+            for field, maximum in fields:
                 low, high = block[field], maximum
                 while low < high:
                     middle = (low + high + 1) // 2
-                    caps = [block[2], block[3]]
-                    caps[field - 2] = middle
-                    candidate = self._block(row, handles, *caps, current=current)
-                    if used - len(block[4]) + len(candidate) <= budget:
+                    caps = [block[1], block[2]]
+                    caps[field - 1] = middle
+                    candidate = self._block(row, now, caps[0], caps[1], include_reply)
+                    if used - len(block[3]) + len(candidate) <= budget:
                         low = middle
                     else:
                         high = middle - 1
                 block[field] = low
-                candidate = self._block(row, handles, block[2], block[3], current=current)
-                used += len(candidate) - len(block[4])
-                block[4] = candidate
-        return "\n".join(block[4] for block in reversed(selected))
+                candidate = self._block(row, now, block[1], block[2], include_reply)
+                used += len(candidate) - len(block[3])
+                block[3] = candidate
+        return "\n".join(block[3] for block in reversed(selected))
 
     def render(self, current_message=None, max_chars=7000, recent_limit=24) -> str:
-        """Conversation data, oldest first; at most 25% of the budget is background.
+        """Conversation data as a readable chat, oldest first.
 
-        The current invocation is omitted. Only its scoped parent may be added.
-        Replies never trigger a fetch, and local mN handles never expose IDs.
+        The current invocation is omitted; its optional parent is quoted by
+        ``invocation()``. Replies are shown once, inline and before the reply
+        text, so authorship and thread direction cannot be read backwards.
         """
         now = self._now()
         self._prune(now)
@@ -371,69 +386,57 @@ class ChannelDialogue:
         if not budget or (current_message is not None and not self._in_scope(current_message)):
             return ""
         rows = list(self._rows.values())
-        current_parent = None
         if current_message is not None:
             current_id = _id(getattr(current_message, "id", None))
             created = self._timestamp(current_message, now)
             rows = [row for row in rows if row.message_id != current_id and (
                 created is None or current_id is None
                 or (row.created_at, row.message_id) < (created, current_id))]
-            current_parent = self._resolve_reply(current_message, now)
-        if not rows and current_parent is None:
+        if not rows:
             return ""
-        handles = {}
-        for row in rows:
-            handles.setdefault(row.message_id, f"m{len(handles) + 1}")
-        for row in rows:
-            parent = self._parent(row)
-            if parent:
-                handles.setdefault(parent.message_id, f"m{len(handles) + 1}")
-        if current_parent:
-            handles.setdefault(current_parent.message_id, f"m{len(handles) + 1}")
         # Message count alone is not recency: a quiet channel can keep yesterday's
         # topic inside its last 24 turns. Mark that material as background.
         at = self._timestamp(current_message, now) if current_message is not None else now
         at = now if at is None else at
-        recent_rows = [row for row in rows[-recent_limit:] if at - row.created_at <= RECENT_SECONDS]
-        recent_ids = {row.message_id for row in recent_rows}
-        older = [(row, False) for row in rows if row.message_id not in recent_ids]
-        recent = [(row, False) for row in recent_rows]
-        if current_parent:
-            # Shown once, as the explicit reference of the current invocation.
-            keep = current_parent.message_id
-            older = [item for item in older if item[0].message_id != keep]
-            recent = [item for item in recent if item[0].message_id != keep]
-            recent.append((current_parent, True))
-        background_budget = budget // 4
-        background = self._pack(older, handles, background_budget - len(_BACKGROUND) - 2)
+        recent = [row for row in rows[-recent_limit:] if at - row.created_at <= RECENT_SECONDS]
+        recent_ids = {row.message_id for row in recent}
+        older = [row for row in rows if row.message_id not in recent_ids]
+        # Recent turns get the budget first; old material only uses what is left.
+        body = self._pack(recent, budget - len(_RECENT), now)
+        remaining = budget - len(_RECENT) - len(body)
+        background = ""
+        if older and remaining > len(_BACKGROUND) + 2 + 160:
+            background = self._pack(older[-8:], remaining - len(_BACKGROUND) - 2, now,
+                                    min_text=160, include_reply=False)
         prefix = _BACKGROUND + background + "\n\n" if background else ""
         if not recent:
             return (prefix + _RECENT + "No hay mensajes de la última hora; los antecedentes no confirman estados actuales.")[:budget]
-        body = self._pack(recent, handles, budget - len(prefix) - len(_RECENT))
         if body:
             return prefix + _RECENT + body
         # Tiny caller budgets still get the newest text, not an old header fragment.
-        row, current = recent[-1]
-        return (f"{row.role} {_quote(row.author)}: " + row.text)[:budget]
+        row = recent[-1]
+        return (f"{self._name(row)}: " + row.text)[:budget]
 
     def invocation(self, message, question) -> str:
-        """Sanitized current command; preserve the assistant's 4,000-char input cap."""
+        """Sanitized current command as the last line of the same chat."""
         now = self._now()
         self._prune(now)
         if not self._in_scope(message):
             return ""
         author = _clean(getattr(getattr(message, "author", None), "display_name", ""), limit=80) or "Persona"
         text = _clean(question, _mentions(message), limit=4000) or _EMPTY_QUESTION
-        lines = [f"Autor actual: {author}"]
-        channel = getattr(message, "channel", None)
-        if public_thread(channel, self.channel_id):
-            lines.append("Hilo actual: " + _clean(getattr(channel, "name", ""), limit=80))
+        created = self._timestamp(message, now)
+        stamp = self._stamp(_Turn(0, now if created is None else created, "humano", author, text), now)
         parent = self._resolve_reply(message, now)
         if parent:
             name = "Botón" if parent.role == "asistente" else parent.author
-            lines.append(f"Responde a {name}: {parent.text}")
-        lines.append(f"Mensaje actual: {text}")
-        return "\n".join(lines)
+            line = f"{stamp} {author} (responde a {name}: {_quote(parent.text[:200])}): {text}"
+        else:
+            line = f"{stamp} {author}: {text}"
+        channel = getattr(message, "channel", None)
+        if public_thread(channel, self.channel_id):
+            line += " [hilo: " + _clean(getattr(channel, "name", ""), limit=80) + "]"
+        return line
 
     def reply_is_own(self, message) -> bool:
         """A scoped cached/resolved reply is an explicit call, without network I/O."""
