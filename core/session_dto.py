@@ -5,6 +5,7 @@ Solo guarda datos en stats.json, sin lógica de negocio
 
 import logging
 from datetime import datetime
+from core.assistant_clock import argentina_now
 from core.persistence import stats, save_stats
 
 logger = logging.getLogger('dsbot')
@@ -67,7 +68,7 @@ def save_game_time(user_id: str, username: str, game_name: str, minutes: int):
     game_data['total_minutes'] = game_data.get('total_minutes', 0) + minutes
     
     # Actualizar daily
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = argentina_now().strftime('%Y-%m-%d')  # día ART, no UTC
     if 'daily_minutes' not in game_data:
         game_data['daily_minutes'] = {}
     game_data['daily_minutes'][today] = game_data['daily_minutes'].get(today, 0) + minutes
@@ -165,7 +166,7 @@ def save_voice_time(user_id: str, username: str, minutes: int, channel_name: str
     voice_data['total_minutes'] = voice_data.get('total_minutes', 0) + minutes
     
     # Actualizar daily
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = argentina_now().strftime('%Y-%m-%d')  # día ART, no UTC
     if 'daily_minutes' not in voice_data:
         voice_data['daily_minutes'] = {}
     voice_data['daily_minutes'][today] = voice_data['daily_minutes'].get(today, 0) + minutes
@@ -311,7 +312,7 @@ def save_connection_event(user_id: str, username: str):
     """
     _ensure_user_exists(user_id, username)
     
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = argentina_now().strftime('%Y-%m-%d')  # día ART, no UTC
     connections = stats['users'][user_id]['daily_connections']
     
     # Incrementar contadores

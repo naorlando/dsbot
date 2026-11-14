@@ -9,6 +9,8 @@ agent loop converts that into a safe user-facing error.
 import re
 from datetime import datetime, timedelta
 
+from core.assistant_clock import argentina_now
+
 
 _DATE_PATTERN = re.compile(r"\d{4}-\d{2}-\d{2}")
 _ACTIONS = {"list_games", "game_detail", "user_detail", "day_summary"}
@@ -83,7 +85,7 @@ def day_digest(data, member_names, now=None, day=None):
     """
     if not isinstance(data, dict) or not isinstance(member_names, dict):
         raise ValueError
-    now = now or datetime.now()
+    now = now or argentina_now()
     day = now.strftime("%Y-%m-%d") if day is None else day
     if not isinstance(day, str) or not _DATE_PATTERN.fullmatch(day):
         raise ValueError
@@ -185,7 +187,7 @@ def query_stats(data, member_names, args, now=None):
             [{"member": display[uid], "minutes": _minutes(record)}
              for uid, record in records.items()],
             key=lambda row: row["minutes"], reverse=True)
-        today = (now or datetime.now()).date()
+        today = (now or argentina_now()).date()
         series = []
         for index in range(14):
             key = (today - timedelta(days=13 - index)).isoformat()

@@ -6,6 +6,7 @@ Funciones para crear todos los embeds de visualización de stats
 import discord
 from typing import Dict
 from datetime import datetime
+from core.assistant_clock import argentina_now
 from stats_viz import create_bar_chart, create_timeline_chart, calculate_daily_activity, format_time
 
 
@@ -405,7 +406,7 @@ async def create_connections_ranking_embed(filtered_stats: Dict, period_label: s
     connection_stats = []
     total_connections = 0
     
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = argentina_now().strftime('%Y-%m-%d')
     
     for user_data in filtered_stats.get('users', {}).values():
         username = user_data.get('username', 'Unknown')
@@ -426,13 +427,13 @@ async def create_connections_ranking_embed(filtered_stats: Dict, period_label: s
             count = 0
             for i in range(7):
                 from datetime import timedelta
-                date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
+                date = (argentina_now() - timedelta(days=i)).strftime('%Y-%m-%d')
                 count += by_date.get(date, 0)
         elif timeframe == 'month':
             count = 0
             for i in range(30):
                 from datetime import timedelta
-                date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
+                date = (argentina_now() - timedelta(days=i)).strftime('%Y-%m-%d')
                 count += by_date.get(date, 0)
         else:  # 'all'
             count = total

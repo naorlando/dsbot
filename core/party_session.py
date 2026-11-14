@@ -480,8 +480,6 @@ class PartySessionManager(BaseSessionManager):
                     composed = await maybe_compose(self.bot, 'party_formed', {
                         'game': session.game_name,
                         'players': list(session.player_names),
-                        'hora': datetime.now().strftime('%H:%M'),
-                        'dia': datetime.now().strftime('%A'),
                     })
                     if composed:
                         # The sanitized text carries no mentions; prepend the configured one.
@@ -592,8 +590,10 @@ class PartySessionManager(BaseSessionManager):
             player = session.players[user_id]
             
             if not player.time_saved:
-                # Calcular tiempo individual (desde joined_at hasta ahora)
-                player_duration_seconds = (end_time - player.joined_at).total_seconds()
+                # Hasta que se fue, no hasta que cerró la party: si no, el
+                # tiempo posterior a su salida se le suma igual.
+                player_end = player.left_at or end_time
+                player_duration_seconds = (player_end - player.joined_at).total_seconds()
                 player_duration_minutes = int(player_duration_seconds / 60)
                 
                 if player_duration_minutes >= 1:

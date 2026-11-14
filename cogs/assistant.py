@@ -16,6 +16,7 @@ from core.assistant import Assistant, AssistantError, Settings, UsageBudget, met
 from core.assistant_clock import argentina_now
 from core.channel_dialogue import ChannelDialogue
 from core.member_roster import build_roster, load_aliases
+from core.feedback import FeedbackStore
 from core.assistant_scope import channel_in_scope, public_thread
 from core.assistant_quota import UserDailyQuota, QuotaError
 from core.assistant_operations import operations, provider_health
@@ -46,6 +47,10 @@ class AssistantCog(commands.Cog, name="Asistente"):
         # Alias map for real names the group uses ("nico", "nano") that never
         # appear in Discord. Missing/malformed config simply means no roster.
         self.member_aliases = load_aliases()
+        # Señal de calidad: reacciones del grupo a nuestras propias respuestas.
+        # Guarda agregados por mensaje, nunca texto ni ids de Discord.
+        self.feedback = (FeedbackStore()
+                         if os.getenv("AI_FEEDBACK", "true").lower() != "false" else None)
         self.warm_started = False
         self.warm_channels = set()
         self.thread_ids = set()
@@ -223,7 +228,36 @@ class AssistantCog(commands.Cog, name="Asistente"):
         self._sync_dialogue_bot()
         if self.settings.history_enabled:
             self.dialogue.observe(sent)
+        if self.feedback is not None:
+            self.feedback.track(getattr(sent, "id", None))
         return sent
+
+    @commands.Cog.listener()
+    async def on_reaction_add(self, reaction, user):
+        """Reacciones del grupo a una respuesta nuestra: 👍 sirve, 👎 no."""
+        self._observe_feedback(reaction, user, retract=False)
+
+    @commands.Cog.listener()
+    async def on_reaction_remove(self, reaction, user):
+        """Si sacan la reacción, el voto también se va."""
+        self._observe_feedback(reaction, user, retract=True)
+
+    def _observe_feedback(self, reaction, user, retract):
+        if self.feedback is None or getattr(user, "bot", False):
+            return
+        message = getattr(reaction, "message", None)
+        if message is None or getattr(getattr(message, "guild", None), "id", None) != self.guild_id:
+            return
+        if not self._channel_allowed(getattr(message, "channel", None)):
+            return
+        if not self.feedback.knows(getattr(message, "id", None)):
+            return
+        emoji = getattr(reaction, "emoji", "")
+        name = getattr(emoji, "name", None) or emoji
+        if retract:
+            self.feedback.retract(message.id, name, getattr(user, "id", None))
+        else:
+            self.feedback.record(message.id, name, getattr(user, "id", None))
 
     @commands.Cog.listener()
     async def on_message_delete(self, message):
@@ -231,6 +265,8 @@ class AssistantCog(commands.Cog, name="Asistente"):
                 and self._channel_allowed(message.channel)):
             self.dialogue.remove(message.id)
             self._invalidate_source(message.id, message.channel.id)
+            if self.feedback is not None:
+                self.feedback.forget(message.id)
 
     @commands.Cog.listener()
     async def on_message_edit(self, before, after):
@@ -244,6 +280,8 @@ class AssistantCog(commands.Cog, name="Asistente"):
     async def on_raw_message_delete(self, payload):
         if self.settings.history_enabled and payload.guild_id == self.guild_id:
             self._invalidate_source(payload.message_id, payload.channel_id)
+            if self.feedback is not None:
+                self.feedback.forget(payload.message_id)
         if self.settings.history_enabled and self._raw_in_scope(payload):
             self.dialogue.remove(payload.message_id)
 
@@ -252,6 +290,8 @@ class AssistantCog(commands.Cog, name="Asistente"):
         if self.settings.history_enabled and payload.guild_id == self.guild_id:
             for message_id in payload.message_ids:
                 self._invalidate_source(message_id, payload.channel_id)
+                if self.feedback is not None:
+                    self.feedback.forget(message_id)
         if self.settings.history_enabled and self._raw_in_scope(payload):
             for message_id in payload.message_ids:
                 self.dialogue.remove(message_id)
@@ -338,15 +378,14 @@ class AssistantCog(commands.Cog, name="Asistente"):
                     # Who-is-who is private data too: never mix it with web search.
                     roster = build_roster(getattr(ctx.guild, "members", ()), self.member_aliases) \
                         if not web else ""
-                    if roster:
-                        channel_context = roster + ("\n\n" + channel_context if channel_context else "")
-                    invocation = self.dialogue.invocation(message, question) if not web else None
+                    invocation = self.dialogue.request_block(message, question) if not web else None
                     notes = self.curator.digest() if self.curator is not None and not web else ""
                     result = await asyncio.wait_for(self.agent.answer(question, get_metrics, web,
                         conversation_key=(ctx.guild.id, ctx.channel.id),
                         query_data=query_data,
                         history_search=history_lookup if self.settings.history_enabled else None,
-                        ambient_digest=notes, dialogue_context=channel_context, invocation=invocation),
+                        ambient_digest=notes, dialogue_context=channel_context,
+                        roster_context=roster, invocation=invocation),
                         timeout=self.answer_timeout)
                 await self._reply(ctx, result)
             except (AssistantError, QuotaError) as exc:
@@ -389,6 +428,7 @@ class AssistantCog(commands.Cog, name="Asistente"):
             report = {"preguntas": counters, "avisos": ambient_counters,
                       "curador": self.curator_budget.snapshot() if self.curator_budget is not None else None,
                       "cuota_usuarios": self.user_quota.snapshot() if self.user_quota is not None else None,
+                      "feedback": self.feedback.snapshot() if self.feedback is not None else None,
                       "ultimo_intento_curador_utc_desde_reinicio": self.last_curator_attempt,
                       "operacion_desde_reinicio": operations.snapshot(),
                       "proveedores": provider_health.snapshot()}

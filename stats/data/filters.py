@@ -4,73 +4,62 @@ Funciones para filtrar estadísticas por período
 """
 
 from typing import Dict
-from datetime import datetime, timedelta
+from datetime import timedelta
+
+from core.assistant_clock import argentina_now
 
 
 def filter_by_period(stats_data: Dict, period: str = 'all') -> Dict:
     """
-    Filtra estadísticas por período de tiempo
-    
+    Filtra estadísticas por período de tiempo.
+
+    El corte es el día ART (America/Argentina/Buenos_Aires), no la medianoche
+    UTC: a las 22:00 ART el día UTC ya cambió y "hoy" mostraba ayer.
+
     Args:
         stats_data: Datos completos de stats
-        period: 'today', 'week', 'month', 'all'
-    
+        period: 'today', 'week', 'month', 'year', 'all'
+
     Returns:
-        Dict filtrado con solo los datos del período
+        Dict filtrado, con `total_minutes` recalculado desde `daily_minutes`
+        para el período. `count` sigue siendo histórico: no hay conteo diario.
     """
-    now = datetime.now()
-    
     if period == 'all':
         return stats_data
-    
-    # Calcular fecha límite
-    if period == 'today':
-        cutoff = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    elif period == 'week':
-        cutoff = now - timedelta(days=7)
-    elif period == 'month':
-        cutoff = now - timedelta(days=30)
-    elif period == 'year':
-        cutoff = now - timedelta(days=365)
-    else:
+    days = {'today': 1, 'week': 7, 'month': 30, 'year': 365}.get(period)
+    if days is None:
         return stats_data
-    
-    # Filtrar datos
+    today = argentina_now().date()
+    start = (today - timedelta(days=days - 1)).isoformat()
+    end = today.isoformat()
+
+    def window(daily):
+        return {date: value for date, value in (daily or {}).items()
+                if isinstance(date, str) and start <= date <= end}
+
     filtered = {'users': {}}
-    
     for user_id, user_data in stats_data.get('users', {}).items():
-        filtered_user = {
-            'username': user_data.get('username', 'Unknown'),
-            'games': {},
-            'voice': {'count': 0, 'total_minutes': 0, 'last_join': None},
-            'messages': user_data.get('messages', {}),  # Mensajes se mantienen
-            'reactions': user_data.get('reactions', {}),  # Reacciones se mantienen
-            'stickers': user_data.get('stickers', {})  # Stickers se mantienen
-        }
-        
-        # Filtrar juegos por last_played
+        games = {}
         for game_name, game_data in user_data.get('games', {}).items():
-            try:
-                last_played = datetime.fromisoformat(game_data.get('last_played', ''))
-                if last_played >= cutoff:
-                    filtered_user['games'][game_name] = game_data
-            except:
-                pass
-        
-        # Filtrar voz por last_join
+            daily = window(game_data.get('daily_minutes'))
+            if not daily:
+                continue
+            games[game_name] = {**game_data, 'daily_minutes': daily,
+                                'total_minutes': round(sum(daily.values()), 1)}
         voice = user_data.get('voice', {})
-        if voice.get('last_join'):
-            try:
-                last_join = datetime.fromisoformat(voice['last_join'])
-                if last_join >= cutoff:
-                    filtered_user['voice'] = voice
-            except:
-                pass
-        
-        # Solo agregar si tiene datos en el período
-        if filtered_user['games'] or filtered_user['voice'].get('count', 0) > 0:
-            filtered['users'][user_id] = filtered_user
-    
+        daily = window(voice.get('daily_minutes'))
+        voice = {**voice, 'daily_minutes': daily,
+                 'total_minutes': round(sum(daily.values()), 1)}
+        if games or daily:
+            filtered['users'][user_id] = {
+                'username': user_data.get('username', 'Unknown'),
+                'games': games,
+                'voice': voice,
+                'messages': user_data.get('messages', {}),
+                'reactions': user_data.get('reactions', {}),
+                'stickers': user_data.get('stickers', {}),
+                'daily_connections': user_data.get('daily_connections', {}),
+            }
     return filtered
 
 

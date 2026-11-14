@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 from cogs.assistant import AssistantCog
 from core.assistant_memory import ConversationMemory
+from core.feedback import FeedbackStore
 
 
 @asynccontextmanager
@@ -70,6 +71,26 @@ class CogTests(unittest.IsolatedAsyncioTestCase):
         await self.cog.respond(self.ctx, "hola")
         self.assertNotIn("SECRET", str(self.ctx.send.call_args))
         self.assertFalse(self.cog.lock.locked())
+
+    async def test_reactions_only_count_on_tracked_answers(self):
+        self.cog.feedback = FeedbackStore(Path(tempfile.mkdtemp()) / "feedback.json",
+                                          clock=lambda: 1, salt="t")
+        self.ctx.send.return_value = SimpleNamespace(id=777)
+        await self.cog.respond(self.ctx, "hola")
+        self.assertTrue(self.cog.feedback.knows(777))
+        reaction = SimpleNamespace(
+            message=SimpleNamespace(id=777, guild=SimpleNamespace(id=10),
+                                    channel=SimpleNamespace(id=20)), emoji="👍")
+        await self.cog.on_reaction_add(reaction, SimpleNamespace(id=5, bot=False))
+        self.assertEqual(self.cog.feedback.score(777), 1)
+        # Un mensaje ajeno, una reacción de bot y un canal fuera de alcance no suman.
+        await self.cog.on_reaction_add(reaction, SimpleNamespace(id=6, bot=True))
+        reaction.message.id = 999
+        await self.cog.on_reaction_add(reaction, SimpleNamespace(id=7, bot=False))
+        reaction.message.id = 777
+        reaction.message.channel.id = 99
+        await self.cog.on_reaction_add(reaction, SimpleNamespace(id=8, bot=False))
+        self.assertEqual(self.cog.feedback.score(777), 1)
 
     async def test_timeout_is_contained(self):
         self.cog.agent.answer.side_effect = asyncio.TimeoutError()

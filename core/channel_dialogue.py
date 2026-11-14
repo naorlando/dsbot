@@ -438,6 +438,20 @@ class ChannelDialogue:
             line += " [hilo: " + _clean(getattr(channel, "name", ""), limit=80) + "]"
         return line
 
+    def request_block(self, message, question) -> str:
+        """El pedido actual como bloque rotulado, no como una línea más del chat.
+
+        ``invocation()`` comparte el formato ``HH:MM Autor: "texto"`` con el
+        historial; sin encabezado, un modelo chico lee el pedido como otro turno
+        y contesta el tema anterior. El encabezado es lo único que separa los
+        tres mundos (pedido / diálogo / memoria) en la rama de canal.
+        """
+        line = self.invocation(message, question)
+        if not line:
+            return ""
+        return ("PEDIDO ACTUAL — respondé sólo a esto; lo de arriba es contexto "
+                "y no es el pedido:\n" + line)
+
     def reply_is_own(self, message) -> bool:
         """A scoped cached/resolved reply is an explicit call, without network I/O."""
         now = self._now()

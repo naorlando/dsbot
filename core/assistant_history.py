@@ -10,6 +10,7 @@ import unicodedata
 from datetime import datetime, timedelta, timezone
 
 from core.assistant_trace import event
+from core.assistant_clock import argentina_now
 from core.assistant_privacy import MAX_PRIVATE_CHARS, scrub_private
 
 MAX_MESSAGES = 1000
@@ -94,7 +95,9 @@ def _row_from(message):
         return None
     if fold(content).lstrip().startswith("!"):  # commands add noise, not context
         return None
-    return {"fecha": when.strftime("%Y-%m-%d %H:%M"), "autor": _sanitize(author)[:64],
+    # El modelo razona "hoy/ayer/mañana" con esta fecha: si va en UTC, a las
+    # 22:00 ART lee el día siguiente y contesta corrido.
+    return {"fecha": argentina_now(when).strftime("%Y-%m-%d %H:%M"), "autor": _sanitize(author)[:64],
              "texto": _excerpt(content)}
 
 

@@ -11,6 +11,7 @@ with web search results in the same answer.
 import re
 
 from core.assistant_secrets import SECRET_PATTERN
+from core.assistant_clock import argentina_now
 from core.assistant_history import MAX_AGE_DAYS, MAX_EXCERPT, fold
 from core.assistant_trace import event
 
@@ -127,7 +128,7 @@ def _row(message, names, now=None, max_age_days=None):
                 else getattr(reference, "message_id", None))
     if isinstance(reply_id, (int, str)) and str(reply_id).strip():
         text = "↩ " + text
-    return when, when.strftime("%m-%d %H:%M"), author.strip()[:MAX_NAME], text
+    return when, argentina_now(when).strftime("%m-%d %H:%M"), author.strip()[:MAX_NAME], text
 
 
 def _topics(rows):

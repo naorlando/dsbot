@@ -52,6 +52,8 @@ assistant_ambient.tmp
 assistant_curator_usage.json
 assistant_curator_usage.tmp
 assistant_users.json
+assistant_feedback.json
+assistant_feedback.json.tmp
 .assistant-quota-*.tmp
 *.privacy-blocked
 

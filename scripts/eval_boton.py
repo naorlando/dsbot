@@ -120,7 +120,7 @@ class Replay:
         message = self.observe("!boton " + question, speaker, parent=parent)
         answer = await self.agent.answer(
             question, self.metrics, web=web, conversation_key=(10, 20, 2), history_search=self.history,
-            dialogue_context=self.dialogue.render(message), invocation=self.dialogue.invocation(message, question),
+            dialogue_context=self.dialogue.render(message), invocation=self.dialogue.request_block(message, question),
             ambient_digest=digest)
         self.last_reply = self.observe(answer, "Botón", parent=message)
         return answer

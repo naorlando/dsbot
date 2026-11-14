@@ -31,8 +31,9 @@ class DigestTests(unittest.TestCase):
         ], now=NOW)
         self.assertTrue(block.startswith("Preludio del canal:"))
         self.assertIn("Últimos 3 mensajes legibles:", block)
-        self.assertIn("10-22 21:00 Nano:", block)
-        self.assertIn("10-24 21:00 Nano:", block)
+        # NOW es 21:00 UTC = 18:00 ART: las filas se muestran en hora argentina.
+        self.assertIn("10-22 18:00 Nano:", block)
+        self.assertIn("10-24 18:00 Nano:", block)
         self.assertIn("nos vemos ahí", block)
         # Rows are chronological and one single line each, right after the header.
         body = block.split("\n", 2)[2]

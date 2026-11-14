@@ -256,15 +256,22 @@ class ConversationReplayTests(unittest.IsolatedAsyncioTestCase):
             await self.cog.respond(self.ctx(request), "opina")
         # This is the body passed to the HTTP client, not a reconstructed prompt.
         wire = json.loads(json.dumps(post.call_args.args[3], ensure_ascii=False))
-        self.assertEqual([m["role"] for m in wire["messages"]], ["system", "user", "user"])
+        # system + personas (roster) + registro del canal + pedido actual
+        self.assertEqual([m["role"] for m in wire["messages"]], ["system", "user", "user", "user"])
         self.assertNotIn("Terminó la reunión", wire["messages"][0]["content"])
-        data = wire["messages"][1]["content"]
+        roster = wire["messages"][1]["content"]
+        self.assertIn("PERSONAS DEL CANAL", roster)
+        self.assertIn("Alba", roster)
+        self.assertNotIn("Terminó la reunión", roster)
+        data = wire["messages"][2]["content"]
+        self.assertIn("REGISTRO DEL CANAL", data)
         self.assertIn("Alba", data)
         self.assertIn("Botón", data)
         self.assertNotIn("humano", data)
         self.assertIn("Terminó la reunión", data)
         self.assertIn("Banco, lo hacemos después de cenar", data)
         current = wire["messages"][-1]["content"]
+        self.assertIn("PEDIDO ACTUAL", current)
         self.assertIn("Bruno", current)
         self.assertTrue(current.endswith("opina"))
         self.assertNotIn("!boton opina", data)
