@@ -31,7 +31,8 @@ _PROTOCOL = re.compile(
 _USER_SUMMARY = re.compile(
     r"^\s*(?:el usuario(?:\s*\([^)\n]{1,40}\))?\s+"
     r"(?:pregunta|pide|solicita|quiere|ha preguntado|respondi[oó]|dijo|escribi[oó]|"
-    r"contest[oó]|mencion[oó]|plante[oó])"
+    r"contest[oó]|mencion[oó]|plante[oó]|"
+    r"est[aá]\s+(?:preguntando|pidiendo|solicitando|queriendo))"
     r"|the user(?:\s*\([^)\n]{1,40}\))?\s+"
     r"(?:asks|wants|requests|is asking|has asked|said|replied|wrote|answered|mentioned))\b",
     re.I | re.M,
@@ -73,6 +74,8 @@ _META_STRONG = re.compile(
     r"|\bm\d{1,3}\b(?=\s+(?:viene|dice|dijo|habla|escribe|responde|menciona|cont[oó]|tira|repite))"
     r"|\brespuesta\s*:"
     r"|\bla\s+conversaci[oó]n\s+anda\s+as[ií]\b"
+    r"|\bla\s+l[ií]nea\s+m[aá]s\s+reciente\s+(?:es|fue)\s+(?:la\s+)?de\b"
+    r"|\bpodr[ií]a\s+decir\s+algo\s+como\b"
     r"|\balgo\s+breve\.?\s*$"
     r"|\bel\s+bot\s+(?:lo|le|se)\b",
     re.I | re.M,
@@ -96,7 +99,11 @@ _HATE = re.compile(
     r"|\bmong[oó]lic(?:o|a|os|as)\b"
     r"|\bnegro\s+de\s+mierda\b"
     r"|\bnegra\s+hija\s+de\s+puta\b"
-    r"|\bnegro\s+hijo\s+de\s+puta\b",
+    r"|\bnegro\s+hijo\s+de\s+puta\b"
+    # Rankear personas por religión o etnia es exactamente lo que no se hace,
+    # aunque sea para negarse: repetir la consigna ya la instala en el canal.
+    r"|\b(?:el|la|los|las)\s+m[aá]s\s+(?:jud[ií][oa]s?|musulm[aá]n[a]?s?|cat[oó]lic[oa]s?)\b"
+    r"|\bqui[eé]n\s+es\s+el\s+m[aá]s\s+(?:jud[ií]o|musulm[aá]n|negro|bolita)\b",
     re.I,
 )
 # First-person completion of an action the bot cannot perform (no hands, no accounts).
@@ -109,6 +116,15 @@ _FALSE_ACTION = re.compile(
     r"|(?:^|[.!?,;:]\s+|\n)\s*ya\s+lo\s+hice\b"
     r"|(?:^|[.!?,;:]\s+|\n)\s*ya\s+est[aá]\s+(?:apagado|borrado|eliminado|enviado)\b",
     re.I | re.M,
+)
+# Internal storage formats must never reach the channel: they expose the alias
+# map, the ledger schema and the fact that there is a hidden memory store.
+_INTERNAL_DUMP = re.compile(
+    r"\b(?:acci[oó]n|label|scope)\s*=\s*[a-z_]+\b"
+    r"|\blo\s+que\s+dice\s*\(resumido\)"
+    r"|\bapuesta(?:\s*/\s*bardeo)?\s+guardad[oa]\b"
+    r"|\b(?:memoria|registro)\s+intern[oa]\b",
+    re.I,
 )
 
 
@@ -174,7 +190,7 @@ def output_issue(
     text: object, finish_reason: str | None = None, *, allow_meta: bool = False
 ) -> str | None:
     """Return ``empty``, ``truncated``, ``protocol``, ``internal_plan``,
-    ``hate``, ``false_action``, or None.
+    ``internal_data``, ``hate``, ``false_action``, or None.
 
     Length/max_tokens metadata takes precedence, even for missing content.
     None means absent content (empty); other non-string content is malformed
@@ -209,6 +225,8 @@ def output_issue(
     prose = _unquoted_prose(text)
     if _PROTOCOL.search(prose) or _message_envelope(prose):
         return "protocol"
+    if _INTERNAL_DUMP.search(prose):
+        return "internal_data"
     if _REASONING_TAG.search(prose):
         return "internal_plan"
     if _FALSE_ACTION.search(prose):

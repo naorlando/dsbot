@@ -67,6 +67,12 @@ class AnalyseTests(unittest.TestCase):
         self.assertIn("meta", result["flags"])
         self.assertEqual(result["request"], "!boton que jugamos hoy")
 
+    def test_reasoning_dump_with_estar_preguntando_is_meta(self):
+        _, flags = evaluate(
+            "El usuario está preguntando qué opinas. Tengo que responder breve.",
+            row(1, "!boton que opinas de tomi"), None, None)
+        self.assertIn("meta", flags)
+
     def test_is_bot_by_flag_or_name(self):
         self.assertTrue(is_bot(row(1, "x", bot=True), "boton"))
         self.assertTrue(is_bot(row(1, "x", bot=False, author="Botón"), "boton"))

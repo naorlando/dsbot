@@ -812,7 +812,7 @@ class Assistant:
         event('context', mode='channel' if dialogue_context is not None else 'session',
               dialogue_chars=len(dialogue_context or ''), background_chars=len(ambient_digest or ''),
               history_messages=len(history), invocation=summoned,
-              recent_empty="No hay mensajes de la última hora" in str(dialogue_context or ''),
+              recent_empty="LO ÚLTIMO QUE SE DIJO" in str(dialogue_context or ''),
               has_roster=bool(roster_context),
               invocation_has_reply="(responde a " in str(invocation or ''))
         sources = []
@@ -850,6 +850,10 @@ class Assistant:
             elif issue == 'false_action':
                 note = ("La salida anterior decía que hiciste una acción que no podés hacer. No digas "
                         "'ya lo hice': aclarás que no podés ejecutar acciones y ofrecé lo que sí podés.")
+            elif issue == 'internal_data':
+                note = ("La salida anterior mostró formato interno (acción=, label=, apuestas "
+                        "guardadas) o el mapa de alias. No muestres etiquetas ni registros: "
+                        "contestá en prosa, como en el chat.")
             else:
                 note = ("La salida anterior no estaba lista para publicar. Devolvé sólo una respuesta "
                         "final breve y terminada a la invocación actual, usando el diálogo reciente. "

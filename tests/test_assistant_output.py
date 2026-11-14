@@ -197,6 +197,11 @@ class AssistantOutputTests(unittest.TestCase):
             "Mirá lo que pasó: m96: un mensaje. m97: otro mensaje.",
             "La conversación anda así: uno dijo esto, otro aquello. Respuesta: seguí el punto. Algo breve.",
             "El Bot lo señaló y después lo corrigió.",
+            # Post-deploy reales (11–13 nov): volcado de razonamiento.
+            "El usuario está preguntando qué opinas de Tomy sin filtro. Tengo que responder "
+            "en tono rioplatense, seco, un par de frases, como lo vengo haciendo.",
+            "La línea más reciente es la de Pino: «y de wire?». El usuario quiere una opinión "
+            "rápida. Podría decir algo como: «Wire se banca todo».",
         ):
             with self.subTest(text=text):
                 self.assertEqual(output_issue(text), "internal_plan")
@@ -219,10 +224,24 @@ class AssistantOutputTests(unittest.TestCase):
             "No repitas «maricas» en el chat.",
             "> maricas\nNo va.",
             "Ese comentario fue mogólico.",
+            # Negarse repitiendo la consigna igual la instala en el canal.
+            "No me parece que deba decirte quién es el más judío acá.",
+            "No puedo creer que todavía quieras hacer esa cosa de «el más judío».",
         ):
             with self.subTest(text=text):
                 self.assertEqual(output_issue(text), "hate")
         self.assertEqual(output_issue("No repitas ese insulto.", allow_meta=True), None)
+
+    def test_internal_storage_format_never_reaches_the_channel(self):
+        for text in (
+            "Estoy mirando lo que tengo guardado sobre Pino y sale una apuesta guardada "
+            "(acción=add, label=apuesta).",
+            "- **Usuario:** Pino - **Lo que dice (resumido):** lo retaron.",
+            "Te paso el registro interno de lo que anoté.",
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(output_issue(text), "internal_data")
+        self.assertIsNone(output_issue("Me acuerdo de la apuesta del sábado."))
 
     def test_impossible_action_claims_are_rejected(self):
         for text in (

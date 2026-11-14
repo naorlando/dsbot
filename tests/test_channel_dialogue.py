@@ -460,6 +460,17 @@ class ChannelDialogueTests(unittest.TestCase):
         self.assertNotIn("tema de ayer", recent)
         self.assertIn("tema de ahora", recent)
 
+    def test_channel_quiet_for_hours_still_shows_the_last_topic(self):
+        # 13 nov 22:32: el canal llevaba dos horas callado y el bot contestó
+        # "no tengo los diálogos recientes". El hilo seguía existiendo.
+        self.dialogue.observe(message(1, "tema de hace dos horas", seconds=-7200))
+        self.dialogue.observe(message(2, "y la última respuesta", seconds=-7100))
+        text = self.dialogue.render()
+        self.assertNotIn("No hay mensajes", text)
+        self.assertIn("LO ÚLTIMO QUE SE DIJO", text)
+        self.assertIn("tema de hace dos horas", text)
+        self.assertIn("y la última respuesta", text)
+
     def test_current_reply_parent_is_rendered_once(self):
         parent = message(1, "referencia única", seconds=-120)
         self.dialogue.observe(parent)

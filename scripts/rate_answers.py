@@ -44,9 +44,10 @@ _PERSONA = re.compile(
     r'no estoy programad[oa]|mis (?:limitaciones|capacidades))\b', re.I)
 # Volcado de razonamiento: el modelo narra el pedido en vez de responderlo.
 _META = re.compile(
-    r'\b(?:el usuario (?:pregunta|pide|quiere|dice)|el asistente|'
-    r'datos provistos|respuesta apropiada|debo responder|según los datos|'
-    r'basándonos en los datos|no hay contexto claro)\b', re.I)
+    r'\b(?:el usuario (?:pregunta|pide|quiere|dice|est[aá] (?:preguntando|pidiendo))|el asistente|'
+    r'datos provistos|respuesta apropiada|debo responder|tengo que responder|'
+    r'podr[ií]a decir algo como|la l[ií]nea m[aá]s reciente|seg[uú]n los datos|'
+    r'bas[aá]ndonos en los datos|no hay contexto claro)\b', re.I)
 _ACTION = re.compile(
     r'\b(?:ya (?:lo|la|los|las) (?:hice|borré|borre|envié|envie|apagué|apague|cambié|cambie)|'
     r'listo,? (?:ya )?(?:lo|la) (?:hice|borré|borre|envié|envie)|'

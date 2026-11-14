@@ -410,7 +410,22 @@ class ChannelDialogue:
                                     min_text=160, include_reply=False)
         prefix = _BACKGROUND + background + "\n\n" if background else ""
         if not recent:
-            return (prefix + _RECENT + "No hay mensajes de la última hora; los antecedentes no confirman estados actuales.")[:budget]
+            # Un canal en silencio no es un canal sin contexto. Decirle al modelo
+            # "no hay mensajes de la última hora" lo hacía contestar que no tenía
+            # diálogo reciente. Lo último que se dijo sigue siendo el hilo: se
+            # muestra aparte, marcado como anterior al pedido.
+            tail = rows[-min(6, len(rows)):]
+            tail_ids = {row.message_id for row in tail}
+            older = [row for row in older if row.message_id not in tail_ids]
+            background = ""
+            if older and budget > len(_BACKGROUND) + 240:
+                background = self._pack(older[-8:], budget - len(_BACKGROUND) - 200, now,
+                                        min_text=160, include_reply=False)
+            prefix = _BACKGROUND + background + "\n\n" if background else ""
+            quiet = ("LO ÚLTIMO QUE SE DIJO (sin actividad en la última hora; más viejo "
+                     "arriba; no es el pedido actual)\n")
+            body = self._pack(tail, budget - len(prefix) - len(quiet), now)
+            return (prefix + quiet + body)[:budget]
         if body:
             return prefix + _RECENT + body
         # Tiny caller budgets still get the newest text, not an old header fragment.
