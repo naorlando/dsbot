@@ -62,6 +62,12 @@ async def load_extensions():
 async def setup_hook():
     """Hook para cargar extensiones antes de que el bot se conecte"""
     await load_extensions()
+    # The assistant is the only reason this bot exists. A missing provider key or
+    # env var used to leave a connected bot answering nothing: Railway reported
+    # the service as healthy and the outage stayed invisible for days. Fail
+    # loudly instead, so the restart policy marks the deployment CRASHED.
+    if os.getenv('AI_ENABLED', 'false').lower() == 'true' and 'cogs.assistant' not in bot.extensions:
+        raise RuntimeError('El asistente no cargó: abortando el arranque en vez de quedar mudo')
 
 
 # Obtener token y ejecutar bot

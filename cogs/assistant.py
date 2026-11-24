@@ -101,6 +101,17 @@ class AssistantCog(commands.Cog, name="Asistente"):
         if self.session:
             await self.session.close()
 
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """A wrong channel id or missing permission looks exactly like a dead bot."""
+        channel = self.bot.get_channel(self.channel_id)
+        if channel is None:
+            logger.error("AI_CHANNEL_ID=%s no es visible para el bot: el asistente va a "
+                         "ignorar todos los mensajes. Revisa el ID y los permisos del canal.",
+                         self.channel_id)
+        else:
+            logger.info("Asistente escuchando en #%s", getattr(channel, "name", self.channel_id))
+
     @tasks.loop(minutes=1)
     async def digest_loop(self):
         now = argentina_now()

@@ -29,12 +29,52 @@ def request_json(url, headers, payload=None):
         raise RuntimeError("API connection failed") from None
 
 
+def graphql_detail(result):
+    """First GraphQL error message, collapsed to one safe line.
+
+    Railway error messages never echo credentials, and a one-line reason is
+    what turns a silent nightly failure into something actionable.
+    """
+    errors = (result or {}).get("errors")
+    if not isinstance(errors, list) or not errors or not isinstance(errors[0], dict):
+        return ""
+    message = errors[0].get("message")
+    if not isinstance(message, str):
+        return ""
+    return " ".join(message.split())[:200]
+
+
 def graphql(query, variables):
     result = request_json(ENDPOINT, {"Project-Access-Token": os.environ["RAILWAY_TOKEN"]},
                           {"query": query, "variables": variables})
     if result.get("errors") or not result.get("data"):
-        raise RuntimeError("Railway rejected the query; check token scope and API schema")
+        detail = graphql_detail(result)
+        if "not authorized" in detail.lower():
+            raise RuntimeError(
+                "Railway rejected the token (Not Authorized): RAILWAY_TOKEN is expired, "
+                "revoked or from another project; generate a new project token")
+        raise RuntimeError("Railway rejected the query; check token scope and API schema"
+                           + (f" ({detail})" if detail else ""))
     return result["data"]
+
+
+def service_instance(data):
+    """Reject a null instance instead of crashing on it further down."""
+    instance = (data or {}).get("serviceInstance")
+    if not isinstance(instance, dict):
+        raise RuntimeError(
+            "Railway has no service instance for these IDs: check RAILWAY_SERVICE_ID, "
+            "RAILWAY_ENVIRONMENT_ID and that the project still exists")
+    return instance
+
+
+def describe(deployment):
+    """Human-readable snapshot of one deployment, for the job summary."""
+    if not isinstance(deployment, dict) or not deployment:
+        return "none"
+    status = deployment.get("status") or "unknown"
+    commit = commit_of(deployment)
+    return f"{status} @ {commit[:7]}" if commit else status
 
 
 def commit_of(deployment):
@@ -77,6 +117,11 @@ def off_peak(now=None):
     return now.hour < 8 or now.hour >= 20
 
 
+def forced():
+    """Explicit override for an emergency redeploy outside the free window."""
+    return os.getenv("FORCE_DEPLOY", "false").strip().lower() in {"1", "true", "yes"}
+
+
 def report(message):
     print(message)
     if os.getenv("GITHUB_STEP_SUMMARY"):
@@ -94,28 +139,29 @@ def main():
                            "User-Agent": "dsbot-deployment-check"})["sha"]
     variables = {"serviceId": os.environ["RAILWAY_SERVICE_ID"],
                  "environmentId": os.environ["RAILWAY_ENVIRONMENT_ID"]}
-    instance = graphql("""query($serviceId: String!, $environmentId: String!) {
+    instance = service_instance(graphql("""query($serviceId: String!, $environmentId: String!) {
         serviceInstance(serviceId: $serviceId, environmentId: $environmentId) {
             latestDeployment { id status meta }
             activeDeployments { id status meta }
         }
-    }""", variables)["serviceInstance"]
+    }""", variables))
     action, reason = decision(instance, target)
+    report(f"main: `{target}` — Railway latest: {describe(instance.get('latestDeployment'))}")
     report(f"main: `{target}` — {action}: {reason}")
     if action == "skip":
         return
     if os.getenv("CHECK_ONLY", "false").lower() == "true":
         report("Check only: no deployment created.")
         return
-    if not off_peak():
+    if not off_peak() and not forced():
         report("Peak hours in New York: deployment deferred to the next scheduled run.")
         return
     # Recheck just before mutating to avoid racing GitHub autodeploy.
-    fresh = graphql("""query($serviceId: String!, $environmentId: String!) {
+    fresh = service_instance(graphql("""query($serviceId: String!, $environmentId: String!) {
         serviceInstance(serviceId: $serviceId, environmentId: $environmentId) {
             latestDeployment { id status meta } activeDeployments { id status meta }
         }
-    }""", variables)["serviceInstance"]
+    }""", variables))
     if decision(fresh, target)[0] == "skip":
         report("Railway changed while checking; no duplicate deployment created.")
         return
@@ -133,7 +179,9 @@ def main():
     deadline = time.monotonic() + 600
     while time.monotonic() < deadline:
         deployment = graphql("query($id: String!) { deployment(id: $id) { status meta } }",
-                             {"id": deployment_id})["deployment"]
+                             {"id": deployment_id}).get("deployment")
+        if not isinstance(deployment, dict) or not deployment.get("status"):
+            raise RuntimeError("Railway did not return a status for the new deployment")
         status = deployment["status"]
         if status in HEALTHY:
             if commit_of(deployment) != target:
@@ -149,6 +197,12 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (RuntimeError, KeyError, ValueError) as exc:
-        print(f"Deployment check failed: {exc}", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - one actionable line beats a CI traceback
+        message = f"Deployment check failed: {type(exc).__name__}: {exc}"
+        print(message, file=sys.stderr)
+        # Surface the reason in the run summary; a silent red X is useless.
+        try:
+            report(message)
+        except OSError:
+            pass
         sys.exit(1)

@@ -12,6 +12,10 @@ on:
         description: "Inspect Railway without creating a deployment"
         type: boolean
         default: true
+      force:
+        description: "Ignore the free-tier peak-hours window (emergency redeploy)"
+        type: boolean
+        default: false
   push:
     branches: [main]
     paths:
@@ -47,4 +51,5 @@ jobs:
           RAILWAY_SERVICE_ID: 90c60cd3-9b09-48c4-81b0-bd5fb5297033
           RAILWAY_ENVIRONMENT_ID: f80a184d-71dc-4b3a-9a79-b3760d7e4176
           CHECK_ONLY: ${{ github.event_name == 'push' || inputs.check_only }}
+          FORCE_DEPLOY: ${{ inputs.force }}
         run: python scripts/deploy/railway_if_changed.py

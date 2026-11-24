@@ -3,7 +3,8 @@ import os
 from unittest.mock import patch
 from datetime import datetime
 
-from scripts.deploy.railway_if_changed import decision, off_peak, successful_ci, main
+from scripts.deploy.railway_if_changed import (decision, describe, forced, graphql, graphql_detail,
+                                              off_peak, service_instance, successful_ci, main)
 
 
 def deployment(status, commit="abc"):
@@ -83,6 +84,83 @@ class DeploymentDecisionTests(unittest.TestCase):
     def test_peak_boundary(self):
         for hour, expected in ((7, True), (8, False), (19, False), (20, True)):
             self.assertEqual(off_peak(datetime(2026, 10, 1, hour)), expected)
+
+    def test_force_deploy_parsing(self):
+        for value, expected in (("true", True), ("TRUE", True), ("1", True), ("yes", True),
+                                ("false", False), ("", False), ("nope", False)):
+            with patch.dict(os.environ, {"FORCE_DEPLOY": value}, clear=True):
+                self.assertEqual(forced(), expected)
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(forced())
+
+    def test_missing_service_instance_is_a_clear_failure_not_an_attribute_error(self):
+        for data in ({}, {"serviceInstance": None}, {"serviceInstance": "nope"}):
+            with self.assertRaises(RuntimeError) as caught:
+                service_instance(data)
+            self.assertIn("no service instance", str(caught.exception))
+
+    def test_graphql_detail_is_one_safe_line(self):
+        self.assertEqual(graphql_detail({"errors": [{"message": "  Not\n Authorized "}]}),
+                         "Not Authorized")
+        self.assertEqual(graphql_detail({"errors": [{"message": "x" * 500}]}), "x" * 200)
+        for data in ({}, None, {"errors": []}, {"errors": [None]}, {"errors": [{"message": 5}]}):
+            self.assertEqual(graphql_detail(data), "")
+
+    def test_expired_token_names_the_real_problem(self):
+        with patch.dict(os.environ, {"RAILWAY_TOKEN": "synthetic"}, clear=True), \
+             patch('scripts.deploy.railway_if_changed.request_json',
+                   return_value={"errors": [{"message": "Not Authorized"}], "data": None}):
+            with self.assertRaises(RuntimeError) as caught:
+                graphql("query { me { id } }", {})
+        self.assertIn("generate a new project token", str(caught.exception))
+        self.assertNotIn("synthetic", str(caught.exception))
+
+    def test_other_graphql_errors_keep_their_detail(self):
+        with patch.dict(os.environ, {"RAILWAY_TOKEN": "synthetic"}, clear=True), \
+             patch('scripts.deploy.railway_if_changed.request_json',
+                   return_value={"errors": [{"message": "Field 'x' does not exist"}], "data": None}):
+            with self.assertRaises(RuntimeError) as caught:
+                graphql("query { x }", {})
+        self.assertIn("Field 'x' does not exist", str(caught.exception))
+
+    def test_describe_reports_status_and_short_commit(self):
+        self.assertEqual(describe(deployment("SUCCESS", "abcdef1234567")), "SUCCESS @ abcdef1")
+        self.assertEqual(describe(deployment("FAILED", None)), "FAILED")
+        self.assertEqual(describe(None), "none")
+        self.assertEqual(describe({}), "none")
+
+    def test_main_survives_a_null_instance_without_mutating(self):
+        env = {'RAILWAY_TOKEN': 'synthetic', 'RAILWAY_SERVICE_ID': 'service',
+               'RAILWAY_ENVIRONMENT_ID': 'env', 'GITHUB_REPOSITORY': 'example/repo',
+               'GH_TOKEN': 'synthetic', 'CHECK_ONLY': 'false'}
+        with patch.dict(os.environ, env, clear=True), \
+             patch('scripts.deploy.railway_if_changed.off_peak', return_value=True), \
+             patch('scripts.deploy.railway_if_changed.report'), \
+             patch('scripts.deploy.railway_if_changed.request_json', return_value={'sha': 'abc'}), \
+             patch('scripts.deploy.railway_if_changed.graphql',
+                   return_value={'serviceInstance': None}) as graphql:
+            with self.assertRaises(RuntimeError) as caught:
+                main()
+        self.assertIn("no service instance", str(caught.exception))
+        self.assertTrue(all('mutation' not in call.args[0] for call in graphql.call_args_list))
+
+    def test_force_bypasses_the_peak_window(self):
+        env = {'RAILWAY_TOKEN': 'synthetic', 'RAILWAY_SERVICE_ID': 'service',
+               'RAILWAY_ENVIRONMENT_ID': 'env', 'GITHUB_REPOSITORY': 'example/repo',
+               'GH_TOKEN': 'synthetic', 'CHECK_ONLY': 'false', 'FORCE_DEPLOY': 'true'}
+        run = {'head_sha': 'abc', 'head_branch': 'main', 'event': 'push',
+               'status': 'completed', 'conclusion': 'success'}
+        with patch.dict(os.environ, env, clear=True), \
+             patch('scripts.deploy.railway_if_changed.off_peak', return_value=False), \
+             patch('scripts.deploy.railway_if_changed.report'), \
+             patch('scripts.deploy.railway_if_changed.request_json', side_effect=[{'sha': 'abc'},
+                   {'workflow_runs': [run]}]), \
+             patch('scripts.deploy.railway_if_changed.graphql', side_effect=[{'serviceInstance': {}},
+                   {'serviceInstance': {}}, {'serviceInstanceDeployV2': 'synthetic-deployment'},
+                   {'deployment': deployment('SUCCESS')}]) as graphql:
+            main()
+        mutations = [call for call in graphql.call_args_list if 'mutation' in call.args[0]]
+        self.assertEqual(len(mutations), 1)
 
 
 if __name__ == "__main__":
