@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from core.assistant import Assistant, AssistantError, Settings, UsageBudget, metrics, bot_help
+from core.assistant_clock import argentina_now
 from core.assistant_policy import plan_question
 
 
@@ -157,7 +158,12 @@ class SettingsTests(unittest.TestCase):
 
 class MetricsTests(unittest.TestCase):
     def setUp(self):
-        self.today = datetime.now().strftime("%Y-%m-%d")
+        # Freeze across the UTC/ART date boundary, independent of the CI host.
+        now = argentina_now(datetime(2026, 11, 24, 0, 23, tzinfo=timezone.utc))
+        clock = patch('core.assistant.argentina_now', return_value=now)
+        clock.start()
+        self.addCleanup(clock.stop)
+        self.today = "2026-11-23"
         self.data = {"users": {
             "1": {"username": "raw name", "games": {"LoL": {"total_minutes": 500, "daily_minutes": {self.today: 10}}},
                   "voice": {"total_minutes": 80}, "messages": {"count": 30, "secret": "private"}},
